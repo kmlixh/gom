@@ -16,3 +16,7 @@ func (DB DB)Insert(v interface{}) (int,error)  {
 		return result.RowsAffected(),nil
 	}
 }
+
+func Delete(v interface{},c Condition)  {
+
+}

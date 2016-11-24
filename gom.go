@@ -17,7 +17,7 @@ func Register(name string, factory SqlFactory) {
 		panic("sql: Register driver is nil")
 	}
 	if _, dup := factorys[name]; dup {
-		panic("sql: Register called twice for driver " + name)
+		panic("sql: Register called twice for factory " + name)
 	}
 	factorys[name] = factory
 }
