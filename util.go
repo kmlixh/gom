@@ -14,11 +14,17 @@ func typeOf(v interface{}) reflect.Type {
 		return tt
 	}
 }
+func getTalbeModules(vs...interface{}) *[]TableModel{
+	tablemodels:=make([]TableModel,len(vs))
+	for i,v:=range vs{
+		tablemodels[i]=getTableModule(v)
+	}
+	return tablemodels
+}
 func getTableModule(v interface{}) *TableModel {
 	tt:=reflect.TypeOf(v)
 	var tps reflect.Type
 	var vals reflect.Value
-	fmt.Println("tt kind:",tt.Kind())
 	if tt.Kind()==reflect.Ptr{
 		tps=tt.Elem()
 		vals=reflect.ValueOf(v).Elem()
@@ -26,7 +32,6 @@ func getTableModule(v interface{}) *TableModel {
 		tps=tt;
 		vals=reflect.ValueOf(v)
 	}
-	fmt.Println("tests,,,,",vals)
 	if vals.NumField()>0 && tps.NumMethod()>0{
 		nameMethod:=vals.MethodByName("TableName")
 		tableName:=nameMethod.Call(nil)[0].String()

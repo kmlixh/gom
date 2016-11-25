@@ -6,9 +6,9 @@ import (
 
 type SqlFactory interface {
 	Insert(TableModel) (string,[]interface{})
-	Delete(TableModel,Condition) (string,[]interface{})
-	Update(TableModel,Condition) (string,[]interface{})
-	Query(TableModel,Condition) (string,[]interface{})
+	Delete(TableModel) (string,[]interface{})
+	Update(TableModel) (string,[]interface{})
+	Query(TableModel) (string,[]interface{})
 }
 type TableModel struct {
 	ModelType reflect.Type
@@ -16,6 +16,7 @@ type TableModel struct {
 	TableName string
 	Columns []Column
 	Primary Column
+	Cnd Condition
 }
 type Column struct {
 	ColumnType reflect.Type
@@ -51,6 +52,7 @@ func (mo TableModel) insertValues() []interface{} {
 	}
 	return interfaces
 }
+
 func (m TableModel) getPrimary() interface{}  {
 	return m.ModelValue.FieldByName(m.Primary.FieldName).Interface()
 }

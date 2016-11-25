@@ -21,6 +21,19 @@ func Register(name string, factory SqlFactory) {
 	}
 	factorys[name] = factory
 }
+
+func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int) (*DB, error) {
+	db,err:=sql.Open(driverName,dsn)
+	if(err!=nil){
+		return nil,err
+	}else{
+		db.SetMaxOpenConns(maxOpen)
+		db.SetMaxIdleConns(maxIdle)
+		return &DB{driverName,db},nil
+	}
+}
+
+
 func Open(driverName string, dsn string) (*DB, error) {
 	db,err:=sql.Open(driverName,dsn)
 	if(err!=nil){
@@ -29,7 +42,3 @@ func Open(driverName string, dsn string) (*DB, error) {
 		return &DB{driverName,db},nil
 	}
 }
-
-
-
-
