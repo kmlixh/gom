@@ -17,6 +17,24 @@ func (DB DB)Insert(v interface{}) (int,error)  {
 	}
 }
 
-func Delete(v interface{},c Condition)  {
+func (DB DB) Insert(...interface{})(int,error){
+
+}
+func (DB DB) Delete(v interface{},c Condition)  {
+
+}
+func (DB DB) Delete(vs...interface{}){
+
+}
+func (DB DB) Update(v interface{}){
+
+}
+func (DB DB) Update(vs ...interface{}){
+
+}
+func (DB DB) Query(v interface{}){
+
+}
+func (DB DB) Query(vs ...interface{}){
 
 }
