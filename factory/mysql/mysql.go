@@ -12,6 +12,20 @@ type MySqlFactory struct {
 }
 
 func Insert(model gom.TableModel) (string,[]interface{}) {
+	var datas []interface{}
+	sql:="insert into \\`"+model.TableName+"\\` ("
+	values:=""
+	for i,v:=range model.Columns{
+		if i>0{
+			sql+=","
+			values+=","
+		}
+
+		values+=" ? "
+		sql+=v.ColumnName
+	}
+	sql+=") VALUES ("+values+")"
+
 
 }
 func Delete(model gom.TableModel) (string,[]interface{}) {

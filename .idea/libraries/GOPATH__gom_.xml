@@ -1,15 +1,15 @@
 <component name="libraryTable">
   <library name="GOPATH &lt;gom&gt;">
     <CLASSES>
-      <root url="file://$USER_HOME$/gopath/src/github.com" />
-      <root url="file://$USER_HOME$/gopath/src/golang.org" />
-      <root url="file://$USER_HOME$/gopath/src/janyee.com" />
+      <root url="file://$PROJECT_DIR$/.." />
+      <root url="file://$PROJECT_DIR$/../../golang.org" />
+      <root url="file://$PROJECT_DIR$/../../janyee.com" />
     </CLASSES>
     <JAVADOC />
     <SOURCES>
-      <root url="file://$USER_HOME$/gopath/src/github.com" />
-      <root url="file://$USER_HOME$/gopath/src/golang.org" />
-      <root url="file://$USER_HOME$/gopath/src/janyee.com" />
+      <root url="file://$PROJECT_DIR$/.." />
+      <root url="file://$PROJECT_DIR$/../../golang.org" />
+      <root url="file://$PROJECT_DIR$/../../janyee.com" />
     </SOURCES>
     <excluded>
       <root url="file://$PROJECT_DIR$" />
