@@ -39,7 +39,7 @@ func (c Conditions) State() string {
 func (c Conditions) Value() [] interface{} {
 	return c.Values
 }
-func (mo TableModel) insertValues() []interface{} {
+func (mo TableModel) InsertValues() []interface{} {
 	var interfaces []interface{}
 	results := reflect.Indirect(reflect.ValueOf(&interfaces))
 	for _,column:=range mo.Columns{
@@ -53,9 +53,9 @@ func (mo TableModel) insertValues() []interface{} {
 	return interfaces
 }
 
-func (m TableModel) getPrimary() interface{}  {
+func (m TableModel) GetPrimary() interface{}  {
 	return m.ModelValue.FieldByName(m.Primary.FieldName).Interface()
 }
-func (m TableModel) getPrimaryCondition() Condition {
-	return Conditions{"where "+m.Primary.ColumnName+" = ?",m.getPrimary()}
+func (m TableModel) GetPrimaryCondition() Condition {
+	return Conditions{"where "+m.Primary.ColumnName+" = ?",m.GetPrimary()}
 }
