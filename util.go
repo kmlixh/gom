@@ -6,12 +6,12 @@ import (
 	"fmt"
 )
 
-func typeOf(v interface{}) reflect.Type {
+func getTypeOf(v interface{}) (reflect.Type,bool) {
 	tt:=reflect.TypeOf(v)
 	if(tt.Kind()==reflect.Ptr){
-		return  tt.Elem()
+		return  tt.Elem(),true
 	}else {
-		return tt
+		return tt,false
 	}
 }
 func getTalbeModules(vs...interface{}) *[]TableModel{

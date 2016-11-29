@@ -2,6 +2,7 @@ package gom
 
 import (
 	"database/sql"
+	"reflect"
 )
 
 type DB struct {
@@ -72,7 +73,16 @@ func (DB DB) UpdateByConditionWithTransaction(v interface{},c Condition)(int,err
 	tableModel.Cnd=c
 	return DB.exec(DB.factory.Update,tableModel)
 }
-func (DB DB) Query(c Condition,vs...interface{}) []interface{}{
+func (DB DB) Query(c Condition,vs interface{}) interface{}{
+	typ,isPtr:=getTypeOf(vs)
+	if typ.Kind()==reflect.Slice{
+
+	}else if typ.Kind()==reflect.Struct{
+		model:=getTableModule(vs)
+		model.Cnd=c;
+		row:=DB.db.QueryRow(DB.factory.Query(model))
+		if row
+	}
 
 }
 

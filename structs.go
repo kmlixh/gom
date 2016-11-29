@@ -2,27 +2,29 @@ package gom
 
 import (
 	"reflect"
+	"database/sql"
+	"time"
 )
 
 type SqlFactory interface {
-	Insert(TableModel) (string,[]interface{})
-	Delete(TableModel) (string,[]interface{})
-	Update(TableModel) (string,[]interface{})
-	Query(TableModel) (string,[]interface{})
+	Insert(TableModel) (string, []interface{})
+	Delete(TableModel) (string, []interface{})
+	Update(TableModel) (string, []interface{})
+	Query(TableModel) (string, []interface{})
 }
 type TableModel struct {
-	ModelType reflect.Type
+	ModelType  reflect.Type
 	ModelValue reflect.Value
-	TableName string
-	Columns []Column
-	Primary Column
-	Cnd Condition
+	TableName  string
+	Columns    []Column
+	Primary    Column
+	Cnd        Condition
 }
 type Column struct {
 	ColumnType reflect.Type
 	ColumnName string
-	FieldName string
-	Auto bool
+	FieldName  string
+	Auto       bool
 }
 type Condition interface {
 	State() string
@@ -39,23 +41,34 @@ func (c Conditions) State() string {
 func (c Conditions) Value() [] interface{} {
 	return c.Values
 }
+
+
 func (mo TableModel) InsertValues() []interface{} {
 	var interfaces []interface{}
 	results := reflect.Indirect(reflect.ValueOf(&interfaces))
-	for _,column:=range mo.Columns{
-		vars:=reflect.ValueOf(mo.ModelValue.FieldByName(column.FieldName).Interface())
-		if(results.Kind()==reflect.Ptr){
-			results.Set(reflect.Append(results,vars.Addr()))
-		}else{
-			results.Set(reflect.Append(results,vars))
+	for _, column := range mo.Columns {
+		vars := reflect.ValueOf(mo.ModelValue.FieldByName(column.FieldName).Interface())
+		if (results.Kind() == reflect.Ptr) {
+			results.Set(reflect.Append(results, vars.Addr()))
+		} else {
+			results.Set(reflect.Append(results, vars))
 		}
 	}
 	return interfaces
 }
 
-func (m TableModel) GetPrimary() interface{}  {
+func (m TableModel) GetPrimary() interface{} {
 	return m.ModelValue.FieldByName(m.Primary.FieldName).Interface()
 }
 func (m TableModel) GetPrimaryCondition() Condition {
-	return Conditions{"where "+m.Primary.ColumnName+" = ?",m.GetPrimary()}
+	return Conditions{"where " + m.Primary.ColumnName + " = ?", m.GetPrimary()}
+}
+func (m TableModel) readRow(row sql.Row) interface{} {
+	vv := reflect.Indirect(m.ModelValue)
+	var datas []interface{}
+	var values [] reflect.Value
+	for _, v := range m.Columns {
+		val:=reflect.New(v.ColumnType)
+
+	}
 }
