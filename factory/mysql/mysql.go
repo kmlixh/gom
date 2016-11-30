@@ -68,11 +68,9 @@ func Update(model gom.TableModel) (string,[]interface{}) {
 }
 func Query(model gom.TableModel) (string,[]interface{}) {
 	sql:="select "
-	for i,v:=range model.Columns{
-		if i>0{
-			sql+=","
-		}
-		sql+=v.ColumnName
+	sql+=model.Primary.ColumnName
+	for _,v:=range model.Columns{
+		sql+=","+v.ColumnName
 	}
 	sql+=" from \\`"+model.TableName+"\\` "
 	if model.Cnd!=nil{

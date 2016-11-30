@@ -81,10 +81,18 @@ func (DB DB) Query(c Condition,vs interface{}) interface{}{
 		model:=getTableModule(vs)
 		model.Cnd=c;
 		row:=DB.db.QueryRow(DB.factory.Query(model))
-		if row
+		val:=getValueOfTableRow(model,row)
+		vt:=reflect.ValueOf(vs)
+		if(isPtr){
+			vt.Elem().Set(val)
+		}else{
+			vt.Set(val)
+		}
+		return vt.Interface()
 	}
 
 }
+
 
 
 

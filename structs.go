@@ -56,7 +56,6 @@ func (mo TableModel) InsertValues() []interface{} {
 	}
 	return interfaces
 }
-
 func (m TableModel) GetPrimary() interface{} {
 	return m.ModelValue.FieldByName(m.Primary.FieldName).Interface()
 }

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"reflect"
 	"fmt"
+	"time"
+	"database/sql"
 )
 
 func getTypeOf(v interface{}) (reflect.Type,bool) {
@@ -92,4 +94,55 @@ func getTagName(tag string) string {
 	}else{
 		panic("wrong defination!!!")
 	}
+}
+func getValueOfTableRow(model TableModel,row sql.Row) reflect.Value{
+	maps:=getBytesMap(model,row)
+	ccs:=[]Column{model.Primary}
+	append(ccs,model.Columns)
+	vv:=reflect.New(model.ModelType)
+	for _,c:=range ccs{
+		var dds interface{}
+		dbytes:=maps[c.ColumnName]
+		data:=string(dbytes)
+		switch c.ColumnType.Kind() {
+		case reflect.Uint:
+			dds,_=UIntfromString(data)
+		case reflect.Uint16:
+			dds,_=UInt16fromString(data)
+		case reflect.Uint32:
+			dds,_=UInt32fromString(data)
+		case reflect.Uint64:
+			dds,_=UInt64fromString(data)
+		case reflect.Float32:
+			dds,_=Float32fromString(data)
+		case reflect.Float64:
+			dds,_=Float64fromString(data)
+		case reflect.String:
+			dds=data
+		case reflect.TypeOf([]byte{}).Kind():
+			dds=dbytes
+		case reflect.TypeOf(time.Time{}).Kind():
+			dds,_=TimeFromString(data)
+		default:
+			dds=data
+		}
+		vv.FieldByName(c.ColumnName).Set(reflect.ValueOf(dds))
+	}
+	return vv;
+}
+func getBytesMap(model TableModel,row sql.Row) map[string][]byte{
+	data:=make(sql.RawBytes,len(model.Columns)+1)
+	dest := make([]interface{}, len(model.Columns)+1) // A temporary interface{} slice
+	for i,_ := range data {
+		dest[i] = &data[i] // Put pointers to each string in the interface slice
+	}
+	row.Scan(dest...)
+	result:=make(map[string][]byte,len(model.Columns)+1)
+	ccs:=[]Column{model.Primary}
+	append(ccs,model.Columns)
+	for i,dd:=range ccs{
+		result[dd.ColumnName]=data[i+1]
+	}
+	return result;
+
 }
