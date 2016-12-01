@@ -14,7 +14,7 @@ func Float32fromString(data string) (float32,error){
 	f, err := strconv.ParseFloat(data, 32)
 	return float32(f),err
 }
-func Float64fromString(data string) (float32,error){
+func Float64fromString(data string) (float64,error){
 	var f float64
 	f, err := strconv.ParseFloat(data, 64)
 	return f,err
@@ -31,7 +31,8 @@ func Int16fromString(data string)(int16,error){
 	return int16(result),err
 }
 func Int32fromString(data string)(int32,error){
-	return IntfromString(data)
+	result,err:= IntfromString(data)
+	return int32(result),err
 }
 func Int64fromString(data string)(int64,error){
 	result,err:= IntfromString(data)

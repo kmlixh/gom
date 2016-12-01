@@ -2,8 +2,6 @@ package gom
 
 import (
 	"reflect"
-	"database/sql"
-	"time"
 )
 
 type SqlFactory interface {
@@ -12,6 +10,10 @@ type SqlFactory interface {
 	Update(TableModel) (string, []interface{})
 	Query(TableModel) (string, []interface{})
 }
+type RowChooser interface {
+   Scan(dest ...interface{}) error
+}
+
 type TableModel struct {
 	ModelType  reflect.Type
 	ModelValue reflect.Value
@@ -38,7 +40,7 @@ type Conditions struct {
 func (c Conditions) State() string {
 	return c.States
 }
-func (c Conditions) Value() [] interface{} {
+func (c Conditions) Value() []interface{} {
 	return c.Values
 }
 
@@ -56,18 +58,9 @@ func (mo TableModel) InsertValues() []interface{} {
 	}
 	return interfaces
 }
-func (m TableModel) GetPrimary() interface{} {
-	return m.ModelValue.FieldByName(m.Primary.FieldName).Interface()
+func (m TableModel) GetPrimary() []interface{} {
+	return []interface{}{m.ModelValue.FieldByName(m.Primary.FieldName).Interface()}
 }
 func (m TableModel) GetPrimaryCondition() Condition {
 	return Conditions{"where " + m.Primary.ColumnName + " = ?", m.GetPrimary()}
-}
-func (m TableModel) readRow(row sql.Row) interface{} {
-	vv := reflect.Indirect(m.ModelValue)
-	var datas []interface{}
-	var values [] reflect.Value
-	for _, v := range m.Columns {
-		val:=reflect.New(v.ColumnType)
-
-	}
 }

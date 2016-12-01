@@ -13,18 +13,18 @@ type MySqlFactory struct {
 
 }
 
-func Insert(model gom.TableModel) (string,[]interface{}) {
+func (MySqlFactory) Insert(model gom.TableModel) (string,[]interface{}) {
 	var datas []interface{}
-	sql:="insert into \\`"+model.TableName+"\\` ("
+	sql:="insert into "+"`"+model.TableName+"` ("
 	values:=""
 	for i,v:=range model.Columns{
-		value:=model.ModelValue.FieldByName(v.ColumnName).Interface()
+		value:=model.ModelValue.FieldByName(v.FieldName).Interface()
 		if value !=nil{
 			if i>0{
 				sql+=","
 				values+=","
 			}
-			append(datas,value)
+			datas=append(datas,value)
 			values+=" ? "
 			sql+=v.ColumnName
 		}
@@ -33,8 +33,8 @@ func Insert(model gom.TableModel) (string,[]interface{}) {
 	sql+=") VALUES ("+values+")"
 	return sql,datas
 }
-func Delete(model gom.TableModel) (string,[]interface{}) {
-	sql:="delete from \\`"+model.TableName+"\\` where "
+func (MySqlFactory)Delete(model gom.TableModel) (string,[]interface{}) {
+	sql:="delete from "+"`"+model.TableName+"` where "
 	if model.Cnd != nil{
 		sql+=model.Cnd.State()+";"
 		return sql,model.Cnd.Value()
@@ -44,35 +44,35 @@ func Delete(model gom.TableModel) (string,[]interface{}) {
 	}
 
 }
-func Update(model gom.TableModel) (string,[]interface{}) {
+func (MySqlFactory)Update(model gom.TableModel) (string,[]interface{}) {
 	var datas []interface{}
-	sql:="update \\`"+model.TableName+"\\` set "
+	sql:="update "+"`"+model.TableName+"` set "
 	for i,v:=range model.Columns{
-		value:=model.ModelValue.FieldByName(v.ColumnName).Interface()
+		value:=model.ModelValue.FieldByName(v.FieldName).Interface()
 		if value !=nil{
 			if i>0{
 				sql+=","
 			}
 			sql+=" "+v.ColumnName+" = ?"
-			append(datas,value)
+			datas=append(datas,value)
 		}
 	}
 	if model.Cnd!=nil{
 		sql+=model.Cnd.State()+";"
-		append(datas,model.Cnd.Value())
+		datas=append(datas,model.Cnd.Value())
 	}else{
 		sql+=model.GetPrimaryCondition().State()+";"
-		append(datas,model.GetPrimaryCondition().Value())
+		datas=append(datas,model.GetPrimaryCondition().Value())
 	}
 	return sql,datas
 }
-func Query(model gom.TableModel) (string,[]interface{}) {
+func (MySqlFactory)Query(model gom.TableModel) (string,[]interface{}) {
 	sql:="select "
 	sql+=model.Primary.ColumnName
 	for _,v:=range model.Columns{
 		sql+=","+v.ColumnName
 	}
-	sql+=" from \\`"+model.TableName+"\\` "
+	sql+=" from "+"`"+model.TableName+"` "
 	if model.Cnd!=nil{
 		sql+=model.Cnd.State()+";"
 		return sql,model.Cnd.Value()

@@ -3,44 +3,47 @@ package gom
 import (
 	"strings"
 	"reflect"
-	"fmt"
 	"time"
-	"database/sql"
+	"fmt"
 )
 
-func getTypeOf(v interface{}) (reflect.Type,bool) {
+func getTypeOf(v interface{}) (reflect.Type,bool,bool) {
 	tt:=reflect.TypeOf(v)
+	ptrs:=false
+	islice:=false
 	if(tt.Kind()==reflect.Ptr){
-		return  tt.Elem(),true
+		tt=tt.Elem()
+		ptrs=true
 	}else {
-		return tt,false
+		tt= tt
 	}
+	if(tt.Kind()==reflect.Slice||tt.Kind()==reflect.Array){
+		tt=tt.Elem()
+		islice=true
+	}
+	return tt,ptrs,islice
 }
-func getTalbeModules(vs...interface{}) *[]TableModel{
-	tablemodels:=make([]TableModel,len(vs))
-	for i,v:=range vs{
-		tablemodels[i]=getTableModule(v)
+func getTableModels(vs...interface{}) []TableModel{
+	tablemodels:=[]TableModel{}
+	for _,v:=range vs{
+		tablemodels=append(tablemodels,getTableModule(v))
 	}
 	return tablemodels
 }
-func getTableModule(v interface{}) *TableModel {
-	tt:=reflect.TypeOf(v)
-	var tps reflect.Type
-	var vals reflect.Value
-	if tt.Kind()==reflect.Ptr{
-		tps=tt.Elem()
-		vals=reflect.ValueOf(v).Elem()
+func getTableModule(v interface{}) TableModel {
+	if v!=nil && reflect.TypeOf(v).Kind()!=reflect.Interface{
+		tt,_,_:=getTypeOf(v)
+		vals:=reflect.New(tt).Elem()
+		if vals.NumField()>0 && tt.NumMethod()>0{
+			nameMethod:=vals.MethodByName("TableName")
+			tableName:=nameMethod.Call(nil)[0].String()
+			columns,primary:=getColumns(vals)
+			return TableModel{ModelType:tt,ModelValue:vals,Columns:columns,TableName:tableName,Primary:primary}
+		}else{
+			return TableModel{}
+		}
 	}else{
-		tps=tt;
-		vals=reflect.ValueOf(v)
-	}
-	if vals.NumField()>0 && tps.NumMethod()>0{
-		nameMethod:=vals.MethodByName("TableName")
-		tableName:=nameMethod.Call(nil)[0].String()
-		columns,primary:=getColumns(vals)
-		return &TableModel{ModelType:tps,ModelValue:vals,Columns:columns,TableName:tableName,Primary:primary}
-	}else{
-		return &TableModel{}
+		return TableModel{}
 	}
 }
 func getColumns(v reflect.Value) ([]Column,Column){
@@ -95,10 +98,10 @@ func getTagName(tag string) string {
 		panic("wrong defination!!!")
 	}
 }
-func getValueOfTableRow(model TableModel,row sql.Row) reflect.Value{
+func getValueOfTableRow(model TableModel,row RowChooser) reflect.Value{
 	maps:=getBytesMap(model,row)
 	ccs:=[]Column{model.Primary}
-	append(ccs,model.Columns)
+	ccs=append(ccs,model.Columns...)
 	vv:=reflect.New(model.ModelType)
 	for _,c:=range ccs{
 		var dds interface{}
@@ -113,6 +116,16 @@ func getValueOfTableRow(model TableModel,row sql.Row) reflect.Value{
 			dds,_=UInt32fromString(data)
 		case reflect.Uint64:
 			dds,_=UInt64fromString(data)
+		case reflect.Int:
+			dds,_=IntfromString(data)
+		case reflect.Int8:
+			dds,_=Int8fromString(data)
+		case reflect.Int16:
+			dds,_=Int16fromString(data)
+		case reflect.Int32:
+			dds,_=Int32fromString(data)
+		case reflect.Int64:
+			dds,_=Int64fromString(data)
 		case reflect.Float32:
 			dds,_=Float32fromString(data)
 		case reflect.Float64:
@@ -126,22 +139,27 @@ func getValueOfTableRow(model TableModel,row sql.Row) reflect.Value{
 		default:
 			dds=data
 		}
-		vv.FieldByName(c.ColumnName).Set(reflect.ValueOf(dds))
+		vv.Elem().FieldByName(c.FieldName).Set(reflect.ValueOf(dds))
 	}
 	return vv;
 }
-func getBytesMap(model TableModel,row sql.Row) map[string][]byte{
-	data:=make(sql.RawBytes,len(model.Columns)+1)
+func getBytesMap(model TableModel,row RowChooser) map[string][]byte{
+
+	data:=make([][]byte,len(model.Columns)+1)
 	dest := make([]interface{}, len(model.Columns)+1) // A temporary interface{} slice
 	for i,_ := range data {
 		dest[i] = &data[i] // Put pointers to each string in the interface slice
 	}
-	row.Scan(dest...)
+	err:=row.Scan(dest...)
+	if err!=nil{
+		fmt.Println(err)
+		return map[string][]byte{}
+	}
 	result:=make(map[string][]byte,len(model.Columns)+1)
 	ccs:=[]Column{model.Primary}
-	append(ccs,model.Columns)
+	ccs=append(ccs,model.Columns...)
 	for i,dd:=range ccs{
-		result[dd.ColumnName]=data[i+1]
+		result[dd.ColumnName]=data[i]
 	}
 	return result;
 
