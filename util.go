@@ -33,7 +33,7 @@ func getTableModels(vs...interface{}) []TableModel{
 func getTableModule(v interface{}) TableModel {
 	if v!=nil && reflect.TypeOf(v).Kind()!=reflect.Interface{
 		tt,_,_:=getTypeOf(v)
-		vals:=reflect.New(tt).Elem()
+		vals:=reflect.Indirect(reflect.ValueOf(v))
 		if vals.NumField()>0 && tt.NumMethod()>0{
 			nameMethod:=vals.MethodByName("TableName")
 			tableName:=nameMethod.Call(nil)[0].String()

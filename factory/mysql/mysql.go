@@ -3,6 +3,7 @@ package gom
 import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gom"
+	"fmt"
 )
 
 func init()  {
@@ -49,21 +50,23 @@ func (MySqlFactory)Update(model gom.TableModel) (string,[]interface{}) {
 	sql:="update "+"`"+model.TableName+"` set "
 	for i,v:=range model.Columns{
 		value:=model.ModelValue.FieldByName(v.FieldName).Interface()
+		fmt.Println("single value:",value)
 		if value !=nil{
 			if i>0{
 				sql+=","
 			}
-			sql+=" "+v.ColumnName+" = ?"
+			sql+=v.ColumnName+" = ? "
 			datas=append(datas,value)
 		}
 	}
 	if model.Cnd!=nil{
-		sql+=model.Cnd.State()+";"
-		datas=append(datas,model.Cnd.Value())
+		sql+=" "+model.Cnd.State()+";"
+		datas=append(datas,model.Cnd.Value()...)
 	}else{
-		sql+=model.GetPrimaryCondition().State()+";"
-		datas=append(datas,model.GetPrimaryCondition().Value())
+		sql+=" "+model.GetPrimaryCondition().State()+";"
+		datas=append(datas,model.GetPrimaryCondition().Value()...)
 	}
+	fmt.Println(sql,datas)
 	return sql,datas
 }
 func (MySqlFactory)Query(model gom.TableModel) (string,[]interface{}) {
