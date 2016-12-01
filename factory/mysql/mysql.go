@@ -2,7 +2,7 @@ package gom
 
 import (
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/gom"
+	"github.com/janyees/gom"
 	"fmt"
 )
 
