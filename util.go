@@ -4,9 +4,30 @@ import (
 	"strings"
 	"reflect"
 	"time"
-	"fmt"
 )
 
+func Cnds(sql string,vs...interface{}) Condition  {
+	return Conditions{sql,vs}
+}
+func IsEmpty(v interface{}) bool{
+	times:=time.Time{};
+	if  times==v{
+		return true
+	}
+	if v==""{
+		return true
+	}
+	if v==0{
+		return true
+	}
+	if v==0.0{
+		return true
+	}
+	if v==nil{
+		return true
+	}
+	return false
+}
 func getTypeOf(v interface{}) (reflect.Type,bool,bool) {
 	tt:=reflect.TypeOf(v)
 	ptrs:=false
@@ -152,7 +173,7 @@ func getBytesMap(model TableModel,row RowChooser) map[string][]byte{
 	}
 	err:=row.Scan(dest...)
 	if err!=nil{
-		fmt.Println(err)
+		panic(err)
 		return map[string][]byte{}
 	}
 	result:=make(map[string][]byte,len(model.Columns)+1)

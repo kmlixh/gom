@@ -16,9 +16,11 @@ type MySqlFactory struct {
 
 func (MySqlFactory) Insert(model gom.TableModel) (string,[]interface{}) {
 	var datas []interface{}
+	ccs:=[]gom.Column{model.Primary}
 	sql:="insert into "+"`"+model.TableName+"` ("
 	values:=""
-	for i,v:=range model.Columns{
+	ccs=append(ccs,model.Columns...)
+	for i,v:=range ccs{
 		value:=model.ModelValue.FieldByName(v.FieldName).Interface()
 		if value !=nil{
 			if i>0{
@@ -32,16 +34,19 @@ func (MySqlFactory) Insert(model gom.TableModel) (string,[]interface{}) {
 
 	}
 	sql+=") VALUES ("+values+")"
+	fmt.Println("insert:",sql,datas)
 	return sql,datas
 }
 func (MySqlFactory)Delete(model gom.TableModel) (string,[]interface{}) {
-	sql:="delete from "+"`"+model.TableName+"` where "
+	sql:="delete from "+"`"+model.TableName+"` "
 	if model.Cnd != nil{
-		sql+=model.Cnd.State()+";"
+		sql+=" where "+model.Cnd.State()+";"
 		return sql,model.Cnd.Value()
-	}else{
-		sql+=model.GetPrimaryCondition().State()+";"
+	}else if model.GetPrimaryCondition()!=nil{
+		sql+=" where "+model.GetPrimaryCondition().State()+" ;"
 		return sql,model.GetPrimaryCondition().Value()
+	}else{
+		return sql+";",[]interface{}{}
 	}
 
 }
@@ -50,7 +55,6 @@ func (MySqlFactory)Update(model gom.TableModel) (string,[]interface{}) {
 	sql:="update "+"`"+model.TableName+"` set "
 	for i,v:=range model.Columns{
 		value:=model.ModelValue.FieldByName(v.FieldName).Interface()
-		fmt.Println("single value:",value)
 		if value !=nil{
 			if i>0{
 				sql+=","
@@ -60,13 +64,14 @@ func (MySqlFactory)Update(model gom.TableModel) (string,[]interface{}) {
 		}
 	}
 	if model.Cnd!=nil{
-		sql+=" "+model.Cnd.State()+";"
+		sql+=" where "+model.Cnd.State()+";"
 		datas=append(datas,model.Cnd.Value()...)
-	}else{
-		sql+=" "+model.GetPrimaryCondition().State()+";"
+	}else if model.GetPrimaryCondition() !=nil {
+		sql+=" where "+model.GetPrimaryCondition().State()+";"
 		datas=append(datas,model.GetPrimaryCondition().Value()...)
+	}else{
+		sql+=";"
 	}
-	fmt.Println(sql,datas)
 	return sql,datas
 }
 func (MySqlFactory)Query(model gom.TableModel) (string,[]interface{}) {
@@ -75,11 +80,14 @@ func (MySqlFactory)Query(model gom.TableModel) (string,[]interface{}) {
 	for _,v:=range model.Columns{
 		sql+=","+v.ColumnName
 	}
-	sql+=" from "+"`"+model.TableName+"` "
+	sql+=" from "+"`"+model.TableName+"`"
 	if model.Cnd!=nil{
-		sql+=model.Cnd.State()+";"
+		sql+=" where "+model.Cnd.State()+";"
 		return sql,model.Cnd.Value()
+	}else if model.GetPrimaryCondition()!=nil{
+		sql+=" where "+model.GetPrimaryCondition().State()+";"
+		return sql,model.GetPrimaryCondition().Value()
 	}else{
-		return sql,nil
+		return sql+";",[]interface{}{}
 	}
 }

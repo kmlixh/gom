@@ -58,9 +58,13 @@ func (mo TableModel) InsertValues() []interface{} {
 	}
 	return interfaces
 }
-func (m TableModel) GetPrimary() []interface{} {
-	return []interface{}{m.ModelValue.FieldByName(m.Primary.FieldName).Interface()}
+func (m TableModel) GetPrimary() interface{} {
+	return m.ModelValue.FieldByName(m.Primary.FieldName).Interface()
 }
 func (m TableModel) GetPrimaryCondition() Condition {
-	return Conditions{"where " + m.Primary.ColumnName + " = ?", m.GetPrimary()}
+	if IsEmpty(m.GetPrimary()) {
+		return nil
+	}else{
+		return Conditions{ m.Primary.ColumnName + " = ?",[]interface{}{ m.GetPrimary()}}
+	}
 }
