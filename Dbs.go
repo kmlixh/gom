@@ -81,7 +81,7 @@ func (DB DB) UpdateByConditionWithTransaction(v interface{},c Condition)(int,err
 	tableModel.Cnd=c
 	return DB.exec(DB.factory.Update,tableModel)
 }
-func (DB DB) Query(c Condition,vs interface{}) interface{}{
+func (DB DB) Query(vs interface{},c Condition) interface{}{
 	tps,isPtr,islice:=getTypeOf(vs)
 	model:=getTableModule(vs)
 	if len(model.TableName)>0{

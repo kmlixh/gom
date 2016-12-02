@@ -1,5 +1,7 @@
 # gom
 
+[![GoDoc](https://godoc.org/github.com/jinzhu/gorm?status.svg)](https://godoc.org/github.com/janyees/gom)
+
 gom是一个基于golang语言的ORM框架,目标是实现数据操作的简化,直接针对结构体本身进行数据库操作
 
 Gom is an ORM framework based on golang language, the target is to realize the data of simplified operation, directly to the structure itself for database operations
@@ -21,26 +23,6 @@ import (
 	"github.com/janyees/gom"
 	"time"
 )
-
-func main() {
-	var logs Log
-	dsn:=`root:*********@tcp(xxx.xxx.xxx.xxx:3306)/test`
-	db,err:=gom.Open("mysql",dsn)
-	if err!=nil{
-		fmt.Println(err)
-	}
-	c:=gom.Conditions{States:"where 1=1 and id = ? limit 0,20",Values:[]interface{}{"00225cbc1983410398722c8818345281"}}
-	db.Query(c,&logs)
-	fmt.Println(logs)
-	logs.Level=int(time.Now().Unix())
-	logs.Date=time.Now()
-	fmt.Println(logs)
-	dd ,err:=db.Update(logs)
-	fmt.Println(dd,err)
-	db.Query(c,&logs)
-	fmt.Println(logs)
-}
-
 type Log struct {
 	Id string `json:"id" gom:"primary,id"`
 	Level int `gom:"ignore"`
@@ -50,4 +32,22 @@ type Log struct {
 func (Log) TableName() string {
 	return "system_log"
 }
+
+func main() {
+	var logs Log
+	dsn:=`root:Nuatar171Yzy@tcp(120.25.254.189:3306)/moren`
+	db,err:=gom.Open("mysql",dsn)
+	if err!=nil{
+		fmt.Println(err)
+	}
+	db.Query(&logs,gom.Cnds("id=?","0d9c1726873f4bc3b6fb955877e5a082"))
+	idelte,ed:=db.Delete(logs)
+	fmt.Println(idelte,ed)
+	logs.Date=time.Now()
+	ii,ie:=db.Insert(logs)
+	fmt.Println(ii,ie)
+
+}
+
 ```
+聪明的你很可能
