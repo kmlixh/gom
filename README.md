@@ -2,6 +2,8 @@
 
 [![GoDoc](https://godoc.org/github.com/jinzhu/gorm?status.svg)](https://godoc.org/github.com/janyees/gom)
 
+[![wercker status](https://app.wercker.com/status/56931116573ad6b913d0c7176e72e759/m/master "wercker status")](https://app.wercker.com/project/byKey/56931116573ad6b913d0c7176e72e759)
+
 gom是一个基于golang语言的ORM框架,目标是实现数据操作的简化,直接针对结构体本身进行数据库操作
 
 Gom is an ORM framework based on golang language, the target is to realize the data of simplified operation, directly to the structure itself for database operations
