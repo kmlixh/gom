@@ -41,7 +41,7 @@ func (DB DB) Insert(vs...interface{})(int,error){
 	tables:= getTableModels(vs...)
 	return DB.exec(DB.factory.Insert,tables...)
 }
-func (DB DB) InsertWithTransaction(vs...interface{})(int,error){
+func (DB DB) InsertInTransaction(vs...interface{})(int,error){
 	tables:= getTableModels(vs...)
 	return DB.execTransc(DB.factory.Insert,tables...)
 }
@@ -49,7 +49,7 @@ func (DB DB) Delete(vs...interface{})(int,error){
 	tables:= getTableModels(vs...)
 	return DB.exec(DB.factory.Delete,tables...)
 }
-func (DB DB) DeleteWithTransaction(vs...interface{})(int,error){
+func (DB DB) DeleteInTransaction(vs...interface{})(int,error){
 	tables:= getTableModels(vs...)
 	return DB.execTransc(DB.factory.Delete,tables...)
 }
@@ -58,7 +58,7 @@ func (DB DB) DeleteByConditon(v interface{},c Condition)(int,error){
 	tableModel.Cnd=c
 	return DB.exec(DB.factory.Delete,tableModel)
 }
-func (DB DB) DeleteByConditonWithTransaction(v interface{},c Condition)(int,error){
+func (DB DB) DeleteByConditonInTransaction(v interface{},c Condition)(int,error){
 	tableModel:=getTableModule(v)
 	tableModel.Cnd=c
 	return DB.execTransc(DB.factory.Delete,tableModel)
@@ -67,7 +67,7 @@ func (DB DB) Update(vs...interface{})(int,error){
 	tables:= getTableModels(vs...)
 	return DB.exec(DB.factory.Update,tables...)
 }
-func (DB DB) UpdateWithTransaction(vs...interface{})(int,error) {
+func (DB DB) UpdateInTransaction(vs...interface{})(int,error) {
 	tables:= getTableModels(vs...)
 	return DB.execTransc(DB.factory.Update,tables...)
 }
@@ -76,7 +76,7 @@ func (DB DB) UpdateByCondition(v interface{},c Condition)(int,error){
 	tableModel.Cnd=c
 	return DB.exec(DB.factory.Update,tableModel)
 }
-func (DB DB) UpdateByConditionWithTransaction(v interface{},c Condition)(int,error){
+func (DB DB) UpdateByConditionInTransaction(v interface{},c Condition)(int,error){
 	tableModel:=getTableModule(v)
 	tableModel.Cnd=c
 	return DB.exec(DB.factory.Update,tableModel)
