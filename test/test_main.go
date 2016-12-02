@@ -19,7 +19,7 @@ func (Log) TableName() string {
 
 func main() {
 	var logs Log
-	dsn:=`root:Nuatar171Yzy@tcp(120.25.254.189:3306)/moren`
+	dsn:=`root:XXXXXXX@tcp(1XXXXXXX:3306)/moren`
 	db,err:=gom.Open("mysql",dsn)
 	if err!=nil{
 		fmt.Println(err)

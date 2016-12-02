@@ -3,7 +3,6 @@ package gom
 import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/janyees/gom"
-	"fmt"
 )
 
 func init()  {
@@ -34,7 +33,6 @@ func (MySqlFactory) Insert(model gom.TableModel) (string,[]interface{}) {
 
 	}
 	sql+=") VALUES ("+values+")"
-	fmt.Println("insert:",sql,datas)
 	return sql,datas
 }
 func (MySqlFactory)Delete(model gom.TableModel) (string,[]interface{}) {

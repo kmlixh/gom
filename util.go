@@ -4,7 +4,6 @@ import (
 	"strings"
 	"reflect"
 	"time"
-	"fmt"
 )
 
 func Cnds(sql string,vs...interface{}) Condition  {
@@ -77,7 +76,6 @@ func getColumns(v reflect.Value) ([]Column,Column){
 	for;i<oo.NumField();i++{
 		field:=oo.Field(i)
 		tag,hasTag:=field.Tag.Lookup("gom")
-		fmt.Println("tag=====",tag,(strings.EqualFold(tag,"-")||strings.EqualFold(tag,"ignore")||tag==""))
 		if hasTag && !(strings.EqualFold(tag,"-")||strings.EqualFold(tag,"ignore")||tag==""){
 			if strings.HasPrefix(tag,"primary")|| strings.HasPrefix(tag,"auto")|| tag=="!"||tag=="@"{
 				if len(primary.ColumnName)>0{
