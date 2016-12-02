@@ -30,7 +30,8 @@ build:
     - script:
         name: go get
         code: |
-          go get
+          go get github.com/go-sql-driver/mysql
+
 
     # Build the project
     - script:
