@@ -7,10 +7,11 @@ import (
 	"time"
 )
 type Log struct {
-	Id string `json:"id" gom:"primary,id"`
-	Level int `gom:"ignore"`
-	Info string
-	Date time.Time `gom:"column,date"`
+	Id string `json:"id" gom:"!"`
+	Level int `gom:"level"`
+	Info string `gom:"info"`
+	Test string
+	Date time.Time `gom:"#"`
 }
 func (Log) TableName() string {
 	return "system_log"
@@ -18,7 +19,7 @@ func (Log) TableName() string {
 
 func main() {
 	var logs Log
-	dsn:=`root:Nuaxxxxxzy@tcp(1xx.25.2xx.xxx:3306)/moren`
+	dsn:=`root:Nuatar171Yzy@tcp(120.25.254.189:3306)/moren`
 	db,err:=gom.Open("mysql",dsn)
 	if err!=nil{
 		fmt.Println(err)

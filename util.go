@@ -4,6 +4,7 @@ import (
 	"strings"
 	"reflect"
 	"time"
+	"fmt"
 )
 
 func Cnds(sql string,vs...interface{}) Condition  {
@@ -76,14 +77,15 @@ func getColumns(v reflect.Value) ([]Column,Column){
 	for;i<oo.NumField();i++{
 		field:=oo.Field(i)
 		tag,hasTag:=field.Tag.Lookup("gom")
-		if hasTag && (!strings.Contains(tag,"-")&&!strings.Contains(tag,"ignore")){
-			if strings.HasPrefix(tag,"primary")|| strings.HasPrefix(tag,"auto"){
+		fmt.Println("tag=====",tag,(strings.EqualFold(tag,"-")||strings.EqualFold(tag,"ignore")||tag==""))
+		if hasTag && !(strings.EqualFold(tag,"-")||strings.EqualFold(tag,"ignore")||tag==""){
+			if strings.HasPrefix(tag,"primary")|| strings.HasPrefix(tag,"auto")|| tag=="!"||tag=="@"{
 				if len(primary.ColumnName)>0{
 					panic("your struct '"+oo.Name()+"' has dumplicate primary key")
 				}else{
 					primary=generateColumnFromTag(tag,field)
 				}
-			}else if strings.HasPrefix(tag,"column"){
+			}else if strings.HasPrefix(tag,"column")|| tag=="#"|| len(tag)>1{
 				column:=generateColumnFromTag(tag,field)
 				n:=reflect.Indirect(reflect.ValueOf(&column))
 				if(results.Kind()==reflect.Ptr){
@@ -91,16 +93,6 @@ func getColumns(v reflect.Value) ([]Column,Column){
 				}else{
 					results.Set(reflect.Append(results,n))
 				}
-			}else{
-				panic("wrong definations!!!")
-			}
-		}else{
-			column:=Column{field.Type,strings.ToLower(field.Name),field.Name,false}
-			n:=reflect.Indirect(reflect.ValueOf(&column))
-			if(results.Kind()==reflect.Ptr){
-				results.Set(reflect.Append(results,n.Addr()))
-			}else{
-				results.Set(reflect.Append(results,n))
 			}
 		}
 	}
@@ -108,15 +100,26 @@ func getColumns(v reflect.Value) ([]Column,Column){
 }
 func generateColumnFromTag(tag string,filed reflect.StructField) Column{
 	columnName:=getTagName(tag)
-	isAtuo:=strings.Contains(tag,"auto")
+	isAtuo:=strings.Contains(tag,"auto")||tag=="@"
+	if columnName==""{
+		columnName=strings.ToLower(filed.Name)
+	}
 	return Column{ColumnType:filed.Type,ColumnName:columnName,FieldName:filed.Name,Auto:isAtuo}
 }
 func getTagName(tag string) string {
-	datas:= strings.Split(tag,",")
-	if len(datas)==2{
-		return datas[1]
+	if strings.Contains(tag,","){
+		datas:= strings.Split(tag,",")
+		if len(datas)==2{
+			return datas[1]
+		}else{
+			panic("wrong defination of tag")
+		}
 	}else{
-		panic("wrong defination!!!")
+		if len(tag)<=1{
+			return "";
+		}else{
+			return tag;
+		}
 	}
 }
 func getValueOfTableRow(model TableModel,row RowChooser) reflect.Value{
