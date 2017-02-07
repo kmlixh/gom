@@ -28,21 +28,19 @@ func IsEmpty(v interface{}) bool{
 	}
 	return false
 }
-func getTypeOf(v interface{}) (reflect.Type,bool,bool) {
+func getType(v interface{}) (reflect.Type,bool,bool) {
 	tt:=reflect.TypeOf(v)
-	ptrs:=false
+	isPtr :=false
 	islice:=false
 	if(tt.Kind()==reflect.Ptr){
 		tt=tt.Elem()
-		ptrs=true
-	}else {
-		tt= tt
+		isPtr =true
 	}
 	if(tt.Kind()==reflect.Slice||tt.Kind()==reflect.Array){
 		tt=tt.Elem()
 		islice=true
 	}
-	return tt,ptrs,islice
+	return tt, isPtr,islice
 }
 func getTableModels(vs...interface{}) []TableModel{
 	tablemodels:=[]TableModel{}
@@ -53,9 +51,14 @@ func getTableModels(vs...interface{}) []TableModel{
 }
 func getTableModule(v interface{}) TableModel {
 	if v!=nil && reflect.TypeOf(v).Kind()!=reflect.Interface{
-		tt,_,_:=getTypeOf(v)
-		vals:=reflect.Indirect(reflect.ValueOf(v))
-		if vals.NumField()>0 && tt.NumMethod()>0{
+		tt,isPtr,_:= getType(v)
+		var vals reflect.Value
+		if isPtr{
+			vals=reflect.Indirect(reflect.ValueOf(tt).Elem())
+		}else{
+			vals=reflect.Indirect(reflect.ValueOf(tt))
+		}
+		if tt.NumField()>0 && tt.NumMethod()>0{
 			nameMethod:=vals.MethodByName("TableName")
 			tableName:=nameMethod.Call(nil)[0].String()
 			columns,primary:=getColumns(vals)

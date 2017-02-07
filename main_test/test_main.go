@@ -4,7 +4,7 @@ import (
 	"fmt"
 	_ "github.com/janyees/gom/factory/mysql"
 	"time"
-	"encoding/json"
+	"reflect"
 )
 type Log struct {
 	Id string `json:"id" gom:"!"`
@@ -32,8 +32,20 @@ func (Log) TableName() string {
 }
 
 func main() {
-	b := []byte(`{"email":"lier171@qq.com","pwd":"38c16f4d16eb41aa83808ee965ab8a29","nicks":"test"}`)
-	var f User
-	err := json.Unmarshal(b, &f)
-	fmt.Println(err,f)
+	var users []User
+	tt:=reflect.TypeOf(&users)
+	ptrs:=false
+	islice:=false
+	if(tt.Kind()==reflect.Ptr){
+		tt=tt.Elem()
+		ptrs=true
+	}
+	if(tt.Kind()==reflect.Slice||tt.Kind()==reflect.Array){
+		tt=tt.Elem()
+		islice=true
+	}
+	fmt.Println(tt,ptrs,islice,tt.NumField())
+
+	vals:=reflect.Indirect(reflect.ValueOf(tt).Elem())
+	fmt.Println(vals.NumField())
 }

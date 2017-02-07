@@ -88,7 +88,7 @@ func (DB DB) UpdateByConditionInTransaction(v interface{},c Condition)(int,error
 }
 
 func (DB DB) Query(vs interface{},c Condition) interface{}{
-	tps,isPtr,islice:=getTypeOf(vs)
+	tps,isPtr,islice:= getType(vs)
 	model:=getTableModule(vs)
 	if DB.debug{
 		fmt.Println("model:",model)
