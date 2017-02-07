@@ -29,7 +29,7 @@ func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int) (*D
 	}else{
 		db.SetMaxOpenConns(maxOpen)
 		db.SetMaxIdleConns(maxIdle)
-		return &DB{factorys[driverName],db},nil
+		return &DB{factorys[driverName],db,false},nil
 	}
 }
 
@@ -39,6 +39,6 @@ func Open(driverName string, dsn string) (*DB, error) {
 	if(err!=nil){
 		return nil,err
 	}else{
-		return &DB{factorys[driverName],db},nil
+		return &DB{factorys[driverName],db,false},nil
 	}
 }

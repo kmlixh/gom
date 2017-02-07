@@ -3,17 +3,22 @@ package gom
 import (
 	"database/sql"
 	"reflect"
+	"fmt"
 )
 
 type DB struct {
 	factory SqlFactory
 	db * sql.DB
+	debug bool
 }
 
 func (DB DB) exec(funcs func(TableModel)(string,[]interface{}),ms...TableModel)(int,error){
 	var results int
 	for _,model:=range ms{
 		sqls,datas:=funcs(model)
+		if DB.debug{
+			fmt.Println(sqls,datas)
+		}
 		result,err:=DB.db.Exec(sqls,datas...)
 		if(err!=nil){
 			return results,err
@@ -90,6 +95,9 @@ func (DB DB) Query(vs interface{},c Condition) interface{}{
 		if islice{
 			results := reflect.Indirect(reflect.ValueOf(vs))
 			sqls,adds:=DB.factory.Query(model)
+			if DB.debug{
+				fmt.Println(sqls,adds)
+			}
 			rows,err:=DB.db.Query(sqls,adds...)
 			if err!=nil{
 				return nil
@@ -107,6 +115,9 @@ func (DB DB) Query(vs interface{},c Condition) interface{}{
 
 		}else {
 			sqls,adds:=DB.factory.Query(model)
+			if DB.debug{
+				fmt.Println(sqls,adds)
+			}
 			row:=DB.db.QueryRow(sqls,adds...)
 			val:=getValueOfTableRow(model,row)
 			var vt reflect.Value
