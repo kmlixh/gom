@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 	_ "github.com/janyees/gom/factory/mysql"
-	"github.com/janyees/gom"
 	"time"
+	"encoding/json"
 )
 type Log struct {
 	Id string `json:"id" gom:"!"`
@@ -22,6 +22,8 @@ type User struct {
 	NickName string `json:"nicks" gom:"nick_name"`
 	RegDate time.Time `json:"reg_date" gom:"reg_date"`
 }
+
+
 func (User) TableName() string {
 	return "user"
 }
@@ -30,12 +32,8 @@ func (Log) TableName() string {
 }
 
 func main() {
-	var user User
-	dsn:=`root:Nuatar171Yzy@tcp(120.25.254.189:3306)/reurl`
-	db,err:=gom.Open("mysql",dsn,true)
-	if err!=nil{
-		fmt.Println(err)
-	}
-	db.Query(&user,gom.Cnds("email=?","lier171@qq.com"))
-	fmt.Println(user)
+	b := []byte(`{"email":"lier171@qq.com","pwd":"38c16f4d16eb41aa83808ee965ab8a29","nicks":"test"}`)
+	var f User
+	err := json.Unmarshal(b, &f)
+	fmt.Println(err,f)
 }
