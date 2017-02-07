@@ -75,17 +75,12 @@ func getColumns(v reflect.Value) ([]Column,Column){
 	i:=0
 	for;i<oo.NumField();i++{
 		field:=oo.Field(i)
-		tag,hasTag:=field.Tag.Lookup("gom")
-		if hasTag && !(strings.EqualFold(tag,"-")||strings.EqualFold(tag,"ignore")||tag==""){
-			if strings.HasPrefix(tag,"primary")|| strings.HasPrefix(tag,"auto")|| tag=="!"||tag=="@"{
-				if len(primary.ColumnName)>0{
-					panic("your struct '"+oo.Name()+"' has dumplicate primary key")
-				}else{
-					primary=generateColumnFromTag(tag,field)
-				}
-			}else if strings.HasPrefix(tag,"column")|| tag=="#"|| len(tag)>1{
-				column:=generateColumnFromTag(tag,field)
-				n:=reflect.Indirect(reflect.ValueOf(&column))
+		col,tps:=getColumnFromField(field)
+		if tps!=-1{
+			if tps==1 || tps==2{
+				primary=col
+			}else{
+				n:=reflect.Indirect(reflect.ValueOf(&col))
 				if(results.Kind()==reflect.Ptr){
 					results.Set(reflect.Append(results,n.Addr()))
 				}else{
@@ -96,28 +91,51 @@ func getColumns(v reflect.Value) ([]Column,Column){
 	}
 	return columns,primary
 }
-func generateColumnFromTag(tag string,filed reflect.StructField) Column{
-	columnName:=getTagName(tag)
-	isAtuo:=strings.Contains(tag,"auto")||tag=="@"
-	if columnName==""{
-		columnName=strings.ToLower(filed.Name)
+func getColumnFromField(filed reflect.StructField) (Column,int) {
+	tag,tps:=getTagFromField(filed)
+	if tps!=-1{
+		return Column{ColumnType:filed.Type,ColumnName:tag,FieldName:filed.Name,Auto:tps==2},tps
+	}else{
+		return Column{},-1
 	}
-	return Column{ColumnType:filed.Type,ColumnName:columnName,FieldName:filed.Name,Auto:isAtuo}
+
 }
-func getTagName(tag string) string {
-	if strings.Contains(tag,","){
-		datas:= strings.Split(tag,",")
-		if len(datas)==2{
-			return datas[1]
+func getTagFromField(field reflect.StructField) (string,int) {
+	tag,hasTag:=field.Tag.Lookup("gom")
+	if hasTag{
+		if strings.EqualFold(tag,"-")||len(tag)==0{
+			return "",-1
+		}else if len(tag)==1{
+			tps:=0
+			if strings.EqualFold(tag,"@"){
+				tps=2
+			}
+			if strings.EqualFold(tag,"!"){
+				tps=1
+			}
+			return strings.ToLower(field.Name),tps
 		}else{
-			panic("wrong defination of tag")
+			if strings.Contains(tag,","){
+				tags:=strings.Split(tag,",")
+				if len(tags)==2{
+					if strings.EqualFold(tags[0],"!") || strings.EqualFold(tags[0],"primary"){
+						return tags[1],1
+					} else if strings.EqualFold(tags[0],"@") || strings.EqualFold(tags[0],"auto"){
+						return tags[1],2
+					}else if strings.EqualFold(tags[0],"#") || strings.EqualFold(tags[0],"column"){
+						return tags[1],0
+					}else{
+						return "",-1
+					}
+				}else{
+					return "",-1
+				}
+			}else{
+				return tag,0
+			}
 		}
 	}else{
-		if len(tag)<=1{
-			return "";
-		}else{
-			return tag;
-		}
+		return "",-1
 	}
 }
 func getValueOfTableRow(model TableModel,row RowChooser) reflect.Value{
@@ -174,7 +192,6 @@ func getBytesMap(model TableModel,row RowChooser) map[string][]byte{
 	}
 	err:=row.Scan(dest...)
 	if err!=nil{
-		panic(err)
 		return map[string][]byte{}
 	}
 	result:=make(map[string][]byte,len(model.Columns)+1)
