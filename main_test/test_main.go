@@ -47,5 +47,7 @@ func main() {
 	fmt.Println(tt,ptrs,islice,tt.NumField())
 
 	vals:=reflect.Indirect(reflect.ValueOf(tt).Elem())
-	fmt.Println(vals.NumField())
+	nameMethod:=vals.MethodByName("TableName")
+	tableName:=nameMethod.Call(nil)[0].String()
+	fmt.Println(vals.NumField(),tableName)
 }
