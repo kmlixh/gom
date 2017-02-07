@@ -33,6 +33,7 @@ func (Log) TableName() string {
 
 func main() {
 	var users []User
+	var user User
 	tt:=reflect.TypeOf(&users)
 	ptrs:=false
 	islice:=false
@@ -40,14 +41,15 @@ func main() {
 		tt=tt.Elem()
 		ptrs=true
 	}
+	fmt.Println(tt.Kind())
 	if(tt.Kind()==reflect.Slice||tt.Kind()==reflect.Array){
 		tt=tt.Elem()
 		islice=true
 	}
+	fmt.Println(tt.Kind())
 	fmt.Println(tt,ptrs,islice,tt.NumField())
-
-	vals:=reflect.Indirect(reflect.ValueOf(tt).Elem())
+	vals:=reflect.New(tt).Elem()
 	nameMethod:=vals.MethodByName("TableName")
 	tableName:=nameMethod.Call(nil)[0].String()
-	fmt.Println(vals.NumField(),tableName)
+	fmt.Println(vals.NumField(),tableName,user)
 }
