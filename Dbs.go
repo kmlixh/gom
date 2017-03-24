@@ -122,6 +122,9 @@ func (DB DB) Query(vs interface{},c Condition) interface{}{
 				fmt.Println(sqls,adds)
 			}
 			row:=DB.db.QueryRow(sqls,adds...)
+			if DB.debug{
+				fmt.Println("row is",row)
+			}
 			val:=getValueOfTableRow(model,row)
 			var vt reflect.Value
 			if(isPtr){

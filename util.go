@@ -41,6 +41,9 @@ func getType(v interface{}) (reflect.Type,bool,bool) {
 		tt=tt.Elem()
 		islice=true
 	}
+	if DB.debug{
+		fmt.Println("Test getType, result:",tt,isPtr,islice)
+	}
 	return tt, isPtr,islice
 }
 func getTableModels(vs...interface{}) []TableModel{
@@ -88,10 +91,16 @@ func getColumns(v reflect.Value) ([]Column,Column){
 			}
 		}
 	}
+	if DB.debug{
+		fmt.Println("columns is:",columns,primary)
+	}
 	return columns,primary
 }
 func getColumnFromField(filed reflect.StructField) (Column,int) {
 	tag,tps:=getTagFromField(filed)
+	if DB.debug{
+		fmt.Println("Tag is:",tag,"type is:",tps);
+	}
 	if tps!=-1{
 		return Column{ColumnType:filed.Type,ColumnName:tag,FieldName:filed.Name,Auto:tps==2},tps
 	}else{
@@ -146,7 +155,6 @@ func getValueOfTableRow(model TableModel,row RowChooser) reflect.Value{
 		var dds interface{}
 		dbytes:=maps[c.ColumnName]
 		data:=string(dbytes)
-		fmt.Println("测试输入测点位：",c,"====",c.ColumnType)
 		switch c.ColumnType.Kind() {
 		case reflect.Uint:
 			dds,_=UIntfromString(data)
