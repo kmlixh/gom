@@ -4,7 +4,8 @@ import (
 	"fmt"
 	_ "github.com/janyees/gom/factory/mysql"
 	"time"
-	"reflect"
+	"crypto/md5"
+	"encoding/hex"
 )
 type Log struct {
 	Id string `json:"id" gom:"!"`
@@ -32,24 +33,10 @@ func (Log) TableName() string {
 }
 
 func main() {
-	var users []User
-	var user User
-	tt:=reflect.TypeOf(&users)
-	ptrs:=false
-	islice:=false
-	if(tt.Kind()==reflect.Ptr){
-		tt=tt.Elem()
-		ptrs=true
-	}
-	fmt.Println(tt.Kind())
-	if(tt.Kind()==reflect.Slice||tt.Kind()==reflect.Array){
-		tt=tt.Elem()
-		islice=true
-	}
-	fmt.Println(tt.Kind())
-	fmt.Println(tt,ptrs,islice,tt.NumField())
-	vals:=reflect.New(tt).Elem()
-	nameMethod:=vals.MethodByName("TableName")
-	tableName:=nameMethod.Call(nil)[0].String()
-	fmt.Println(vals.NumField(),tableName,user)
+	md5Ctx := md5.New()
+	md5Ctx.Write([]byte("test md5 encrypto"))
+	cipherStr := md5Ctx.Sum(nil)
+	fmt.Print(cipherStr)
+	fmt.Print("\n")
+	fmt.Print(hex.EncodeToString(cipherStr))
 }

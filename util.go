@@ -4,6 +4,7 @@ import (
 	"strings"
 	"reflect"
 	"time"
+	"fmt"
 )
 
 func Cnds(sql string,vs...interface{}) Condition  {
@@ -145,6 +146,7 @@ func getValueOfTableRow(model TableModel,row RowChooser) reflect.Value{
 		var dds interface{}
 		dbytes:=maps[c.ColumnName]
 		data:=string(dbytes)
+		fmt.Println("测试输入测点位：",c,"====",c.ColumnType)
 		switch c.ColumnType.Kind() {
 		case reflect.Uint:
 			dds,_=UIntfromString(data)
