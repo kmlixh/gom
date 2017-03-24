@@ -9,14 +9,13 @@ import (
 type DB struct {
 	factory SqlFactory
 	db      * sql.DB
-	debug   bool
 }
 
 func (DB DB) exec(funcs func(TableModel)(string,[]interface{}),ms...TableModel)(int,error){
 	var results int
 	for _,model:=range ms{
 		sqls,datas:=funcs(model)
-		if DB.debug {
+		if debug {
 			fmt.Println(sqls,datas)
 		}
 		result,err:=DB.db.Exec(sqls,datas...)
@@ -90,7 +89,7 @@ func (DB DB) UpdateByConditionInTransaction(v interface{},c Condition)(int,error
 func (DB DB) Query(vs interface{},c Condition) interface{}{
 	tps,isPtr,islice:= getType(vs)
 	model:=getTableModule(vs)
-	if DB.debug{
+	if debug{
 		fmt.Println("model:",model)
 	}
 	if len(model.TableName)>0{
@@ -98,7 +97,7 @@ func (DB DB) Query(vs interface{},c Condition) interface{}{
 		if islice{
 			results := reflect.Indirect(reflect.ValueOf(vs))
 			sqls,adds:=DB.factory.Query(model)
-			if DB.debug {
+			if debug {
 				fmt.Println(sqls,adds)
 			}
 			rows,err:=DB.db.Query(sqls,adds...)
@@ -118,11 +117,11 @@ func (DB DB) Query(vs interface{},c Condition) interface{}{
 
 		}else {
 			sqls,adds:=DB.factory.Query(model)
-			if DB.debug {
+			if debug {
 				fmt.Println(sqls,adds)
 			}
 			row:=DB.db.QueryRow(sqls,adds...)
-			if DB.debug{
+			if debug{
 				fmt.Println("row is",row)
 			}
 			val:=getValueOfTableRow(model,row)

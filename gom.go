@@ -9,7 +9,7 @@ var (
 	factorysMux sync.RWMutex
 	factorys = make(map[string]SqlFactory)
 )
-
+var debug bool
 func Register(name string, factory SqlFactory) {
 	factorysMux.Lock()
 	defer factorysMux.Unlock()
@@ -22,23 +22,25 @@ func Register(name string, factory SqlFactory) {
 	factorys[name] = factory
 }
 
-func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int,debug bool) (*DB, error) {
+func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int,debugs bool) (*DB, error) {
+	debug=debugs
 	db,err:=sql.Open(driverName,dsn)
 	if(err!=nil){
 		return nil,err
 	}else{
 		db.SetMaxOpenConns(maxOpen)
 		db.SetMaxIdleConns(maxIdle)
-		return &DB{factorys[driverName],db,debug},nil
+		return &DB{factorys[driverName],db},nil
 	}
 }
 
 
-func Open(driverName string, dsn string,debug bool) (*DB, error) {
+func Open(driverName string, dsn string,debugs bool) (*DB, error) {
+	debug=debugs
 	db,err:=sql.Open(driverName,dsn)
 	if(err!=nil){
 		return nil,err
 	}else{
-		return &DB{factorys[driverName],db,debug},nil
+		return &DB{factorys[driverName],db},nil
 	}
 }
