@@ -94,6 +94,9 @@ func getColumns(v reflect.Value) ([]Column,Column){
 	if debug{
 		fmt.Println("columns is:",columns,primary)
 	}
+	if primary.ColumnType ==nil{
+		panic("your ")
+	}
 	return columns,primary
 }
 func getColumnFromField(filed reflect.StructField) (Column,int) {
