@@ -95,7 +95,7 @@ func getColumns(v reflect.Value) ([]Column,Column){
 		fmt.Println("columns is:",columns,primary)
 	}
 	if primary.ColumnType ==nil{
-		panic("your ")
+		panic("your column is nil,please check it!")
 	}
 	return columns,primary
 }
