@@ -35,3 +35,6 @@ func TestModel(t *testing.T) {
 	m2 := getTableModel(log)
 	t.Log(m1, m2)
 }
+func TestCnds(t *testing.T) {
+	t.Log("ok")
+}
