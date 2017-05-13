@@ -10,11 +10,12 @@ type DB struct {
 	factory SqlFactory
 	db      * sql.DB
 }
+type Execute func(TableModel)(string,[]interface{})
+
 type Executor struct {
 	execute Execute
 	tms []TableModel
 }
-type Execute func(TableModel)(string,[]interface{})
 
 type ExecutorType int
 
@@ -88,12 +89,12 @@ func (DB DB) DeleteInTransaction(vs...interface{})(int,error){
 	return DB.execTransc(DB.factory.Delete,tables...)
 }
 func (DB DB) DeleteByConditon(v interface{},c Condition)(int,error){
-	tableModel:=getTableModule(v)
+	tableModel:= getTableModel(v)
 	tableModel.Cnd=c
 	return DB.exec(Executor{DB.factory.Delete,tableModel})
 }
 func (DB DB) DeleteByConditonInTransaction(v interface{},c Condition)(int,error){
-	tableModel:=getTableModule(v)
+	tableModel:= getTableModel(v)
 	tableModel.Cnd=c
 	return DB.execTransc(DB.factory.Delete,tableModel)
 }
@@ -106,19 +107,19 @@ func (DB DB) UpdateInTransaction(vs...interface{})(int,error) {
 	return DB.execTransc(DB.factory.Update,tables...)
 }
 func (DB DB) UpdateByCondition(v interface{},c Condition)(int,error){
-	tableModel:=getTableModule(v)
+	tableModel:= getTableModel(v)
 	tableModel.Cnd=c
 	return DB.exec(Executor{DB.factory.Update,tableModel})
 }
 func (DB DB) UpdateByConditionInTransaction(v interface{},c Condition)(int,error){
-	tableModel:=getTableModule(v)
+	tableModel:= getTableModel(v)
 	tableModel.Cnd=c
 	return DB.exec(Executor{DB.factory.Update,tableModel})
 }
 
 func (DB DB) Query(vs interface{},c Condition) interface{}{
 	tps,isPtr,islice:= getType(vs)
-	model:=getTableModule(vs)
+	model:= getTableModel(vs)
 	if debug{
 		fmt.Println("model:",model)
 	}

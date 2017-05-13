@@ -1,11 +1,9 @@
-package main
+package gom
 
 import (
-	"fmt"
-	_ "github.com/janyees/gom/factory/mysql"
 	"time"
-	"crypto/md5"
-	"encoding/hex"
+	"testing"
+	_ "github.com/gom/factory/mysql"
 )
 type Log struct {
 	Id string `json:"id" gom:"!"`
@@ -32,11 +30,10 @@ func (Log) TableName() string {
 	return "system_log"
 }
 
-func main() {
-	md5Ctx := md5.New()
-	md5Ctx.Write([]byte("test md5 encrypto"))
-	cipherStr := md5Ctx.Sum(nil)
-	fmt.Print(cipherStr)
-	fmt.Print("\n")
-	fmt.Print(hex.EncodeToString(cipherStr))
+
+func TestModel(t *testing.T) {
+	var log Log
+	m1:=getTableModel(&log)
+	m2:=getTableModel(log)
+	t.Log(m1,m2)
 }

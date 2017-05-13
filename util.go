@@ -49,11 +49,11 @@ func getType(v interface{}) (reflect.Type,bool,bool) {
 func getTableModels(vs...interface{}) []TableModel{
 	tablemodels:=[]TableModel{}
 	for _,v:=range vs{
-		tablemodels=append(tablemodels,getTableModule(v))
+		tablemodels=append(tablemodels, getTableModel(v))
 	}
 	return tablemodels
 }
-func getTableModule(v interface{}) TableModel {
+func getTableModel(v interface{}) TableModel {
 	if v!=nil && reflect.TypeOf(v).Kind()!=reflect.Interface{
 		tt,_,_:= getType(v)
 		vals:=reflect.New(tt).Elem()
