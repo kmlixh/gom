@@ -12,41 +12,31 @@ type DB struct {
 }
 type Execute func(TableModel) (string, []interface{})
 
-type Executor struct {
+type TransactionJob struct {
 	execute Execute
 	tms     []TableModel
 }
 
 type ExecutorType int
 
-const (
-	_ ExecutorType = iota
-	Insert
-	Delete
-	Update
-)
-
-func (DB DB) GetExecutor(executorType ExecutorType, tableModel []TableModel) Executor {
-	var execute Execute
-	switch executorType {
-	case Insert:
-		execute = DB.Factory.Insert
-	case Delete:
-		execute = DB.Factory.Delete
-	case Update:
-		execute = DB.Factory.Update
-	}
-	return Executor{execute, tableModel}
+func (db DB) MakeInsertTransactionJob(tableModel []TableModel) TransactionJob {
+	return TransactionJob{db.Factory.Insert, tableModel}
+}
+func (db DB) MakeUpdateTransactionJob(tableModel []TableModel) TransactionJob {
+	return TransactionJob{db.Factory.Update, tableModel}
+}
+func (db DB) MakeDeleteTransactionJob(tableModel []TableModel) TransactionJob {
+	return TransactionJob{db.Factory.Delete, tableModel}
 }
 
-func (DB DB) exec(executor Executor) (int, error) {
+func (db DB) exec(executor TransactionJob) (int, error) {
 	var results int
 	for _, model := range executor.tms {
 		sqls, datas := executor.execute(model)
 		if debug {
 			fmt.Println(sqls, datas)
 		}
-		result, err := DB.Db.Exec(sqls, datas...)
+		result, err := db.Db.Exec(sqls, datas...)
 		if err != nil {
 			return results, err
 		} else {
@@ -56,68 +46,83 @@ func (DB DB) exec(executor Executor) (int, error) {
 	}
 	return results, nil
 }
-func (DB DB) execTransc(executors ...Executor) (int, error) {
+
+type TransactionWork func(db DB) (int, error)
+
+func (db DB) ExecuteInTransaction(work TransactionWork) (int, error) {
 	result := 0
-	tx, err := DB.Db.Begin()
+	tx, err := db.Db.Begin()
 	if err != nil {
 		return result, err
 	}
-	for _, executor := range executors {
-		result, err = DB.exec(executor)
-		if err != nil {
-			tx.Rollback()
-			return 0, err
-		}
+	result, err = work(db)
+	if err != nil {
+		tx.Rollback()
+		return result, err
 	}
 	tx.Commit()
 	return result, nil
 }
-func (DB DB) Insert(vs ...interface{}) (int, error) {
+func (db DB) DoExecutorInTransaction(executors ...TransactionJob) (int, error) {
+	work := func(dd DB) (int, error) {
+		result := 0
+		for _, executor := range executors {
+			rt, ers := dd.exec(executor)
+			result += rt
+			if ers != nil {
+				return result, ers
+			}
+		}
+		return result, nil
+	}
+	return db.ExecuteInTransaction(work)
+}
+func (db DB) Insert(vs ...interface{}) (int, error) {
 	models := getTableModels(vs...)
-	return DB.exec(Executor{DB.Factory.Insert, models})
+	return db.exec(TransactionJob{db.Factory.Insert, models})
 }
-func (DB DB) InsertInTransaction(vs ...interface{}) (int, error) {
+func (db DB) InsertInTransaction(vs ...interface{}) (int, error) {
 	tables := getTableModels(vs...)
-	return DB.execTransc(Executor{DB.Factory.Insert, tables})
+	return db.DoExecutorInTransaction(TransactionJob{db.Factory.Insert, tables})
 }
-func (DB DB) Delete(vs ...interface{}) (int, error) {
+func (db DB) Delete(vs ...interface{}) (int, error) {
 	tables := getTableModels(vs...)
-	return DB.exec(Executor{DB.Factory.Delete, tables})
+	return db.exec(TransactionJob{db.Factory.Delete, tables})
 }
-func (DB DB) DeleteInTransaction(vs ...interface{}) (int, error) {
+func (db DB) DeleteInTransaction(vs ...interface{}) (int, error) {
 	tables := getTableModels(vs...)
-	return DB.execTransc(Executor{DB.Factory.Delete, tables})
+	return db.DoExecutorInTransaction(TransactionJob{db.Factory.Delete, tables})
 }
-func (DB DB) DeleteByConditon(v interface{}, c Condition) (int, error) {
+func (db DB) DeleteByConditon(v interface{}, c Condition) (int, error) {
 	tableModel := getTableModel(v)
 	tableModel.Cnd = c
-	return DB.exec(Executor{DB.Factory.Delete, []TableModel{tableModel}})
+	return db.exec(TransactionJob{db.Factory.Delete, []TableModel{tableModel}})
 }
-func (DB DB) DeleteByConditonInTransaction(v interface{}, c Condition) (int, error) {
+func (db DB) DeleteByConditonInTransaction(v interface{}, c Condition) (int, error) {
 	tableModel := getTableModel(v)
 	tableModel.Cnd = c
-	return DB.execTransc(Executor{DB.Factory.Delete, []TableModel{tableModel}})
+	return db.DoExecutorInTransaction(TransactionJob{db.Factory.Delete, []TableModel{tableModel}})
 }
-func (DB DB) Update(vs ...interface{}) (int, error) {
+func (db DB) Update(vs ...interface{}) (int, error) {
 	tms := getTableModels(vs...)
-	return DB.exec(Executor{DB.Factory.Update, tms})
+	return db.exec(TransactionJob{db.Factory.Update, tms})
 }
-func (DB DB) UpdateInTransaction(vs ...interface{}) (int, error) {
+func (db DB) UpdateInTransaction(vs ...interface{}) (int, error) {
 	tables := getTableModels(vs...)
-	return DB.execTransc(Executor{DB.Factory.Update, tables})
+	return db.DoExecutorInTransaction(TransactionJob{db.Factory.Update, tables})
 }
-func (DB DB) UpdateByCondition(v interface{}, c Condition) (int, error) {
+func (db DB) UpdateByCondition(v interface{}, c Condition) (int, error) {
 	tableModel := getTableModel(v)
 	tableModel.Cnd = c
-	return DB.exec(Executor{DB.Factory.Update, []TableModel{tableModel}})
+	return db.exec(TransactionJob{db.Factory.Update, []TableModel{tableModel}})
 }
-func (DB DB) UpdateByConditionInTransaction(v interface{}, c Condition) (int, error) {
+func (db DB) UpdateByConditionInTransaction(v interface{}, c Condition) (int, error) {
 	tableModel := getTableModel(v)
 	tableModel.Cnd = c
-	return DB.exec(Executor{DB.Factory.Update, []TableModel{tableModel}})
+	return db.exec(TransactionJob{db.Factory.Update, []TableModel{tableModel}})
 }
 
-func (DB DB) Query(vs interface{}, c Condition) interface{} {
+func (db DB) Query(vs interface{}, c Condition) interface{} {
 	tps, isPtr, islice := getType(vs)
 	model := getTableModel(vs)
 	if debug {
@@ -127,11 +132,11 @@ func (DB DB) Query(vs interface{}, c Condition) interface{} {
 		model.Cnd = c
 		if islice {
 			results := reflect.Indirect(reflect.ValueOf(vs))
-			sqls, adds := DB.Factory.Query(model)
+			sqls, adds := db.Factory.Query(model)
 			if debug {
 				fmt.Println(sqls, adds)
 			}
-			rows, err := DB.Db.Query(sqls, adds...)
+			rows, err := db.Db.Query(sqls, adds...)
 			if err != nil {
 				return nil
 			}
@@ -147,11 +152,11 @@ func (DB DB) Query(vs interface{}, c Condition) interface{} {
 			return vs
 
 		} else {
-			sqls, adds := DB.Factory.Query(model)
+			sqls, adds := db.Factory.Query(model)
 			if debug {
 				fmt.Println(sqls, adds)
 			}
-			row := DB.Db.QueryRow(sqls, adds...)
+			row := db.Db.QueryRow(sqls, adds...)
 			if debug {
 				fmt.Println("row is", row)
 			}

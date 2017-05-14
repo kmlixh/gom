@@ -32,13 +32,21 @@ func (Log) TableName() string {
 func TestModel(t *testing.T) {
 	var log Log
 	m1 := getTableModel(&log)
-	m2 := getTableModel(log)
-	t.Log(m1, m2)
+	t.Log(m1)
+}
+func BenchmarkTableModel(b *testing.B) {
+	var log Log
+	m1 := getTableModel(&log)
+	var user User
+	m2 := getTableModel(&user)
+	b.Log(m1, m2)
 }
 func TestCnds(t *testing.T) {
-	cnd:=Cnds("name =? and id=?","nicker",1)
+	cnd := Cnds("name =? and id=?", "nicker", 1)
 	t.Log(cnd)
 }
 func BenchmarkCnds(b *testing.B) {
-	b.
+	cnd := Cnds("name=? and id=? and user_anasf=?", "nide", 2.34, 1, true)
+	b.Log(cnd)
+
 }
