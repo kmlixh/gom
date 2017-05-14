@@ -36,5 +36,9 @@ func TestModel(t *testing.T) {
 	t.Log(m1, m2)
 }
 func TestCnds(t *testing.T) {
-	t.Log("ok")
+	cnd:=Cnds("name =? and id=?","nicker",1)
+	t.Log(cnd)
+}
+func BenchmarkCnds(b *testing.B) {
+	b.
 }
