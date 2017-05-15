@@ -49,7 +49,7 @@ func (db DB) exec(executor TransactionJob) (int, error) {
 
 type TransactionWork func(db DB) (int, error)
 
-func (db DB) ExecuteInTransaction(work TransactionWork) (int, error) {
+func (db DB) WorkInTransaction(work TransactionWork) (int, error) {
 	result := 0
 	tx, err := db.Db.Begin()
 	if err != nil {
@@ -63,10 +63,10 @@ func (db DB) ExecuteInTransaction(work TransactionWork) (int, error) {
 	tx.Commit()
 	return result, nil
 }
-func (db DB) DoExecutorInTransaction(executors ...TransactionJob) (int, error) {
+func (db DB) ExecutorTransactionJob(jobs ...TransactionJob) (int, error) {
 	work := func(dd DB) (int, error) {
 		result := 0
-		for _, executor := range executors {
+		for _, executor := range jobs {
 			rt, ers := dd.exec(executor)
 			result += rt
 			if ers != nil {
@@ -75,7 +75,7 @@ func (db DB) DoExecutorInTransaction(executors ...TransactionJob) (int, error) {
 		}
 		return result, nil
 	}
-	return db.ExecuteInTransaction(work)
+	return db.WorkInTransaction(work)
 }
 func (db DB) Insert(vs ...interface{}) (int, error) {
 	models := getTableModels(vs...)
