@@ -34,15 +34,47 @@ type Condition interface {
 	Value() []interface{}
 }
 type Conditions struct {
-	States string
-	Values []interface{}
+	states string
+	values []interface{}
 }
 
+func makeCondition() Conditions {
+	return Conditions{"", []interface{}{}}
+}
 func (c Conditions) State() string {
-	return c.States
+	return c.states
 }
 func (c Conditions) Value() []interface{} {
-	return c.Values
+	return c.values
+}
+func (c Conditions) And(sql string, values []interface{}) {
+	if c.states != "" {
+		c.states += " and " + sql
+	}
+	c.states += sql
+	c.values = append(c.values, values)
+}
+func (c Conditions) Or(sql string, values []interface{}) {
+	if c.states != "" {
+		c.states += " or " + sql
+	}
+	c.states += sql
+	c.values = append(c.values, values)
+}
+func (c Conditions) AndIn(name string, values []interface{}) {
+	if c.states != "" {
+		c.states += " and "
+	}
+	sql := name + " in ("
+	for i := 0; i < len(values); i++ {
+		if i == 0 {
+			sql += " ? "
+		} else {
+			sql += ", ? "
+		}
+	}
+	sql += ")"
+	c.values = append(c.values, values)
 }
 
 func (mo TableModel) InsertValues() []interface{} {
