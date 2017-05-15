@@ -83,7 +83,15 @@ func (db DB) Insert(vs ...interface{}) (int, error) {
 }
 func (db DB) InsertInTransaction(vs ...interface{}) (int, error) {
 	tables := getTableModels(vs...)
-	return db.ExecuteTransactionJob(TransactionJob{db.Factory.Insert, tables})
+	return db.ExecuteTransactionJob(TransactionJob{db.Factory.Replace, tables})
+}
+func (db DB) Replace(vs ...interface{}) (int, error) {
+	models := getTableModels(vs...)
+	return db.exec(TransactionJob{db.Factory.Insert, models})
+}
+func (db DB) ReplaceInTransaction(vs ...interface{}) (int, error) {
+	tables := getTableModels(vs...)
+	return db.ExecuteTransactionJob(TransactionJob{db.Factory.Replace, tables})
 }
 func (db DB) Delete(vs ...interface{}) (int, error) {
 	tables := getTableModels(vs...)

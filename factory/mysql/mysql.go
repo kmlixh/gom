@@ -5,87 +5,108 @@ import (
 	"github.com/janyees/gom"
 )
 
-func init()  {
-	gom.Register("mysql",&MySqlFactory{})
+func init() {
+	gom.Register("mysql", &MySqlFactory{})
 }
 
 type MySqlFactory struct {
-
 }
 
-func (MySqlFactory) Insert(model gom.TableModel) (string,[]interface{}) {
+func (MySqlFactory) Insert(model gom.TableModel) (string, []interface{}) {
 	var datas []interface{}
-	ccs:=[]gom.Column{model.Primary}
-	sql:="insert into "+"`"+model.TableName+"` ("
-	values:=""
-	ccs=append(ccs,model.Columns...)
-	for i,v:=range ccs{
-		value:=model.ModelValue.FieldByName(v.FieldName).Interface()
-		if value !=nil{
-			if i>0{
-				sql+=","
-				values+=","
+	ccs := []gom.Column{model.Primary}
+	sql := "insert into " + "`" + model.TableName + "` ("
+	values := ""
+	ccs = append(ccs, model.Columns...)
+	for i, v := range ccs {
+		value := model.ModelValue.FieldByName(v.FieldName).Interface()
+		if value != nil {
+			if i > 0 {
+				sql += ","
+				values += ","
 			}
-			datas=append(datas,value)
-			values+=" ? "
-			sql+=v.ColumnName
+			datas = append(datas, value)
+			values += " ? "
+			sql += v.ColumnName
 		}
 
 	}
-	sql+=") VALUES ("+values+")"
-	return sql,datas
+	sql += ") VALUES (" + values + ")"
+	return sql, datas
 }
-func (MySqlFactory)Delete(model gom.TableModel) (string,[]interface{}) {
-	sql:="delete from "+"`"+model.TableName+"` "
-	if model.Cnd != nil{
-		sql+=" where "+model.Cnd.State()+";"
-		return sql,model.Cnd.Value()
-	}else if model.GetPrimaryCondition()!=nil{
-		sql+=" where "+model.GetPrimaryCondition().State()+" ;"
-		return sql,model.GetPrimaryCondition().Value()
-	}else{
-		return sql+";",[]interface{}{}
+func (MySqlFactory) Replace(model gom.TableModel) (string, []interface{}) {
+	var datas []interface{}
+	ccs := []gom.Column{model.Primary}
+	sql := "replace into " + "`" + model.TableName + "` ("
+	values := ""
+	ccs = append(ccs, model.Columns...)
+	for i, v := range ccs {
+		value := model.ModelValue.FieldByName(v.FieldName).Interface()
+		if value != nil {
+			if i > 0 {
+				sql += ","
+				values += ","
+			}
+			datas = append(datas, value)
+			values += " ? "
+			sql += v.ColumnName
+		}
+
+	}
+	sql += ") VALUES (" + values + ")"
+	return sql, datas
+}
+func (MySqlFactory) Delete(model gom.TableModel) (string, []interface{}) {
+	sql := "delete from " + "`" + model.TableName + "` "
+	if model.Cnd != nil {
+		sql += " where " + model.Cnd.State() + ";"
+		return sql, model.Cnd.Value()
+	} else if model.GetPrimaryCondition() != nil {
+		sql += " where " + model.GetPrimaryCondition().State() + " ;"
+		return sql, model.GetPrimaryCondition().Value()
+	} else {
+		return sql + ";", []interface{}{}
 	}
 
 }
-func (MySqlFactory)Update(model gom.TableModel) (string,[]interface{}) {
+func (MySqlFactory) Update(model gom.TableModel) (string, []interface{}) {
 	var datas []interface{}
-	sql:="update "+"`"+model.TableName+"` set "
-	for i,v:=range model.Columns{
-		value:=model.ModelValue.FieldByName(v.FieldName).Interface()
-		if value !=nil{
-			if i>0{
-				sql+=","
+	sql := "update " + "`" + model.TableName + "` set "
+	for i, v := range model.Columns {
+		value := model.ModelValue.FieldByName(v.FieldName).Interface()
+		if value != nil {
+			if i > 0 {
+				sql += ","
 			}
-			sql+=v.ColumnName+" = ? "
-			datas=append(datas,value)
+			sql += v.ColumnName + " = ? "
+			datas = append(datas, value)
 		}
 	}
-	if model.Cnd!=nil{
-		sql+=" where "+model.Cnd.State()+";"
-		datas=append(datas,model.Cnd.Value()...)
-	}else if model.GetPrimaryCondition() !=nil {
-		sql+=" where "+model.GetPrimaryCondition().State()+";"
-		datas=append(datas,model.GetPrimaryCondition().Value()...)
-	}else{
-		sql+=";"
+	if model.Cnd != nil {
+		sql += " where " + model.Cnd.State() + ";"
+		datas = append(datas, model.Cnd.Value()...)
+	} else if model.GetPrimaryCondition() != nil {
+		sql += " where " + model.GetPrimaryCondition().State() + ";"
+		datas = append(datas, model.GetPrimaryCondition().Value()...)
+	} else {
+		sql += ";"
 	}
-	return sql,datas
+	return sql, datas
 }
-func (MySqlFactory)Query(model gom.TableModel) (string,[]interface{}) {
-	sql:="select "
-	sql+=model.Primary.ColumnName
-	for _,v:=range model.Columns{
-		sql+=","+v.ColumnName
+func (MySqlFactory) Query(model gom.TableModel) (string, []interface{}) {
+	sql := "select "
+	sql += model.Primary.ColumnName
+	for _, v := range model.Columns {
+		sql += "," + v.ColumnName
 	}
-	sql+=" from "+"`"+model.TableName+"`"
-	if model.Cnd!=nil{
-		sql+=" where "+model.Cnd.State()+";"
-		return sql,model.Cnd.Value()
-	}else if model.GetPrimaryCondition()!=nil{
-		sql+=" where "+model.GetPrimaryCondition().State()+";"
-		return sql,model.GetPrimaryCondition().Value()
-	}else{
-		return sql+";",[]interface{}{}
+	sql += " from " + "`" + model.TableName + "`"
+	if model.Cnd != nil {
+		sql += " where " + model.Cnd.State() + ";"
+		return sql, model.Cnd.Value()
+	} else if model.GetPrimaryCondition() != nil {
+		sql += " where " + model.GetPrimaryCondition().State() + ";"
+		return sql, model.GetPrimaryCondition().Value()
+	} else {
+		return sql + ";", []interface{}{}
 	}
 }
