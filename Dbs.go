@@ -63,7 +63,7 @@ func (db DB) WorkInTransaction(work TransactionWork) (int, error) {
 	tx.Commit()
 	return result, nil
 }
-func (db DB) ExecutorTransactionJob(jobs ...TransactionJob) (int, error) {
+func (db DB) ExecuteTransactionJob(jobs ...TransactionJob) (int, error) {
 	work := func(dd DB) (int, error) {
 		result := 0
 		for _, executor := range jobs {
@@ -83,7 +83,7 @@ func (db DB) Insert(vs ...interface{}) (int, error) {
 }
 func (db DB) InsertInTransaction(vs ...interface{}) (int, error) {
 	tables := getTableModels(vs...)
-	return db.WorkInTransaction(TransactionJob{db.Factory.Insert, tables})
+	return db.ExecuteTransactionJob(TransactionJob{db.Factory.Insert, tables})
 }
 func (db DB) Delete(vs ...interface{}) (int, error) {
 	tables := getTableModels(vs...)
@@ -91,7 +91,7 @@ func (db DB) Delete(vs ...interface{}) (int, error) {
 }
 func (db DB) DeleteInTransaction(vs ...interface{}) (int, error) {
 	tables := getTableModels(vs...)
-	return db.WorkInTransaction(TransactionJob{db.Factory.Delete, tables})
+	return db.ExecuteTransactionJob(TransactionJob{db.Factory.Delete, tables})
 }
 func (db DB) DeleteByConditon(v interface{}, c Condition) (int, error) {
 	tableModel := getTableModel(v)
@@ -101,7 +101,7 @@ func (db DB) DeleteByConditon(v interface{}, c Condition) (int, error) {
 func (db DB) DeleteByConditonInTransaction(v interface{}, c Condition) (int, error) {
 	tableModel := getTableModel(v)
 	tableModel.Cnd = c
-	return db.WorkInTransaction(TransactionJob{db.Factory.Delete, []TableModel{tableModel}})
+	return db.ExecuteTransactionJob(TransactionJob{db.Factory.Delete, []TableModel{tableModel}})
 }
 func (db DB) Update(vs ...interface{}) (int, error) {
 	tms := getTableModels(vs...)
@@ -109,7 +109,7 @@ func (db DB) Update(vs ...interface{}) (int, error) {
 }
 func (db DB) UpdateInTransaction(vs ...interface{}) (int, error) {
 	tables := getTableModels(vs...)
-	return db.WorkInTransaction(TransactionJob{db.Factory.Update, tables})
+	return db.ExecuteTransactionJob(TransactionJob{db.Factory.Update, tables})
 }
 func (db DB) UpdateByCondition(v interface{}, c Condition) (int, error) {
 	tableModel := getTableModel(v)
