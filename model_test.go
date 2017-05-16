@@ -61,11 +61,3 @@ type TestTable struct {
 func (TestTable) TableName() string {
 	return "test_table"
 }
-func TestOpen(t *testing.T) {
-	dsn := `root:121816@tcp(127.0.0.1:3306)/default`
-	db, er := Open("mysql", dsn, true)
-	if er != nil {
-		t.Error(er)
-	}
-	t.Log(db)
-}
