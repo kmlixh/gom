@@ -76,6 +76,21 @@ func (c Conditions) AndIn(name string, values []interface{}) {
 	sql += ")"
 	c.values = append(c.values, values)
 }
+func (c Conditions) OrIn(name string, values []interface{}) {
+	if c.states != "" {
+		c.states += " or "
+	}
+	sql := name + " in ("
+	for i := 0; i < len(values); i++ {
+		if i == 0 {
+			sql += " ? "
+		} else {
+			sql += ", ? "
+		}
+	}
+	sql += ")"
+	c.values = append(c.values, values)
+}
 
 func (mo TableModel) InsertValues() []interface{} {
 	var interfaces []interface{}
