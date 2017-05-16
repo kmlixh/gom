@@ -38,7 +38,7 @@ type Conditions struct {
 	values []interface{}
 }
 
-func Cnds(sql string, values []interface{}) Conditions {
+func Cnds(sql string, values ...interface{}) Conditions {
 	return Conditions{sql, values}
 }
 func (c Conditions) Condition() Condition {
@@ -50,7 +50,7 @@ func (c Conditions) State() string {
 func (c Conditions) Value() []interface{} {
 	return c.values
 }
-func (c Conditions) And(sql string, values []interface{}) Conditions {
+func (c Conditions) And(sql string, values ...interface{}) Conditions {
 	if c.states != "" {
 		c.states += " and " + sql
 	}
@@ -58,7 +58,7 @@ func (c Conditions) And(sql string, values []interface{}) Conditions {
 	c.values = append(c.values, values)
 	return c
 }
-func (c Conditions) Or(sql string, values []interface{}) Conditions {
+func (c Conditions) Or(sql string, values ...interface{}) Conditions {
 	if c.states != "" {
 		c.states += " or " + sql
 	}
@@ -66,7 +66,7 @@ func (c Conditions) Or(sql string, values []interface{}) Conditions {
 	c.values = append(c.values, values)
 	return c
 }
-func (c Conditions) AndIn(name string, values []interface{}) Conditions {
+func (c Conditions) AndIn(name string, values ...interface{}) Conditions {
 	if c.states != "" {
 		c.states += " and "
 	}
@@ -82,7 +82,7 @@ func (c Conditions) AndIn(name string, values []interface{}) Conditions {
 	c.values = append(c.values, values)
 	return c
 }
-func (c Conditions) OrIn(name string, values []interface{}) Conditions {
+func (c Conditions) OrIn(name string, values ...interface{}) Conditions {
 	if c.states != "" {
 		c.states += " or "
 	}
@@ -99,7 +99,7 @@ func (c Conditions) OrIn(name string, values []interface{}) Conditions {
 	c.values = append(c.values, values)
 	return c
 }
-func (c Conditions) Sql(sql string, values []interface{}) Conditions {
+func (c Conditions) Sql(sql string, values ...interface{}) Conditions {
 	c.states += sql
 	c.values = append(c.values, values)
 	return c
