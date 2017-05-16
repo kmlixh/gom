@@ -1,6 +1,7 @@
 package gom
 
 import (
+	_ "github.com/janyees/gom/factory/mysql"
 	"testing"
 	"time"
 )
@@ -49,4 +50,22 @@ func BenchmarkCnds(b *testing.B) {
 	cnd := Cnd("name=? and id=? and user_anasf=?", "nide", 2.34, 1, true)
 	b.Log(cnd)
 
+}
+
+type TestTable struct {
+	Id  int `json:"id" gom:"@"`
+	Kid int `json:"kid" gom:"#"`
+	Vid int `json:"vid" gom:"#"`
+}
+
+func (TestTable) TableName() string {
+	return "test_table"
+}
+func TestOpen(t *testing.T) {
+	dsn := `root:121816@tcp(127.0.0.1:3306)/default`
+	db, er := Open("mysql", dsn, true)
+	if er != nil {
+		t.Error(er)
+	}
+	t.Log(db)
 }
