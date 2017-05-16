@@ -38,8 +38,11 @@ type Conditions struct {
 	values []interface{}
 }
 
-func makeCondition() Conditions {
-	return Conditions{"", []interface{}{}}
+func Cnds(sql string, values []interface{}) Conditions {
+	return Conditions{sql, values}
+}
+func (c Conditions) Condition() Condition {
+	return c
 }
 func (c Conditions) State() string {
 	return c.states
@@ -47,21 +50,23 @@ func (c Conditions) State() string {
 func (c Conditions) Value() []interface{} {
 	return c.values
 }
-func (c Conditions) And(sql string, values []interface{}) {
+func (c Conditions) And(sql string, values []interface{}) Conditions {
 	if c.states != "" {
 		c.states += " and " + sql
 	}
 	c.states += sql
 	c.values = append(c.values, values)
+	return c
 }
-func (c Conditions) Or(sql string, values []interface{}) {
+func (c Conditions) Or(sql string, values []interface{}) Conditions {
 	if c.states != "" {
 		c.states += " or " + sql
 	}
 	c.states += sql
 	c.values = append(c.values, values)
+	return c
 }
-func (c Conditions) AndIn(name string, values []interface{}) {
+func (c Conditions) AndIn(name string, values []interface{}) Conditions {
 	if c.states != "" {
 		c.states += " and "
 	}
@@ -75,8 +80,9 @@ func (c Conditions) AndIn(name string, values []interface{}) {
 	}
 	sql += ")"
 	c.values = append(c.values, values)
+	return c
 }
-func (c Conditions) OrIn(name string, values []interface{}) {
+func (c Conditions) OrIn(name string, values []interface{}) Conditions {
 	if c.states != "" {
 		c.states += " or "
 	}
@@ -89,7 +95,14 @@ func (c Conditions) OrIn(name string, values []interface{}) {
 		}
 	}
 	sql += ")"
+	c.states += sql
 	c.values = append(c.values, values)
+	return c
+}
+func (c Conditions) Sql(sql string, values []interface{}) Conditions {
+	c.states += sql
+	c.values = append(c.values, values)
+	return c
 }
 
 func (mo TableModel) InsertValues() []interface{} {
