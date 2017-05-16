@@ -131,10 +131,8 @@ func (db DB) UpdateByConditionInTransaction(v interface{}, c Condition) (int, er
 	tableModel.Cnd = c
 	return db.exec(TransactionJob{db.Factory.Update, []TableModel{tableModel}})
 }
-
-func (db DB) Query(vs interface{}, c Condition) interface{} {
+func (db DB) QueryByTableModel(model TableModel, vs interface{}, c Condition) interface{} {
 	tps, isPtr, islice := getType(vs)
-	model := getTableModel(vs)
 	if debug {
 		fmt.Println("model:", model)
 	}
@@ -187,4 +185,10 @@ func (db DB) Query(vs interface{}, c Condition) interface{} {
 	} else {
 		return nil
 	}
+}
+
+func (db DB) Query(vs interface{}, c Condition) interface{} {
+	model := getTableModel(vs)
+	return db.QueryByTableModel(model, vs, c)
+
 }
