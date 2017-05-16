@@ -42,11 +42,11 @@ func BenchmarkTableModel(b *testing.B) {
 	b.Log(m1, m2)
 }
 func TestCnds(t *testing.T) {
-	cnd := Cnds("name =? and id=?", "nicker", 1)
+	cnd := Cnd("name =? and id=?", "nicker", 1)
 	t.Log(cnd)
 }
 func BenchmarkCnds(b *testing.B) {
-	cnd := Cnds("name=? and id=? and user_anasf=?", "nide", 2.34, 1, true)
+	cnd := Cnd("name=? and id=? and user_anasf=?", "nide", 2.34, 1, true)
 	b.Log(cnd)
 
 }
