@@ -1,7 +1,6 @@
 package gom
 
 import (
-	_ "github.com/janyees/gom/factory/mysql"
 	"testing"
 	"time"
 )
