@@ -27,6 +27,7 @@ type Column struct {
 	ColumnType reflect.Type
 	ColumnName string
 	FieldName  string
+	IsPrimary  bool
 	Auto       bool
 }
 type Condition interface {
@@ -122,7 +123,7 @@ func (m TableModel) GetPrimary() interface{} {
 	return m.ModelValue.FieldByName(m.Primary.FieldName).Interface()
 }
 func (m TableModel) GetPrimaryCondition() Condition {
-	if IsEmpty(m.GetPrimary()) {
+	if IsEmpty(m.GetPrimary()) || m.Primary.IsPrimary == false {
 		return nil
 	} else {
 		return Conditions{m.Primary.ColumnName + " = ?", []interface{}{m.GetPrimary()}}

@@ -14,10 +14,9 @@ type MySqlFactory struct {
 
 func (MySqlFactory) Insert(model gom.TableModel) (string, []interface{}) {
 	var datas []interface{}
-	ccs := []gom.Column{model.Primary}
+	ccs := model.Columns
 	sql := "insert into " + "`" + model.TableName + "` ("
 	values := ""
-	ccs = append(ccs, model.Columns...)
 	for i, v := range ccs {
 		value := model.ModelValue.FieldByName(v.FieldName).Interface()
 		if value != nil {
@@ -36,10 +35,9 @@ func (MySqlFactory) Insert(model gom.TableModel) (string, []interface{}) {
 }
 func (MySqlFactory) Replace(model gom.TableModel) (string, []interface{}) {
 	var datas []interface{}
-	ccs := []gom.Column{model.Primary}
+	ccs := model.Columns
 	sql := "replace into " + "`" + model.TableName + "` ("
 	values := ""
-	ccs = append(ccs, model.Columns...)
 	for i, v := range ccs {
 		value := model.ModelValue.FieldByName(v.FieldName).Interface()
 		if value != nil {
@@ -95,9 +93,12 @@ func (MySqlFactory) Update(model gom.TableModel) (string, []interface{}) {
 }
 func (MySqlFactory) Query(model gom.TableModel) (string, []interface{}) {
 	sql := "select "
-	sql += model.Primary.ColumnName
-	for _, v := range model.Columns {
-		sql += "," + v.ColumnName
+	for i, v := range model.Columns {
+		if i == 0 {
+			sql += v.ColumnName
+		} else {
+			sql += "," + v.ColumnName
+		}
 	}
 	sql += " from " + "`" + model.TableName + "`"
 	if model.Cnd != nil {
