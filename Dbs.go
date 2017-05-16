@@ -103,7 +103,9 @@ func (db DB) DeleteInTransaction(vs ...interface{}) (int, error) {
 }
 func (db DB) DeleteByConditon(v interface{}, c Condition) (int, error) {
 	tableModel := getTableModel(v)
-	tableModel.Cnd = c
+	if c.State() != "" {
+		tableModel.Cnd = c
+	}
 	return db.exec(TransactionJob{db.Factory.Delete, []TableModel{tableModel}})
 }
 func (db DB) DeleteByConditonInTransaction(v interface{}, c Condition) (int, error) {
@@ -137,7 +139,9 @@ func (db DB) Query(vs interface{}, c Condition) interface{} {
 		fmt.Println("model:", model)
 	}
 	if len(model.TableName) > 0 {
-		model.Cnd = c
+		if c.State() != "" {
+			model.Cnd = c
+		}
 		if islice {
 			results := reflect.Indirect(reflect.ValueOf(vs))
 			sqls, adds := db.Factory.Query(model)
