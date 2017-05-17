@@ -169,7 +169,7 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 	maps := getBytesMap(model, row)
 	ccs := model.Columns
 	vv := reflect.New(model.ModelType)
-	isStruct := model.ModelType.Kind() == reflect.Struct
+	isStruct := model.ModelType.Kind() == reflect.Struct && model.ModelType != reflect.TypeOf(time.Time{})
 	for _, c := range ccs {
 		var dds interface{}
 		dbytes := maps[c.ColumnName]
