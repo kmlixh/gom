@@ -68,7 +68,7 @@ func (c Conditions) Or(sql string, values ...interface{}) Conditions {
 	return c
 }
 func (c Conditions) AndIn(name string, values ...interface{}) Conditions {
-	if len(values) {
+	if len(values) > 0 {
 		if c.states != "" {
 			c.states += " and "
 		}

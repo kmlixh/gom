@@ -7,8 +7,8 @@ import (
 )
 
 type DB struct {
-	Factory SqlFactory
-	Db      *sql.DB
+	factory SqlFactory
+	db      *sql.DB
 }
 type Execute func(TableModel) (string, []interface{})
 
@@ -17,16 +17,17 @@ type TransactionJob struct {
 	tms     []TableModel
 }
 
-type ExecutorType int
-
+func (db DB) GetRawDb() *sql.DB {
+	return db.db
+}
 func (db DB) MakeInsertTransactionJob(tableModel []TableModel) TransactionJob {
-	return TransactionJob{db.Factory.Insert, tableModel}
+	return TransactionJob{db.factory.Insert, tableModel}
 }
 func (db DB) MakeUpdateTransactionJob(tableModel []TableModel) TransactionJob {
-	return TransactionJob{db.Factory.Update, tableModel}
+	return TransactionJob{db.factory.Update, tableModel}
 }
 func (db DB) MakeDeleteTransactionJob(tableModel []TableModel) TransactionJob {
-	return TransactionJob{db.Factory.Delete, tableModel}
+	return TransactionJob{db.factory.Delete, tableModel}
 }
 
 func (db DB) exec(executor TransactionJob) (int, error) {
@@ -36,7 +37,7 @@ func (db DB) exec(executor TransactionJob) (int, error) {
 		if debug {
 			fmt.Println(sqls, datas)
 		}
-		result, err := db.Db.Exec(sqls, datas...)
+		result, err := db.db.Exec(sqls, datas...)
 		if err != nil {
 			return results, err
 		} else {
@@ -51,7 +52,7 @@ type TransactionWork func(db DB) (int, error)
 
 func (db DB) WorkInTransaction(work TransactionWork) (int, error) {
 	result := 0
-	tx, err := db.Db.Begin()
+	tx, err := db.db.Begin()
 	if err != nil {
 		return result, err
 	}
@@ -79,57 +80,57 @@ func (db DB) ExecuteTransactionJob(jobs ...TransactionJob) (int, error) {
 }
 func (db DB) Insert(vs ...interface{}) (int, error) {
 	models := getTableModels(vs...)
-	return db.exec(TransactionJob{db.Factory.Insert, models})
+	return db.exec(TransactionJob{db.factory.Insert, models})
 }
 func (db DB) InsertInTransaction(vs ...interface{}) (int, error) {
 	tables := getTableModels(vs...)
-	return db.ExecuteTransactionJob(TransactionJob{db.Factory.Replace, tables})
+	return db.ExecuteTransactionJob(TransactionJob{db.factory.Replace, tables})
 }
 func (db DB) Replace(vs ...interface{}) (int, error) {
 	models := getTableModels(vs...)
-	return db.exec(TransactionJob{db.Factory.Insert, models})
+	return db.exec(TransactionJob{db.factory.Insert, models})
 }
 func (db DB) ReplaceInTransaction(vs ...interface{}) (int, error) {
 	tables := getTableModels(vs...)
-	return db.ExecuteTransactionJob(TransactionJob{db.Factory.Replace, tables})
+	return db.ExecuteTransactionJob(TransactionJob{db.factory.Replace, tables})
 }
 func (db DB) Delete(vs ...interface{}) (int, error) {
 	tables := getTableModels(vs...)
-	return db.exec(TransactionJob{db.Factory.Delete, tables})
+	return db.exec(TransactionJob{db.factory.Delete, tables})
 }
 func (db DB) DeleteInTransaction(vs ...interface{}) (int, error) {
 	tables := getTableModels(vs...)
-	return db.ExecuteTransactionJob(TransactionJob{db.Factory.Delete, tables})
+	return db.ExecuteTransactionJob(TransactionJob{db.factory.Delete, tables})
 }
 func (db DB) DeleteByConditon(v interface{}, c Condition) (int, error) {
 	tableModel := getTableModel(v)
 	if c.State() != "" {
 		tableModel.Cnd = c
 	}
-	return db.exec(TransactionJob{db.Factory.Delete, []TableModel{tableModel}})
+	return db.exec(TransactionJob{db.factory.Delete, []TableModel{tableModel}})
 }
 func (db DB) DeleteByConditonInTransaction(v interface{}, c Condition) (int, error) {
 	tableModel := getTableModel(v)
 	tableModel.Cnd = c
-	return db.ExecuteTransactionJob(TransactionJob{db.Factory.Delete, []TableModel{tableModel}})
+	return db.ExecuteTransactionJob(TransactionJob{db.factory.Delete, []TableModel{tableModel}})
 }
 func (db DB) Update(vs ...interface{}) (int, error) {
 	tms := getTableModels(vs...)
-	return db.exec(TransactionJob{db.Factory.Update, tms})
+	return db.exec(TransactionJob{db.factory.Update, tms})
 }
 func (db DB) UpdateInTransaction(vs ...interface{}) (int, error) {
 	tables := getTableModels(vs...)
-	return db.ExecuteTransactionJob(TransactionJob{db.Factory.Update, tables})
+	return db.ExecuteTransactionJob(TransactionJob{db.factory.Update, tables})
 }
 func (db DB) UpdateByCondition(v interface{}, c Condition) (int, error) {
 	tableModel := getTableModel(v)
 	tableModel.Cnd = c
-	return db.exec(TransactionJob{db.Factory.Update, []TableModel{tableModel}})
+	return db.exec(TransactionJob{db.factory.Update, []TableModel{tableModel}})
 }
 func (db DB) UpdateByConditionInTransaction(v interface{}, c Condition) (int, error) {
 	tableModel := getTableModel(v)
 	tableModel.Cnd = c
-	return db.exec(TransactionJob{db.Factory.Update, []TableModel{tableModel}})
+	return db.exec(TransactionJob{db.factory.Update, []TableModel{tableModel}})
 }
 func (db DB) QueryByTableModel(model TableModel, vs interface{}, c Condition) interface{} {
 	tps, isPtr, islice := getType(vs)
@@ -142,11 +143,11 @@ func (db DB) QueryByTableModel(model TableModel, vs interface{}, c Condition) in
 		}
 		if islice {
 			results := reflect.Indirect(reflect.ValueOf(vs))
-			sqls, adds := db.Factory.Query(model)
+			sqls, adds := db.factory.Query(model)
 			if debug {
 				fmt.Println(sqls, adds)
 			}
-			rows, err := db.Db.Query(sqls, adds...)
+			rows, err := db.db.Query(sqls, adds...)
 			if err != nil {
 				return nil
 			}
@@ -162,11 +163,11 @@ func (db DB) QueryByTableModel(model TableModel, vs interface{}, c Condition) in
 			return vs
 
 		} else {
-			sqls, adds := db.Factory.Query(model)
+			sqls, adds := db.factory.Query(model)
 			if debug {
 				fmt.Println(sqls, adds)
 			}
-			row := db.Db.QueryRow(sqls, adds...)
+			row := db.db.QueryRow(sqls, adds...)
 			if debug {
 				fmt.Println("row is", row)
 			}
