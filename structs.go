@@ -68,36 +68,41 @@ func (c Conditions) Or(sql string, values ...interface{}) Conditions {
 	return c
 }
 func (c Conditions) AndIn(name string, values ...interface{}) Conditions {
-	if c.states != "" {
-		c.states += " and "
-	}
-	sql := name + " in ("
-	for i := 0; i < len(values); i++ {
-		if i == 0 {
-			sql += " ? "
-		} else {
-			sql += ", ? "
+	if len(values) {
+		if c.states != "" {
+			c.states += " and "
 		}
+		sql := name + " in ("
+		for i := 0; i < len(values); i++ {
+			if i == 0 {
+				sql += " ? "
+			} else {
+				sql += ", ? "
+			}
+		}
+		sql += ")"
+		c.states += sql
+		c.values = append(c.values, values)
 	}
-	sql += ")"
-	c.values = append(c.values, values)
 	return c
 }
 func (c Conditions) OrIn(name string, values ...interface{}) Conditions {
-	if c.states != "" {
-		c.states += " or "
-	}
-	sql := name + " in ("
-	for i := 0; i < len(values); i++ {
-		if i == 0 {
-			sql += " ? "
-		} else {
-			sql += ", ? "
+	if len(values) > 0 {
+		if c.states != "" {
+			c.states += " or "
 		}
+		sql := name + " in ("
+		for i := 0; i < len(values); i++ {
+			if i == 0 {
+				sql += " ? "
+			} else {
+				sql += ", ? "
+			}
+		}
+		sql += ")"
+		c.states += sql
+		c.values = append(c.values, values)
 	}
-	sql += ")"
-	c.states += sql
-	c.values = append(c.values, values)
 	return c
 }
 func (c Conditions) Sql(sql string, values ...interface{}) Conditions {
