@@ -79,7 +79,7 @@ func getTableModel(v interface{}) TableModel {
 			tableName := nameMethod.Call(nil)[0].String()
 			columns, primary := getColumns(vals)
 			ccs := []Column{primary}
-			ccs = append(ccs, columns)
+			ccs = append(ccs, columns...)
 			return TableModel{ModelType: tt, ModelValue: vals, Columns: ccs, TableName: tableName, Primary: primary}
 		} else {
 			return TableModel{}
