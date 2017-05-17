@@ -78,7 +78,9 @@ func getTableModel(v interface{}) TableModel {
 			nameMethod := vals.MethodByName("TableName")
 			tableName := nameMethod.Call(nil)[0].String()
 			columns, primary := getColumns(vals)
-			return TableModel{ModelType: tt, ModelValue: vals, Columns: columns, TableName: tableName, Primary: primary}
+			ccs := []Column{primary}
+			ccs = append(ccs, columns)
+			return TableModel{ModelType: tt, ModelValue: vals, Columns: ccs, TableName: tableName, Primary: primary}
 		} else {
 			return TableModel{}
 		}
@@ -95,16 +97,18 @@ func getColumns(v reflect.Value) ([]Column, Column) {
 	for ; i < oo.NumField(); i++ {
 		field := oo.Field(i)
 		col, tps := getColumnFromField(field)
-		if tps == 1 || tps == 2 {
-			primary = col
-		}
 		if tps != -1 {
-			n := reflect.Indirect(reflect.ValueOf(&col))
-			if results.Kind() == reflect.Ptr {
-				results.Set(reflect.Append(results, n.Addr()))
+			if tps == 1 || tps == 2 {
+				primary = col
 			} else {
-				results.Set(reflect.Append(results, n))
+				n := reflect.Indirect(reflect.ValueOf(&col))
+				if results.Kind() == reflect.Ptr {
+					results.Set(reflect.Append(results, n.Addr()))
+				} else {
+					results.Set(reflect.Append(results, n))
+				}
 			}
+
 		}
 	}
 	if debug {

@@ -94,11 +94,13 @@ func (MySqlFactory) Update(model gom.TableModel) (string, []interface{}) {
 func (MySqlFactory) Query(model gom.TableModel) (string, []interface{}) {
 	sql := "select "
 	for i, v := range model.Columns {
-		if i == 0 {
-			sql += v.ColumnName
-		} else {
-			sql += "," + v.ColumnName
+		if i > 0 {
+			sql += ","
 		}
+		if v.IsPrimary {
+			sql += " distinct "
+		}
+		sql += v.ColumnName
 	}
 	sql += " from " + "`" + model.TableName + "`"
 	if model.Cnd != nil {
