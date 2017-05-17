@@ -7,9 +7,6 @@ import (
 	"time"
 )
 
-func Cnd(sql string, vs ...interface{}) Condition {
-	return Conditions{sql, vs}
-}
 func IsEmpty(v interface{}) bool {
 	times := time.Time{}
 	if times == v {

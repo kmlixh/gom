@@ -39,11 +39,8 @@ type Conditions struct {
 	values []interface{}
 }
 
-func Cnds(sql string, values ...interface{}) Conditions {
+func Cnd(sql string, values ...interface{}) Conditions {
 	return Conditions{sql, values}
-}
-func (c Conditions) Condition() Condition {
-	return c
 }
 func (c Conditions) State() string {
 	return c.states
