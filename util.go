@@ -76,6 +76,9 @@ func getTableModel(v interface{}) TableModel {
 		vals := reflect.New(tt).Elem()
 		if tt.NumField() > 0 && tt.NumMethod() > 0 {
 			nameMethod := vals.MethodByName("TableName")
+			if debug {
+				fmt.Println(nameMethod)
+			}
 			tableName := nameMethod.Call(nil)[0].String()
 			columns, primary := getColumns(vals)
 			ccs := []Column{primary}
