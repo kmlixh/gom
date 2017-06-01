@@ -88,7 +88,7 @@ func (db DB) InsertInTransaction(vs ...interface{}) (int, error) {
 }
 func (db DB) Replace(vs ...interface{}) (int, error) {
 	models := getTableModels(vs...)
-	return db.exec(TransactionJob{db.factory.Insert, models})
+	return db.exec(TransactionJob{db.factory.Replace, models})
 }
 func (db DB) ReplaceInTransaction(vs ...interface{}) (int, error) {
 	tables := getTableModels(vs...)
