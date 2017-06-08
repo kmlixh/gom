@@ -78,7 +78,7 @@ func getTableModel(v interface{}) TableModel {
 			vals = vals.Elem()
 		}
 		if isSlice {
-			vals = vals.Elem()
+			vals = reflect.New(tt)
 		}
 		if tt.NumField() > 0 && tt.NumMethod() > 0 {
 			nameMethod := vals.MethodByName("TableName")
