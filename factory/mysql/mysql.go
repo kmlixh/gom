@@ -3,6 +3,7 @@ package gom
 import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/janyees/gom"
+	"strings"
 )
 
 func init() {
@@ -26,32 +27,16 @@ func (MySqlFactory) Insert(model gom.TableModel) (string, []interface{}) {
 			}
 			datas = append(datas, value)
 			values += " ? "
-			sql += v.ColumnName
+			sql += "`" + v.ColumnName + "`"
 		}
 
 	}
 	sql += ") VALUES (" + values + ")"
 	return sql, datas
 }
-func (MySqlFactory) Replace(model gom.TableModel) (string, []interface{}) {
-	var datas []interface{}
-	ccs := model.Columns
-	sql := "replace into " + "`" + model.TableName + "` ("
-	values := ""
-	for i, v := range ccs {
-		value := model.ModelValue.FieldByName(v.FieldName).Interface()
-		if value != nil {
-			if i > 0 {
-				sql += ","
-				values += ","
-			}
-			datas = append(datas, value)
-			values += " ? "
-			sql += v.ColumnName
-		}
-
-	}
-	sql += ") VALUES (" + values + ")"
+func (fac MySqlFactory) Replace(model gom.TableModel) (string, []interface{}) {
+	sql, datas := fac.Insert(model)
+	sql = strings.Replace(sql, "insert", "replace", 0)
 	return sql, datas
 }
 func (MySqlFactory) Delete(model gom.TableModel) (string, []interface{}) {
@@ -76,7 +61,7 @@ func (MySqlFactory) Update(model gom.TableModel) (string, []interface{}) {
 			if i > 0 {
 				sql += ","
 			}
-			sql += v.ColumnName + " = ? "
+			sql += "`" + v.ColumnName + "` = ? "
 			datas = append(datas, value)
 		}
 	}
@@ -100,7 +85,7 @@ func (MySqlFactory) Query(model gom.TableModel) (string, []interface{}) {
 		if v.IsPrimary {
 			sql += " distinct "
 		}
-		sql += v.ColumnName
+		sql += "`" + v.ColumnName + "`"
 	}
 	sql += " from " + "`" + model.TableName + "`"
 	if model.Cnd != nil {

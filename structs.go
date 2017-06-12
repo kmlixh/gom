@@ -128,6 +128,6 @@ func (m TableModel) GetPrimaryCondition() Condition {
 	if IsEmpty(m.GetPrimary()) || m.Primary.IsPrimary == false {
 		return nil
 	} else {
-		return Conditions{m.Primary.ColumnName + " = ?", []interface{}{m.GetPrimary()}}
+		return Conditions{"`" + m.Primary.ColumnName + "` = ?", []interface{}{m.GetPrimary()}}
 	}
 }
