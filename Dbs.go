@@ -58,6 +58,9 @@ func (db DB) WorkInTransaction(work TransactionWork) (int, error) {
 	}
 	result, err = work(db)
 	if err != nil {
+		if debug {
+			fmt.Println("rollback transaction")
+		}
 		tx.Rollback()
 		return result, err
 	}
