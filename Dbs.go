@@ -6,142 +6,33 @@ import (
 	"reflect"
 )
 
-type DataBase interface {
-	Insert(vs ...interface{}) (int, error)
-	Update(vs ...interface{}) (int, error)
+type TransactionWork func(databaseTx *DataBase) (int, error)
+
+type sqlExecutor interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+	QueryRow(query string, args ...interface{}) *sql.Row
+	Prepare(query string) (*sql.Stmt, error)
+}
+type DataBase struct {
+	factory  SqlFactory
+	rawDb    *sql.DB
+	executor sqlExecutor
 }
 
-type DataBases struct {
-	factory SqlFactory
-	db      *sql.DB
+func (db DataBase) RawDb() *sql.DB {
+	return db.rawDb
 }
-type CreateSql func(TableModel) (string, []interface{})
-
-type SqlGenerator struct {
-	createSql   CreateSql
-	tableModels []TableModel
+func (Db DataBase) makeInsertSqlGenerator(tableModel []TableModel) SqlGenerator {
+	return SqlGenerator{Db.factory.Insert, tableModel}
 }
-
-func (db DataBases) GetRawDb() *sql.DB {
-	db.db.ExecContext()
-	return db.db
+func (Db DataBase) makeUpdateSqlGenerator(tableModel []TableModel) SqlGenerator {
+	return SqlGenerator{Db.factory.Update, tableModel}
 }
-func (db DataBases) MakeInsertSqlGenerator(tableModel []TableModel) SqlGenerator {
-	return SqlGenerator{db.factory.Insert, tableModel}
+func (Db DataBase) makeDeleteSqlGenerator(tableModel []TableModel) SqlGenerator {
+	return SqlGenerator{Db.factory.Delete, tableModel}
 }
-func (db DataBases) MakeUpdateSqlGenerator(tableModel []TableModel) SqlGenerator {
-	return SqlGenerator{db.factory.Update, tableModel}
-}
-func (db DataBases) MakeDeleteSqlGenerator(tableModel []TableModel) SqlGenerator {
-	return SqlGenerator{db.factory.Delete, tableModel}
-}
-
-func (db DataBases) execute(manager SqlGenerator) (int, error) {
-	var results int
-	for _, model := range manager.tableModels {
-		sqls, datas := manager.createSql(model)
-		if debug {
-			fmt.Println(sqls, datas)
-		}
-		result, err := db.db.Exec(sqls, datas...)
-		if err != nil {
-			return results, err
-		} else {
-			rows, _ := result.RowsAffected()
-			results += int(rows)
-		}
-	}
-	return results, nil
-}
-
-type TransactionWork func(tx *sql.Tx) (int, error)
-
-func (db DataBases) WorkInTransaction(work TransactionWork) (int, error) {
-	result := 0
-	tx, err := db.db.Begin()
-	if err != nil {
-		return result, err
-	}
-	result, err = work(tx)
-	if err != nil {
-		if debug {
-			fmt.Println("rollback transaction")
-		}
-		tx.Rollback()
-		return result, err
-	}
-	tx.Commit()
-	return result, nil
-}
-func (db DataBases) ExecuteSqlGenerator(jobs ...SqlGenerator) (int, error) {
-	work := func(dd DataBases) (int, error) {
-		result := 0
-		for _, executor := range jobs {
-			rt, ers := dd.execute(executor)
-			result += rt
-			if ers != nil {
-				return result, ers
-			}
-		}
-		return result, nil
-	}
-	return db.WorkInTransaction(work)
-}
-func (db DataBases) Insert(vs ...interface{}) (int, error) {
-	models := getTableModels(vs...)
-	return db.execute(SqlGenerator{db.factory.Insert, models})
-}
-func (db DataBases) InsertInTransaction(vs ...interface{}) (int, error) {
-	tables := getTableModels(vs...)
-	return db.ExecuteSqlGenerator(SqlGenerator{db.factory.Replace, tables})
-}
-func (db DataBases) Replace(vs ...interface{}) (int, error) {
-	models := getTableModels(vs...)
-	return db.execute(SqlGenerator{db.factory.Replace, models})
-}
-func (db DataBases) ReplaceInTransaction(vs ...interface{}) (int, error) {
-	tables := getTableModels(vs...)
-	return db.ExecuteSqlGenerator(SqlGenerator{db.factory.Replace, tables})
-}
-func (db DataBases) Delete(vs ...interface{}) (int, error) {
-	tables := getTableModels(vs...)
-	return db.execute(SqlGenerator{db.factory.Delete, tables})
-}
-func (db DataBases) DeleteInTransaction(vs ...interface{}) (int, error) {
-	tables := getTableModels(vs...)
-	return db.ExecuteSqlGenerator(SqlGenerator{db.factory.Delete, tables})
-}
-func (db DataBases) DeleteByConditon(v interface{}, c Condition) (int, error) {
-	tableModel := getTableModel(v)
-	if c.State() != "" {
-		tableModel.Cnd = c
-	}
-	return db.execute(SqlGenerator{db.factory.Delete, []TableModel{tableModel}})
-}
-func (db DataBases) DeleteByConditonInTransaction(v interface{}, c Condition) (int, error) {
-	tableModel := getTableModel(v)
-	tableModel.Cnd = c
-	return db.ExecuteSqlGenerator(SqlGenerator{db.factory.Delete, []TableModel{tableModel}})
-}
-func (db DataBases) Update(vs ...interface{}) (int, error) {
-	tms := getTableModels(vs...)
-	return db.execute(SqlGenerator{db.factory.Update, tms})
-}
-func (db DataBases) UpdateInTransaction(vs ...interface{}) (int, error) {
-	tables := getTableModels(vs...)
-	return db.ExecuteSqlGenerator(SqlGenerator{db.factory.Update, tables})
-}
-func (db DataBases) UpdateByCondition(v interface{}, c Condition) (int, error) {
-	tableModel := getTableModel(v)
-	tableModel.Cnd = c
-	return db.execute(SqlGenerator{db.factory.Update, []TableModel{tableModel}})
-}
-func (db DataBases) UpdateByConditionInTransaction(v interface{}, c Condition) (int, error) {
-	tableModel := getTableModel(v)
-	tableModel.Cnd = c
-	return db.execute(SqlGenerator{db.factory.Update, []TableModel{tableModel}})
-}
-func (db DataBases) QueryByTableModel(model TableModel, vs interface{}, c Condition) interface{} {
+func (Db DataBase) QueryByTableModel(model TableModel, vs interface{}, c Condition) interface{} {
 	tps, isPtr, islice := getType(vs)
 	if debug {
 		fmt.Println("model:", model)
@@ -152,11 +43,11 @@ func (db DataBases) QueryByTableModel(model TableModel, vs interface{}, c Condit
 		}
 		if islice {
 			results := reflect.Indirect(reflect.ValueOf(vs))
-			sqls, adds := db.factory.Query(model)
+			sqls, adds := Db.factory.Query(model)
 			if debug {
 				fmt.Println(sqls, adds)
 			}
-			rows, err := db.db.Query(sqls, adds...)
+			rows, err := Db.executor.Query(sqls, adds...)
 			if err != nil {
 				return nil
 			}
@@ -172,11 +63,11 @@ func (db DataBases) QueryByTableModel(model TableModel, vs interface{}, c Condit
 			return vs
 
 		} else {
-			sqls, adds := db.factory.Query(model)
+			sqls, adds := Db.factory.Query(model)
 			if debug {
 				fmt.Println(sqls, adds)
 			}
-			row := db.db.QueryRow(sqls, adds...)
+			row := Db.executor.QueryRow(sqls, adds...)
 			if debug {
 				fmt.Println("row is", row)
 			}
@@ -197,8 +88,77 @@ func (db DataBases) QueryByTableModel(model TableModel, vs interface{}, c Condit
 	}
 }
 
-func (db DataBases) Query(vs interface{}, c Condition) interface{} {
+func (db DataBase) Query(vs interface{}, c Condition) interface{} {
 	model := getTableModel(vs)
 	return db.QueryByTableModel(model, vs, c)
 
+}
+
+func (db DataBase) WorkInTransaction(work TransactionWork) (int, error) {
+	result := 0
+	tx, err := db.rawDb.Begin()
+	if err != nil {
+		return result, err
+	}
+
+	result, err = work(&DataBase{rawDb: db.rawDb, factory: db.factory, executor: tx})
+	if err != nil {
+		tx.Rollback()
+		return result, err
+	}
+	tx.Commit()
+	return result, nil
+}
+func (db DataBase) execute(job SqlGenerator) (int, error) {
+	result := 0
+	for _, table := range job.tableModels {
+		sql, datas := job.createSql(table)
+		st, ers := db.executor.Prepare(sql)
+		if ers != nil {
+			return -1, ers
+		}
+		rt, ers := st.Exec(datas)
+		if ers != nil {
+			return -1, ers
+		}
+		count, ers := rt.RowsAffected()
+		result += int(count)
+		if ers != nil {
+			return result, ers
+		}
+	}
+	return result, nil
+}
+func (db DataBase) Insert(vs ...interface{}) (int, error) {
+	models := getTableModels(vs...)
+	return db.execute(SqlGenerator{db.factory.Insert, models})
+}
+
+func (db DataBase) Replace(vs ...interface{}) (int, error) {
+	models := getTableModels(vs...)
+	return db.execute(SqlGenerator{db.factory.Replace, models})
+}
+
+func (db DataBase) Delete(vs ...interface{}) (int, error) {
+	tables := getTableModels(vs...)
+	return db.execute(SqlGenerator{db.factory.Delete, tables})
+}
+
+func (db DataBase) DeleteByConditon(v interface{}, c Condition) (int, error) {
+	tableModel := getTableModel(v)
+	if c.State() != "" {
+		tableModel.Cnd = c
+	}
+	return db.execute(SqlGenerator{db.factory.Delete, []TableModel{tableModel}})
+}
+
+func (db DataBase) Update(vs ...interface{}) (int, error) {
+	tms := getTableModels(vs...)
+	return db.execute(SqlGenerator{db.factory.Update, tms})
+}
+
+func (db DataBase) UpdateByCondition(v interface{}, c Condition) (int, error) {
+	tableModel := getTableModel(v)
+	tableModel.Cnd = c
+	return db.execute(SqlGenerator{db.factory.Update, []TableModel{tableModel}})
 }

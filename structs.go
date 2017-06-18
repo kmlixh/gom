@@ -4,6 +4,12 @@ import (
 	"reflect"
 )
 
+type CreateSql func(TableModel) (string, []interface{})
+
+type SqlGenerator struct {
+	createSql   CreateSql
+	tableModels []TableModel
+}
 type SqlFactory interface {
 	Insert(TableModel) (string, []interface{})
 	Update(TableModel) (string, []interface{})
