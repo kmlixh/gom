@@ -2,6 +2,7 @@ package gom
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
 )
@@ -32,7 +33,7 @@ func (Db DataBase) makeUpdateSqlGenerator(tableModel []TableModel) SqlGenerator 
 func (Db DataBase) makeDeleteSqlGenerator(tableModel []TableModel) SqlGenerator {
 	return SqlGenerator{Db.factory.Delete, tableModel}
 }
-func (Db DataBase) QueryByTableModel(model TableModel, vs interface{}, c Condition) interface{} {
+func (Db DataBase) QueryByTableModel(model TableModel, vs interface{}, c Condition) (interface{}, error) {
 	tps, isPtr, islice := getType(vs)
 	if debug {
 		fmt.Println("model:", model)
@@ -43,13 +44,17 @@ func (Db DataBase) QueryByTableModel(model TableModel, vs interface{}, c Conditi
 		}
 		if islice {
 			results := reflect.Indirect(reflect.ValueOf(vs))
-			sqls, adds := Db.factory.Query(model)
+			sqls, datas := Db.factory.Query(model)
 			if debug {
-				fmt.Println(sqls, adds)
+				fmt.Println(sqls, datas)
 			}
-			rows, err := Db.executor.Query(sqls, adds...)
+			st, err := Db.executor.Prepare(sqls)
 			if err != nil {
-				return nil
+				return nil, err
+			}
+			rows, err := st.Query(datas...)
+			if err != nil {
+				return nil, err
 			}
 			defer rows.Close()
 			for rows.Next() {
@@ -60,14 +65,18 @@ func (Db DataBase) QueryByTableModel(model TableModel, vs interface{}, c Conditi
 					results.Set(reflect.Append(results, val))
 				}
 			}
-			return vs
+			return vs, nil
 
 		} else {
-			sqls, adds := Db.factory.Query(model)
+			sqls, datas := Db.factory.Query(model)
 			if debug {
-				fmt.Println(sqls, adds)
+				fmt.Println(sqls, datas)
 			}
-			row := Db.executor.QueryRow(sqls, adds...)
+			st, err := Db.executor.Prepare(sqls)
+			if err != nil {
+				return nil, err
+			}
+			row := st.QueryRow(datas...)
 			if debug {
 				fmt.Println("row is", row)
 			}
@@ -80,15 +89,15 @@ func (Db DataBase) QueryByTableModel(model TableModel, vs interface{}, c Conditi
 
 			}
 			vt.Set(val.Elem())
-			return vt.Interface()
+			return vt.Interface(), nil
 		}
 
 	} else {
-		return nil
+		return nil, errors.New("can't create a TableModel")
 	}
 }
 
-func (db DataBase) Query(vs interface{}, c Condition) interface{} {
+func (db DataBase) Query(vs interface{}, c Condition) (interface{}, error) {
 	model := getTableModel(vs)
 	return db.QueryByTableModel(model, vs, c)
 
