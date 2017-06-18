@@ -158,7 +158,7 @@ db.QueryByTalbeModel(model,&ids,gom.Cnd("create_time < ?",time.Now()))
 ```
 然后在使用queryByTableModel就可以实现查询表“user_info”中id这列符合某个条件的所有值，并存入ids数组。是不是很简单快捷？
 
-具体的原理可以从gom整体的实现逻辑来说明，通过tag标记struct并给struct增加TableName函数，来实现表模型的创建，其中会涉及到
+具体的原理可以从gom整体的实现逻辑来说明，通过tag标记struct并给struct增加TableName函数，来实现表模型的创建，其中会涉及到表列的创建，创建完成后，自然可以针对当前业务需求局部清理掉一些列。
 
 3.增加数据
 ```go
