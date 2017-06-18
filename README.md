@@ -2,18 +2,22 @@
 
 #### 2017年6月18日22:47:53
 
-    修复无法使用事务的bug
+    1.修复无法使用事务的bug
+    2.修改了数据库操作的一些基础逻辑，每次操作前都会进行Prepare操作，以提高一些“性能”
+    3.为了修复上面的bug，修改了整体的gom.Db结构
+
+**额外说明的是，目前的测试代码是不充足的。也就是说，测试是不充足的，可能存在很多不易见的bug*
 
 [![GoDoc](https://godoc.org/github.com/jinzhu/gorm?status.svg)](https://godoc.org/github.com/janyees/gom)
 [![wercker status](https://app.wercker.com/status/56931116573ad6b913d0c7176e72e759/s/master "wercker status")](https://app.wercker.com/project/byKey/56931116573ad6b913d0c7176e72e759)
 
-gom是一个基于golang语言的ORM框架,目标是实现数据操作的简化,直接针对结构体本身进行数据库操作
+gom是一个基于golang语言的ORM框架,目标是实现数据操作的简化,直接针对结构体本身进行数据库操作(增删改查，不包含create和其他会改变表本身结构和数据本身结构的所有方法)
 
-Gom is an ORM framework based on golang language, the target is to realize the data of simplified operation, directly to the structure itself for database operations
+Gom is an ORM framework based on golang language, the target is to realize the data of simplified operation, directly to the structure itself for gom.Db operations
 
-目前支持的数据库类型为***`mysql`***及其衍生品***`mariadb`***
+目前支持的数据库类型为*`mysql`*及其衍生品*`mariadb`*
 
-Currently supported database types is _`mysql`_ and its derivatives _`mariadb`_
+Currently supported gom.Db types is _`mysql`_ and its derivatives _`mariadb`_
 
 典型的使用范例如下:
 
@@ -64,7 +68,7 @@ func main() {
 
 
 ```
-_ "github.com/janyees/gom/factory/mysql"
+_ "github.com/janyees/gom/factory/mysql"    //这一行也是必须的，目的用于加载相应数据库的驱动和‘方言’
 "github.com/janyees/gom"
 ```
 在import节点增加以上两行,第一行是注册相应的mysql工厂.第二行为引用gom
@@ -134,34 +138,63 @@ db.Query(&logs,nil)
 ```
 var logs []Log
 logs=db.Query(logs,nil)
+db.QueryByTableModel(TableModel,interface{},gom.Cnd(""))
 ```
-只是这里需要说明的是,如果你传递的是一个struct对象进行查询,则返回的也只会是一个,如果是一个数组,那么返回的就是一个数组.所以,不会提供诸如Fetch之类的查询语句
+只是这里需要说明的是,如果你传递的是一个struct对象进行查询,则返回的也只会是一个,如果是一个数组、切片,那么返回的就是一个数组、切片.所以,不会提供诸如Fetch之类的查询语句
+
+QueryByTableModel这个函数，目的实现对目标数据库中某列或者某几列的查询，避免每次都查询全部列的*`迷之尴尬`*
+
+针对这个函数，作者提供了另外两个辅助的函数：
+
+    func GetTableModel(v interface{}, names ...string) TableModel
+    //过滤针对某个struct生成的TableModel进行精简，去掉names之外列。
+    func CreateSingleValueTableModel(v interface{}, table string, field string) TableModel 
+    //这个函数的目的是解决查询某一个列，并需要返回大量数据的情形。诸如查询某个表符合某些条件的某列。
+    
+```go
+ids []int
+model:=db.CreateSingleValueTableModel(ids,"user_info","id")
+db.QueryByTalbeModel(model,&ids,gom.Cnd("create_time < ?",time.Now()))
+```
+然后在使用queryByTableModel就可以实现查询表“user_info”中id这列符合某个条件的所有值，并存入ids数组。是不是很简单快捷？
+
+具体的原理可以从gom整体的实现逻辑来说明，通过tag标记struct并给struct增加TableName函数，来实现表模型的创建，其中会涉及到
 
 3.增加数据
 ```
 log:=Log{"dsfa",2,time.Now()}
 db.Insert(log)
+db.Replace(log)
 ```
 4.修改数据
 ```
 db.Update(log)
+db.UpdateByCondition(log,gom.Cnd(""))
 ```
 5.删除数据
 ```
 log:=Log{Id:"dsfa"}
 db.Delete(log)
+db.DeleteByCondition(log,gom.Cnd(""))
 ```
 ### 第四步,是否支持事务??
-答案是肯定的,只要是包含InTransaction的函数都是事务类操作,例如:
+答案是肯定的。*WorkInTransaction*函数就是为事务而准备的,其参数是一个参数为gom.Db的函数，对，函数本身最为参数传入另一个函数，这个函数的原型是：
 
-```
-UpdateInTransaction
-DeleteInTransaction
-InsertInTransaction
-```
-需要额外说明的是,只要操作过程中出现错误,所有的操作都会回滚.
+    TransactionWork func(gom.DbTx *gom.Db) (int, error)
 
-到这里,框架怎么用,应该已经很清楚了
+而相应的例子如下：
+```golang
+work=func(db *gom.gom.Db) (int,error){
+    ......
+    ......
+    return something
+}
+```
+这里传入了一个包含事务实例的gom.Db对象，原理是，当前gom.Db使用原始的*`*sql.DB`*对象创建了一个*`*sql.Tx`*事务对象，并使用该事务对象创建一个新的gom.Db对象，事实上，这个gom.Db对象并不知道自己包含了事务实例，换句话说，你可以无限制的在事务内部创建新的事务。
+只是需要说明的是,只要操作过程中返回的error不为空,所有的操作都会回滚.
+如果你觉得这样做不好，你可以使用RawDb函数引用原始的sql.DB对象。
+
+到这里,框架怎么用,应该已经说的差不多了。
 
 ### 题外话,如何扩展支持其他数据库?
 
