@@ -23,7 +23,7 @@ Currently supported gom.Db types is _`mysql`_ and its derivatives _`mariadb`_
 
 _The use of a typical example is as follows:_
 
-```golang
+```go
 package main
 
 import (
@@ -67,7 +67,7 @@ func main() {
 **_目前仅支持mysql数据库,允许扩展,详情请看文末_**
 
 
-```
+```go
 _ "github.com/janyees/gom/factory/mysql"    //这一行也是必须的，目的用于加载相应数据库的驱动和‘方言’
 "github.com/janyees/gom"
 ```
@@ -78,7 +78,7 @@ _ "github.com/janyees/gom/factory/mysql"    //这一行也是必须的，目的�
 
 1.对象应当是一个struct结构,并且此结构拥有自己的"TableName"函数,函数返回表名
 
-```
+```go
 type Log struct {
 	Id string `json:"id" gom:"primary,id"`
 	Level int `gom:"ignore"`
@@ -93,7 +93,7 @@ func (Log) TableName() string {
 2.每一个字段应当设定一个gom的标签(Tag)
 
 合法的标签写法有以下几种:
-```
+```go
 gom:"primary,id"
 gom:"!"
 gom:"auto,id"
@@ -121,7 +121,7 @@ column指定为表的列,只写列名(即,gom:"info"这种形式)也是可以的
 数据库操作分成以下几个简单步骤
 
 1.连接数据库
-```
+```go
 dsn:=`root:xxxxx@tcp(120.xx.2xx.189:3306)/xxx`   //定义数据库连接的DSN字符串,不知道DSN怎么定义的,请参考google
 	
 db,err:=gom.Open("mysql",dsn)    //打开数据库连接池,数据库类型为mysql
@@ -130,12 +130,12 @@ if err!=nil{//检查是否有错误?
 }
 ```
 2.查询数据
-```
+```go
 var logs []Log
 db.Query(&logs,nil)
 ```
 查询结果会存放在logs中,如果传递的不是logs的地址,那么接收查询的返回也是可以的:
-```
+```go
 var logs []Log
 logs=db.Query(logs,nil)
 db.QueryByTableModel(TableModel,interface{},gom.Cnd(""))
@@ -161,18 +161,18 @@ db.QueryByTalbeModel(model,&ids,gom.Cnd("create_time < ?",time.Now()))
 具体的原理可以从gom整体的实现逻辑来说明，通过tag标记struct并给struct增加TableName函数，来实现表模型的创建，其中会涉及到
 
 3.增加数据
-```
+```go
 log:=Log{"dsfa",2,time.Now()}
 db.Insert(log)
 db.Replace(log)
 ```
 4.修改数据
-```
+```go
 db.Update(log)
 db.UpdateByCondition(log,gom.Cnd(""))
 ```
 5.删除数据
-```
+```go
 log:=Log{Id:"dsfa"}
 db.Delete(log)
 db.DeleteByCondition(log,gom.Cnd(""))
@@ -183,7 +183,7 @@ db.DeleteByCondition(log,gom.Cnd(""))
     TransactionWork func(gom.DbTx *gom.Db) (int, error)
 
 而相应的例子如下：
-```golang
+```go
 work=func(db *gom.gom.Db) (int,error){
     ......
     ......
