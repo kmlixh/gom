@@ -1,5 +1,9 @@
 # gom
 
+#### 2017年6月18日22:47:53
+
+    修复无法使用事务的bug
+
 [![GoDoc](https://godoc.org/github.com/jinzhu/gorm?status.svg)](https://godoc.org/github.com/janyees/gom)
 [![wercker status](https://app.wercker.com/status/56931116573ad6b913d0c7176e72e759/s/master "wercker status")](https://app.wercker.com/project/byKey/56931116573ad6b913d0c7176e72e759)
 
