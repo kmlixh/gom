@@ -132,7 +132,7 @@ func (db Db) execute(job SqlGenerator) (int, error) {
 			}
 			return -1, ers
 		}
-		rt, ers := st.Exec(datas)
+		rt, ers := st.Exec(datas...)
 		if ers != nil {
 			return -1, ers
 		}
