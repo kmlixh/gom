@@ -98,7 +98,11 @@ func (Db Db) QueryByTableModel(model TableModel, vs interface{}, c Condition) (i
 }
 
 func (db Db) Query(vs interface{}, c Condition) (interface{}, error) {
-	model := getTableModel(vs)
+	models, err := getTableModel(vs)
+	if err != nil {
+		return nil, err
+	}
+	model := models[0]
 	return db.QueryByTableModel(model, vs, c)
 
 }
@@ -148,35 +152,57 @@ func (db Db) execute(job SqlGenerator) (int, error) {
 	return result, nil
 }
 func (db Db) Insert(vs ...interface{}) (int, error) {
-	models := getTableModels(vs...)
+	models, err := getTableModels(vs...)
+	if err != nil {
+		return -1, nil
+	}
 	return db.execute(SqlGenerator{db.factory.Insert, models})
 }
 
 func (db Db) Replace(vs ...interface{}) (int, error) {
-	models := getTableModels(vs...)
+	models, err := getTableModels(vs...)
+	if err != nil {
+		return -1, nil
+	}
 	return db.execute(SqlGenerator{db.factory.Replace, models})
 }
 
 func (db Db) Delete(vs ...interface{}) (int, error) {
-	tables := getTableModels(vs...)
-	return db.execute(SqlGenerator{db.factory.Delete, tables})
+	models, err := getTableModels(vs...)
+	if err != nil {
+		return -1, nil
+	}
+	return db.execute(SqlGenerator{db.factory.Delete, models})
 }
 
 func (db Db) DeleteByConditon(v interface{}, c Condition) (int, error) {
-	tableModel := getTableModel(v)
-	if c.State() != "" {
-		tableModel.Cnd = c
+	models, err := getTableModel(v)
+	if err != nil {
+		return -1, nil
 	}
-	return db.execute(SqlGenerator{db.factory.Delete, []TableModel{tableModel}})
+	model := models[0]
+	if c.State() != "" {
+		model.Cnd = c
+	}
+	return db.execute(SqlGenerator{db.factory.Delete, []TableModel{model}})
 }
 
 func (db Db) Update(vs ...interface{}) (int, error) {
-	tms := getTableModels(vs...)
-	return db.execute(SqlGenerator{db.factory.Update, tms})
+	models, err := getTableModels(vs...)
+	if err != nil {
+		return -1, nil
+	}
+	return db.execute(SqlGenerator{db.factory.Update, models})
 }
 
 func (db Db) UpdateByCondition(v interface{}, c Condition) (int, error) {
-	tableModel := getTableModel(v)
-	tableModel.Cnd = c
-	return db.execute(SqlGenerator{db.factory.Update, []TableModel{tableModel}})
+	models, err := getTableModel(v)
+	if err != nil {
+		return -1, nil
+	}
+	model := models[0]
+	if c.State() != "" {
+		model.Cnd = c
+	}
+	return db.execute(SqlGenerator{db.factory.Update, []TableModel{model}})
 }

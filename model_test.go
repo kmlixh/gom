@@ -30,16 +30,16 @@ func (Log) TableName() string {
 }
 
 func TestModel(t *testing.T) {
-	var log Log
-	m1 := getTableModel(&log)
-	t.Log(m1)
+	var log []Log
+	m1, err := getTableModels(&log)
+	t.Log(m1, err)
 }
 func BenchmarkTableModel(b *testing.B) {
 	var log Log
-	m1 := getTableModel(&log)
+	m1, err1 := getTableModel(&log)
 	var user User
-	m2 := getTableModel(&user)
-	b.Log(m1, m2)
+	m2, err2 := getTableModel(&user)
+	b.Log(m1, m2, err1, err2)
 }
 func TestCnds(t *testing.T) {
 	cnd := Cnd("name =? and id=?", "nicker", 1)

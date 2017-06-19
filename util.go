@@ -1,6 +1,7 @@
 package gom
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -43,15 +44,13 @@ func getType(v interface{}) (reflect.Type, bool, bool) {
 	}
 	return tt, isPtr, islice
 }
-func getTableModels(vs ...interface{}) []TableModel {
-	tablemodels := []TableModel{}
-	for _, v := range vs {
-		tablemodels = append(tablemodels, getTableModel(v))
+
+func GetTableModel(v interface{}, names ...string) (TableModel, error) {
+	tms, err := getTableModel(v)
+	if err != nil {
+		return TableModel{}, nil
 	}
-	return tablemodels
-}
-func GetTableModel(v interface{}, names ...string) TableModel {
-	tm := getTableModel(v)
+	tm := tms[0]
 	var cc []Column
 	for _, ct := range tm.Columns {
 		for _, name := range names {
@@ -61,7 +60,7 @@ func GetTableModel(v interface{}, names ...string) TableModel {
 		}
 	}
 	tm.Columns = cc
-	return tm
+	return tm, nil
 
 }
 func CreateSingleValueTableModel(v interface{}, table string, field string) TableModel {
@@ -70,31 +69,67 @@ func CreateSingleValueTableModel(v interface{}, table string, field string) Tabl
 	columns := []Column{{ColumnName: field, ColumnType: tt, IsPrimary: false, Auto: false}}
 	return TableModel{Columns: columns, TableName: table, ModelType: tt, ModelValue: vals}
 }
-func getTableModel(v interface{}) TableModel {
-	if v != nil && reflect.TypeOf(v).Kind() != reflect.Interface {
-		tt, isPtr, isSlice := getType(v)
-		vals := reflect.ValueOf(v)
+func getTableModels(vs ...interface{}) ([]TableModel, error) {
+	tablemodels := []TableModel{}
+	for _, v := range vs {
+		tt, _, _ := getType(v)
+		if tt.Kind() == reflect.Interface {
+			return tablemodels, errors.New("can't use interface as struct")
+		}
+		tbs, err := getTableModel(v)
+		if err != nil {
+			return tablemodels, err
+		}
+		tablemodels = append(tablemodels, tbs...)
+	}
+	return tablemodels, nil
+}
+func getTableModel(v interface{}) ([]TableModel, error) {
+	var tableModels []TableModel
+	var values []reflect.Value
+	tt, isPtr, isSlice := getType(v)
+	if tt.NumField() == 0 || tt.NumMethod() == 0 {
+		return tableModels, errors.New(tt.Name() + " is not a valid struct")
+	}
+	value := reflect.ValueOf(v)
+	if v != nil && tt.Kind() != reflect.Interface {
+
 		if isPtr {
-			vals = vals.Elem()
+			value = value.Elem()
 		}
 		if debug {
-			fmt.Println("model info:", tt, isPtr, isSlice, vals)
+			fmt.Println("model info:", tt, isPtr, isSlice, value)
 		}
-		if tt.NumField() > 0 && tt.NumMethod() > 0 {
-			nameMethod := vals.MethodByName("TableName")
+		if isSlice {
+			if value.Len() > 0 {
+				for i := 0; i < value.Len(); i++ {
+					val := value.Index(i)
+					values = append(values, val)
+				}
+			} else {
+				values = append(values, reflect.New(tt).Elem())
+			}
+		} else {
+			values = append(values, value)
+		}
+		if debug {
+			fmt.Println(values)
+		}
+		for _, val := range values {
+			nameMethod := val.MethodByName("TableName")
 			if debug {
 				fmt.Println(nameMethod)
 			}
 			tableName := nameMethod.Call(nil)[0].String()
-			columns, primary := getColumns(vals)
+			columns, primary := getColumns(val)
 			ccs := []Column{primary}
 			ccs = append(ccs, columns...)
-			return TableModel{ModelType: tt, ModelValue: vals, Columns: ccs, TableName: tableName, Primary: primary}
-		} else {
-			return TableModel{}
+			tableModels = append(tableModels, TableModel{ModelType: tt, ModelValue: val, Columns: ccs, TableName: tableName, Primary: primary})
 		}
+		return tableModels, nil
+
 	} else {
-		return TableModel{}
+		return tableModels, errors.New("can't use interface to build TableModel")
 	}
 }
 func getColumns(v reflect.Value) ([]Column, Column) {
@@ -102,8 +137,8 @@ func getColumns(v reflect.Value) ([]Column, Column) {
 	var primary Column
 	results := reflect.Indirect(reflect.ValueOf(&columns))
 	oo := v.Type()
-	i := 0
-	for ; i < oo.NumField(); i++ {
+
+	for i := 0; i < oo.NumField(); i++ {
 		field := oo.Field(i)
 		col, tps := getColumnFromField(field)
 		if tps != -1 {
