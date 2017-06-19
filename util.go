@@ -72,10 +72,13 @@ func CreateSingleValueTableModel(v interface{}, table string, field string) Tabl
 }
 func getTableModel(v interface{}) TableModel {
 	if v != nil && reflect.TypeOf(v).Kind() != reflect.Interface {
-		tt, isPtr, _ := getType(v)
+		tt, isPtr, isSlice := getType(v)
 		vals := reflect.ValueOf(v)
 		if isPtr {
 			vals = vals.Elem()
+		}
+		if debug {
+			fmt.Println("model info:", tt, isPtr, isSlice, vals)
 		}
 		if tt.NumField() > 0 && tt.NumMethod() > 0 {
 			nameMethod := vals.MethodByName("TableName")
