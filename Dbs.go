@@ -120,6 +120,9 @@ func (db Db) WorkInTransaction(work TransactionWork) (int, error) {
 }
 func (db Db) execute(job SqlGenerator) (int, error) {
 	result := 0
+	if debug {
+		fmt.Println("tableModels were:", job.tableModels)
+	}
 	for _, table := range job.tableModels {
 		sql, datas := job.createSql(table)
 		if debug {
