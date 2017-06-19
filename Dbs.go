@@ -122,8 +122,14 @@ func (db Db) execute(job SqlGenerator) (int, error) {
 	result := 0
 	for _, table := range job.tableModels {
 		sql, datas := job.createSql(table)
+		if debug {
+			fmt.Println(sql, datas)
+		}
 		st, ers := db.executor.Prepare(sql)
 		if ers != nil {
+			if debug {
+				fmt.Println("error when execute sql:", sql, "error:", ers.Error())
+			}
 			return -1, ers
 		}
 		rt, ers := st.Exec(datas)
