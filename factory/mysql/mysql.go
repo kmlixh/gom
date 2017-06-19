@@ -20,7 +20,7 @@ func (MySqlFactory) Insert(model gom.TableModel) (string, []interface{}) {
 	values := ""
 	for i, v := range ccs {
 		value := model.ModelValue.FieldByName(v.FieldName).Interface()
-		if value != nil {
+		if (!v.Auto) && value != nil {
 			if i > 0 {
 				sql += ","
 				values += ","
@@ -57,7 +57,7 @@ func (MySqlFactory) Update(model gom.TableModel) (string, []interface{}) {
 	sql := "update " + "`" + model.TableName + "` set "
 	for i, v := range model.Columns {
 		value := model.ModelValue.FieldByName(v.FieldName).Interface()
-		if value != nil {
+		if (!v.Auto) && value != nil {
 			if i > 0 {
 				sql += ","
 			}
