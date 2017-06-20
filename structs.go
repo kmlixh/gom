@@ -94,7 +94,7 @@ func splitArrays(values interface{}) []interface{} {
 }
 
 func makeInSql(name string, values ...interface{}) (string, []interface{}) {
-	sql := name + " in "
+	sql := name + " in ("
 	var datas []interface{}
 	if len(values) == 0 {
 		return "", datas
