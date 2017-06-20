@@ -70,41 +70,65 @@ func (c Conditions) Or(sql string, values ...interface{}) Conditions {
 	c.values = append(c.values, values)
 	return c
 }
+func splitArrays(values interface{}) []interface{} {
+	var results []interface{}
+	val := reflect.ValueOf(values)
+	_, ptr, sli := getType(values)
+	if ptr {
+		val = val.Elem()
+	}
+	if sli {
+		lens := val.Len()
+		if lens > 0 {
+			for i := 0; i < lens; i++ {
+				datas := splitArrays(val.Index(i).Interface())
+				results = append(results, datas...)
+			}
+		}
+	} else {
+		results = append(results, val.Interface())
+	}
+	return results
+
+}
+
+func makeInSql(name string, values ...interface{}) (string, []interface{}) {
+	sql := name + " in "
+	var datas []interface{}
+	if len(values) == 0 {
+		return "", datas
+	}
+	datas = splitArrays(values)
+	for i := 0; i < len(datas); i++ {
+		if i == 0 {
+			sql += " ? "
+		} else {
+			sql += ", ? "
+		}
+	}
+	sql += ")"
+	return sql, datas
+}
 func (c Conditions) AndIn(name string, values ...interface{}) Conditions {
 	if len(values) > 0 {
 		if c.states != "" {
 			c.states += " and "
 		}
-		sql := name + " in ("
-		for i := 0; i < len(values); i++ {
-			if i == 0 {
-				sql += " ? "
-			} else {
-				sql += ", ? "
-			}
-		}
-		sql += ")"
+		sql, datas := makeInSql(name, values...)
 		c.states += sql
-		c.values = append(c.values, values)
+		c.values = append(c.values, datas)
 	}
 	return c
 }
+
 func (c Conditions) OrIn(name string, values ...interface{}) Conditions {
 	if len(values) > 0 {
 		if c.states != "" {
 			c.states += " or "
 		}
-		sql := name + " in ("
-		for i := 0; i < len(values); i++ {
-			if i == 0 {
-				sql += " ? "
-			} else {
-				sql += ", ? "
-			}
-		}
-		sql += ")"
+		sql, datas := makeInSql(name, values...)
 		c.states += sql
-		c.values = append(c.values, values)
+		c.values = append(c.values, datas)
 	}
 	return c
 }
