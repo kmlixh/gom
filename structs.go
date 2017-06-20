@@ -1,6 +1,7 @@
 package gom
 
 import (
+	"fmt"
 	"reflect"
 )
 
@@ -107,6 +108,9 @@ func makeInSql(name string, values ...interface{}) (string, []interface{}) {
 		}
 	}
 	sql += ")"
+	if debug {
+		fmt.Println("make in sql was :", sql, datas)
+	}
 	return sql, datas
 }
 func (c Conditions) AndIn(name string, values ...interface{}) Conditions {
