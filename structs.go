@@ -56,7 +56,7 @@ func (c Conditions) Value() []interface{} {
 }
 func (c Conditions) And(sql string, values ...interface{}) Conditions {
 	if c.states != "" {
-		c.states += " and " + sql
+		c.states += " and "
 	}
 	c.states += sql
 	c.values = append(c.values, values)
@@ -64,7 +64,7 @@ func (c Conditions) And(sql string, values ...interface{}) Conditions {
 }
 func (c Conditions) Or(sql string, values ...interface{}) Conditions {
 	if c.states != "" {
-		c.states += " or " + sql
+		c.states += " or "
 	}
 	c.states += sql
 	c.values = append(c.values, values)
