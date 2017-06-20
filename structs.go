@@ -120,7 +120,7 @@ func (c Conditions) AndIn(name string, values ...interface{}) Conditions {
 		}
 		sql, datas := makeInSql(name, values...)
 		c.states += sql
-		c.values = append(c.values, datas)
+		c.values = append(c.values, datas...)
 	}
 	return c
 }
@@ -132,7 +132,7 @@ func (c Conditions) OrIn(name string, values ...interface{}) Conditions {
 		}
 		sql, datas := makeInSql(name, values...)
 		c.states += sql
-		c.values = append(c.values, datas)
+		c.values = append(c.values, datas...)
 	}
 	return c
 }
