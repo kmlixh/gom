@@ -7,6 +7,10 @@ import (
 
 type CreateSql func(TableModel) (string, []interface{})
 
+type BinaryUnmarshaler interface {
+	UnmarshalBinary(dbytes []byte) (interface{}, error)
+}
+
 type SqlGenerator struct {
 	createSql   CreateSql
 	tableModels []TableModel

@@ -3,6 +3,7 @@ package gom
 import (
 	"errors"
 	"fmt"
+	"log"
 	"reflect"
 	"strings"
 	"time"
@@ -213,40 +214,46 @@ func getTagFromField(field reflect.StructField) (string, int) {
 func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 	maps := getBytesMap(model, row)
 	ccs := model.Columns
-	vv := reflect.New(model.ModelType)
+	vv := reflect.New(model.ModelType).Elem()
 	isStruct := model.ModelType.Kind() == reflect.Struct && model.ModelType != reflect.TypeOf(time.Time{})
 	for _, c := range ccs {
 		var dds interface{}
 		dbytes := maps[c.ColumnName]
 		data := string(dbytes)
-		switch c.ColumnType.Kind() {
-		case reflect.Uint:
+		switch v := vv.Interface().(type) {
+		case BinaryUnmarshaler:
+			dd, er := v.UnmarshalBinary(dbytes)
+			if er != nil {
+				log.Fatalln("when convert binary data to '", vv.Kind().String(), "', find error:", er.Error())
+			}
+			dds = dd
+		case uint:
 			dds, _ = UIntfromString(data)
-		case reflect.Uint16:
+		case uint16:
 			dds, _ = UInt16fromString(data)
-		case reflect.Uint32:
+		case uint32:
 			dds, _ = UInt32fromString(data)
-		case reflect.Uint64:
+		case uint64:
 			dds, _ = UInt64fromString(data)
-		case reflect.Int:
+		case int:
 			dds, _ = IntfromString(data)
-		case reflect.Int8:
+		case int8:
 			dds, _ = Int8fromString(data)
-		case reflect.Int16:
+		case int16:
 			dds, _ = Int16fromString(data)
-		case reflect.Int32:
+		case int32:
 			dds, _ = Int32fromString(data)
-		case reflect.Int64:
+		case int64:
 			dds, _ = Int64fromString(data)
-		case reflect.Float32:
+		case float32:
 			dds, _ = Float32fromString(data)
-		case reflect.Float64:
+		case float64:
 			dds, _ = Float64fromString(data)
-		case reflect.String:
+		case string:
 			dds = data
-		case reflect.TypeOf([]byte{}).Kind():
+		case []byte:
 			dds = dbytes
-		case reflect.TypeOf(time.Time{}).Kind():
+		case time.Time:
 			dds, _ = TimeFromString(data)
 		default:
 			dds = data
