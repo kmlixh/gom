@@ -217,11 +217,12 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 	vv := reflect.New(model.ModelType).Elem()
 	isStruct := model.ModelType.Kind() == reflect.Struct && model.ModelType != reflect.TypeOf(time.Time{})
 	for _, c := range ccs {
+		vi := reflect.New(c.ColumnType).Elem()
 		var dds interface{}
 		dbytes := maps[c.ColumnName]
 		data := string(dbytes)
 
-		switch v := vv.Interface().(type) {
+		switch v := vi.Interface().(type) {
 		case BinaryUnmarshaler:
 			dd, er := v.UnmarshalBinary(dbytes)
 			if er != nil {
