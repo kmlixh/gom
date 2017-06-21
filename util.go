@@ -259,9 +259,9 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 			dds = data
 		}
 		if isStruct {
-			vv.Elem().FieldByName(c.FieldName).Set(reflect.ValueOf(dds))
+			vv.FieldByName(c.FieldName).Set(reflect.ValueOf(dds))
 		} else {
-			vv.Elem().Set(reflect.ValueOf(dds))
+			vv.Set(reflect.ValueOf(dds))
 		}
 	}
 	return vv
