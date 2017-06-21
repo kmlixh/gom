@@ -226,7 +226,7 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 
 		case BinaryUnmarshaler:
 			dd, er := v.UnmarshalBinary(dbytes)
-			debugs("jump into BinaryUnmarsh====", v)
+			debugs("jump into BinaryUnmarsh====", dd)
 			if er != nil {
 				log.Fatalln("when convert binary data to '", vv.Kind().String(), "', find error:", er.Error())
 			}
