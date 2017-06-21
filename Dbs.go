@@ -59,11 +59,7 @@ func (Db Db) QueryByTableModel(model TableModel, vs interface{}, c Condition) (i
 			defer rows.Close()
 			for rows.Next() {
 				val := getValueOfTableRow(model, rows)
-				if isPtr {
-					results.Set(reflect.Append(results, val.Elem()))
-				} else {
-					results.Set(reflect.Append(results, val))
-				}
+				results.Set(reflect.Append(results, val))
 			}
 			return vs, nil
 
@@ -88,7 +84,7 @@ func (Db Db) QueryByTableModel(model TableModel, vs interface{}, c Condition) (i
 				vt = reflect.New(tps).Elem()
 
 			}
-			vt.Set(val.Elem())
+			vt.Set(val)
 			return vt.Interface(), nil
 		}
 
