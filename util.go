@@ -220,6 +220,7 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 		var dds interface{}
 		dbytes := maps[c.ColumnName]
 		data := string(dbytes)
+
 		switch v := vv.Interface().(type) {
 		case BinaryUnmarshaler:
 			dd, er := v.UnmarshalBinary(dbytes)
@@ -256,6 +257,9 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 		case time.Time:
 			dds, _ = TimeFromString(data)
 		default:
+			if debug {
+				fmt.Println("convert error:", v)
+			}
 			dds = data
 		}
 		if isStruct {
