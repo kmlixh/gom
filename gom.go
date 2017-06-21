@@ -2,6 +2,7 @@ package gom
 
 import (
 	"database/sql"
+	"fmt"
 	"sync"
 )
 
@@ -42,5 +43,10 @@ func Open(driverName string, dsn string, debugs bool) (*Db, error) {
 		return nil, err
 	} else {
 		return &Db{rawDb: db, executor: db, factory: factorys[driverName]}, nil
+	}
+}
+func debugs(vs ...interface{}) {
+	if debug {
+		fmt.Println(vs)
 	}
 }

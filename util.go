@@ -223,8 +223,10 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 		data := string(dbytes)
 
 		switch v := vi.Interface().(type) {
+
 		case BinaryUnmarshaler:
 			dd, er := v.UnmarshalBinary(dbytes)
+			debugs("jump into BinaryUnmarsh====", v)
 			if er != nil {
 				log.Fatalln("when convert binary data to '", vv.Kind().String(), "', find error:", er.Error())
 			}
@@ -258,9 +260,7 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 		case time.Time:
 			dds, _ = TimeFromString(data)
 		default:
-			if debug {
-				fmt.Println("convert error:", v)
-			}
+
 			dds = data
 		}
 		if isStruct {
