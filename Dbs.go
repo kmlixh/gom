@@ -101,9 +101,9 @@ func (db Db) Query(vs interface{}, c Condition) (interface{}, error) {
 	return db.QueryByTableModel(model, vs, c)
 
 }
-func (db Db) Counts(column string, table string, c Condition) (int64, error) {
+func (db Db) Count(column string, table string, c Condition) (int64, error) {
 	var counts int64
-	columns := []Column{{ColumnName: "result", ColumnType: reflect.TypeOf(counts), QueryField: "counts(" + column + ") as result", IsPrimary: false, Auto: false}}
+	columns := []Column{{ColumnName: "result", ColumnType: reflect.TypeOf(counts), QueryField: "count(" + column + ") as result", IsPrimary: false, Auto: false}}
 	tableModel := TableModel{Columns: columns, ModelType: reflect.TypeOf(counts), ModelValue: reflect.ValueOf(counts), TableName: table}
 	tableModel.Cnd = c
 	_, er := db.QueryByTableModel(tableModel, &counts, c)
