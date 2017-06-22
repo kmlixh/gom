@@ -1,12 +1,5 @@
 # gom
 
-#### 2017年6月18日22:47:53
-
-    1.修复无法使用事务的bug
-    2.修改了数据库操作的一些基础逻辑，每次操作前都会进行Prepare操作，以提高一些“性能”
-    3.为了修复上面的bug，修改了整体的gom.Db结构
-
-**额外说明的是，目前的测试代码是不充足的。也就是说，测试是不充足的，可能存在很多不易见的bug*
 
 [![GoDoc](https://godoc.org/github.com/jinzhu/gorm?status.svg)](https://godoc.org/github.com/janyees/gom)
 [![wercker status](https://app.wercker.com/status/56931116573ad6b913d0c7176e72e759/s/master "wercker status")](https://app.wercker.com/project/byKey/56931116573ad6b913d0c7176e72e759)
@@ -200,3 +193,19 @@ work=func(db *gom.gom.Db) (int,error){
 
 _有这方面的准备,但还在考虑中_
 
+## 迭代注记
+
+#### 2017年6月18日22:47:53
+
+    1.修复无法使用事务的bug
+    2.修改了数据库操作的一些基础逻辑，每次操作前都会进行Prepare操作，以提高一些“性能”
+    3.为了修复上面的bug，修改了整体的gom.Db结构
+
+#### 2017年6月22日 12:54:36
+
+    1.修复若干bug(具体修复哪些bug记不清了 ^_^)
+    2.修复Update,Insert,Delete方法传入不定参数时的bug（无法解析，或者解析不正确，使用递归解决）
+    3.修复Condition为空的情况下会莫名注入一个“where”进入sql语句的bug
+    4.Db对象增加了一个Count函数，故名思议，用来做count的
+
+**额外说明的是，目前的测试代码是不充足的。也就是说，测试是不充足的，可能存在很多不易见的bug*
