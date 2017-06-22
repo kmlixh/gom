@@ -103,7 +103,11 @@ func (db Db) Query(vs interface{}, c Condition) (interface{}, error) {
 
 }
 func (db Db) Counts(column string, table string, c Condition) (int64, error) {
-	table := CreateSingleValueTableModel()
+	var counts int64
+	columns := []Column{{ColumnName: "result", ColumnType: reflect.TypeOf(counts), QueryField: "counts(" + column + ") as result", IsPrimary: false, Auto: false}}
+	tableModel := TableModel{Columns: columns, ModelType: reflect.TypeOf(counts), ModelValue: reflect.ValueOf(counts), TableName: table}
+	_, er := db.QueryByTableModel(tableModel, &counts, c)
+	return counts, er
 }
 
 func (db Db) WorkInTransaction(work TransactionWork) (int, error) {

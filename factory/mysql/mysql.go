@@ -82,8 +82,12 @@ func (MySqlFactory) Query(model gom.TableModel) (string, []interface{}) {
 		if i > 0 {
 			sql += ","
 		}
-		if
-		sql += "`" + v.ColumnName + "`"
+		if v.QueryField == "" {
+			sql += "`" + v.ColumnName + "`"
+		} else {
+			sql += v.QueryField
+		}
+
 	}
 	sql += " from " + "`" + model.TableName + "`"
 	if model.Cnd != nil {
