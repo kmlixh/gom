@@ -38,6 +38,7 @@ type Column struct {
 	ColumnType reflect.Type
 	ColumnName string
 	FieldName  string
+	QueryField string
 	IsPrimary  bool
 	Auto       bool
 }

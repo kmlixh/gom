@@ -102,6 +102,9 @@ func (db Db) Query(vs interface{}, c Condition) (interface{}, error) {
 	return db.QueryByTableModel(model, vs, c)
 
 }
+func (db Db) Counts(column string, table string, c Condition) (int64, error) {
+	table := CreateSingleValueTableModel()
+}
 
 func (db Db) WorkInTransaction(work TransactionWork) (int, error) {
 	result := 0

@@ -82,9 +82,7 @@ func (MySqlFactory) Query(model gom.TableModel) (string, []interface{}) {
 		if i > 0 {
 			sql += ","
 		}
-		if v.IsPrimary {
-			sql += " distinct "
-		}
+		if
 		sql += "`" + v.ColumnName + "`"
 	}
 	sql += " from " + "`" + model.TableName + "`"
