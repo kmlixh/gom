@@ -3,7 +3,6 @@ package gom
 import (
 	"errors"
 	"fmt"
-	"log"
 	"reflect"
 	"strings"
 	"time"
@@ -228,7 +227,7 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 			dd, er := v.UnmarshalBinary(dbytes)
 			debugs("jump into BinaryUnmarsh====", dd)
 			if er != nil {
-				log.Fatalln("when convert binary data to '", vv.Kind().String(), "', find error:", er.Error())
+				fmt.Println("when convert binary data to '", vv.Kind().String(), "', find error:", er.Error())
 			}
 			dds = dd
 		case uint:
