@@ -62,7 +62,6 @@ func (Db Db) QueryByTableModel(model TableModel, vs interface{}, c Condition) (i
 				results.Set(reflect.Append(results, val))
 			}
 			return vs, nil
-
 		} else {
 			sqls, datas := Db.factory.Query(model)
 			if debug {
@@ -106,6 +105,7 @@ func (db Db) Counts(column string, table string, c Condition) (int64, error) {
 	var counts int64
 	columns := []Column{{ColumnName: "result", ColumnType: reflect.TypeOf(counts), QueryField: "counts(" + column + ") as result", IsPrimary: false, Auto: false}}
 	tableModel := TableModel{Columns: columns, ModelType: reflect.TypeOf(counts), ModelValue: reflect.ValueOf(counts), TableName: table}
+	tableModel.Cnd = c
 	_, er := db.QueryByTableModel(tableModel, &counts, c)
 	return counts, er
 }
