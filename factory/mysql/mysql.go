@@ -91,8 +91,10 @@ func (MySqlFactory) Query(model gom.TableModel) (string, []interface{}) {
 	}
 	sql += " from " + "`" + model.TableName + "`"
 	if model.Cnd != nil {
-		if model.Cnd.State() == "" {
+		if model.Cnd.State() != "" {
 			sql += " where " + model.Cnd.State() + ";"
+		} else {
+			sql += ";"
 		}
 		return sql, model.Cnd.Value()
 	} else if model.GetPrimaryCondition() != nil {
