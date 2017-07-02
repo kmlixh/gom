@@ -104,11 +104,10 @@ func (c Conditions) OrIn(name string, values ...interface{}) Condition {
 	}
 	return c
 }
-func (c Conditions) Raw(name string, values ...interface{}) Condition {
+func (c Conditions) Raw(sql string, values ...interface{}) Condition {
+	c.states += sql
 	if len(values) > 0 {
-		sql, datas := makeInSql(name, values...)
-		c.states += sql
-		c.values = append(c.values, datas...)
+		c.values = append(c.values, values...)
 	}
 	return c
 }
