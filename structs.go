@@ -45,14 +45,19 @@ type Column struct {
 type Condition interface {
 	State() string
 	Value() []interface{}
+	Or(sql string, values ...interface{}) Condition
+	And(sql string, values ...interface{}) Condition
+	AndIn(name string, values ...interface{}) Condition
+	OrIn(name string, values ...interface{}) Condition
+	Raw(sql string, values ...interface{}) Condition
 }
 type Conditions struct {
 	states string
 	values []interface{}
 }
 
-func Cnd(sql string, values ...interface{}) Conditions {
-	return Conditions{sql, values}
+func Cnd(sql string, values ...interface{}) Condition {
+	return &Conditions{sql, values}
 }
 func (c Conditions) State() string {
 	return c.states
@@ -60,7 +65,7 @@ func (c Conditions) State() string {
 func (c Conditions) Value() []interface{} {
 	return c.values
 }
-func (c Conditions) And(sql string, values ...interface{}) Conditions {
+func (c Conditions) And(sql string, values ...interface{}) Condition {
 	if c.states != "" {
 		c.states += " and "
 	}
@@ -68,7 +73,7 @@ func (c Conditions) And(sql string, values ...interface{}) Conditions {
 	c.values = append(c.values, values)
 	return c
 }
-func (c Conditions) Or(sql string, values ...interface{}) Conditions {
+func (c Conditions) Or(sql string, values ...interface{}) Condition {
 	if c.states != "" {
 		c.states += " or "
 	}
@@ -76,6 +81,38 @@ func (c Conditions) Or(sql string, values ...interface{}) Conditions {
 	c.values = append(c.values, values)
 	return c
 }
+func (c Conditions) AndIn(name string, values ...interface{}) Condition {
+	if len(values) > 0 {
+		if c.states != "" {
+			c.states += " and "
+		}
+		sql, datas := makeInSql(name, values...)
+		c.states += sql
+		c.values = append(c.values, datas...)
+	}
+	return c
+}
+
+func (c Conditions) OrIn(name string, values ...interface{}) Condition {
+	if len(values) > 0 {
+		if c.states != "" {
+			c.states += " or "
+		}
+		sql, datas := makeInSql(name, values...)
+		c.states += sql
+		c.values = append(c.values, datas...)
+	}
+	return c
+}
+func (c Conditions) Raw(name string, values ...interface{}) Condition {
+	if len(values) > 0 {
+		sql, datas := makeInSql(name, values...)
+		c.states += sql
+		c.values = append(c.values, datas...)
+	}
+	return c
+}
+
 func splitArrays(values interface{}) []interface{} {
 	var results []interface{}
 	val := reflect.ValueOf(values)
@@ -118,34 +155,6 @@ func makeInSql(name string, values ...interface{}) (string, []interface{}) {
 	}
 	return sql, datas
 }
-func (c Conditions) AndIn(name string, values ...interface{}) Conditions {
-	if len(values) > 0 {
-		if c.states != "" {
-			c.states += " and "
-		}
-		sql, datas := makeInSql(name, values...)
-		c.states += sql
-		c.values = append(c.values, datas...)
-	}
-	return c
-}
-
-func (c Conditions) OrIn(name string, values ...interface{}) Conditions {
-	if len(values) > 0 {
-		if c.states != "" {
-			c.states += " or "
-		}
-		sql, datas := makeInSql(name, values...)
-		c.states += sql
-		c.values = append(c.values, datas...)
-	}
-	return c
-}
-func (c Conditions) Sql(sql string, values ...interface{}) Conditions {
-	c.states += sql
-	c.values = append(c.values, values)
-	return c
-}
 
 func (mo TableModel) InsertValues() []interface{} {
 	var interfaces []interface{}
@@ -167,6 +176,6 @@ func (m TableModel) GetPrimaryCondition() Condition {
 	if IsEmpty(m.GetPrimary()) || m.Primary.IsPrimary == false {
 		return nil
 	} else {
-		return Conditions{"`" + m.Primary.ColumnName + "` = ?", []interface{}{m.GetPrimary()}}
+		return &Conditions{"`" + m.Primary.ColumnName + "` = ?", []interface{}{m.GetPrimary()}}
 	}
 }
