@@ -95,7 +95,7 @@ type Pagers struct {
 }
 
 func (p Pagers) Pager() (int, int) {
-	return p.pageIndex, p.pageSize
+	return p.pageIndex * p.pageSize, p.pageSize
 }
 
 type Conditions struct {
