@@ -42,6 +42,22 @@ type Column struct {
 	IsPrimary  bool
 	Auto       bool
 }
+type OrderType int
+
+const (
+	_ OrderType = iota
+	Asc
+	Desc
+)
+
+type linkType int
+
+const (
+	_ linkType = iota
+	And
+	Or
+)
+
 type Condition interface {
 	State() string
 	Value() []interface{}
@@ -49,69 +65,125 @@ type Condition interface {
 	And(sql string, values ...interface{}) Condition
 	AndIn(name string, values ...interface{}) Condition
 	OrIn(name string, values ...interface{}) Condition
-	Raw(sql string, values ...interface{}) Condition
+	Pager(index int, size int) Condition
+	OrderBy(name string, tp OrderType) Condition
 }
+type Order interface {
+	Order() string
+}
+type Orders struct {
+	orderName string
+	orderType OrderType
+}
+
+func (o Orders) Order() string {
+	result := " ORDER BY `" + o.orderName + "` "
+	if o.orderType == Asc {
+		result += "ASC"
+	} else {
+		result += "DESC"
+	}
+	return result
+}
+
+type Pager interface {
+	Pager() (int, int)
+}
+type Pagers struct {
+	pageIndex int
+	pageSize  int
+}
+
+func (p Pagers) Pager() (int, int) {
+	return p.pageIndex, p.pageSize
+}
+
 type Conditions struct {
-	states string
-	values []interface{}
+	conditionItems []ConditionItem
+	order          Order
+	pager          Pager
+}
+type ConditionItem struct {
+	linkType linkType
+	states   string
+	values   []interface{}
 }
 
 func Cnd(sql string, values ...interface{}) Condition {
-	return &Conditions{sql, values}
+	return &Conditions{conditionItems: []ConditionItem{{linkType: And, states: sql, values: splitArrays(values)}}}
 }
 func (c *Conditions) State() string {
-	return c.states
+	results := ""
+	length := len(c.conditionItems)
+	if length > 0 {
+		for i := 0; i < length; i++ {
+			if i == 0 {
+				results += "WHERE "
+			} else {
+				if c.conditionItems[i].linkType == And {
+					results += " AND "
+				} else {
+					results += " OR "
+				}
+			}
+			results += c.conditionItems[i].states
+		}
+	}
+	if c.order != nil {
+		results += c.order.Order()
+	}
+	if c.pager != nil {
+		results += " LIMIT ?,?;"
+	}
+	return results
 }
 func (c *Conditions) Value() []interface{} {
-	return c.values
+	results := []interface{}{}
+	length := len(c.conditionItems)
+	if length > 0 {
+		for i := 0; i < length; i++ {
+
+			results = append(results, c.conditionItems[i].values...)
+		}
+	}
+	if c.pager != nil {
+		page, index := c.pager.Pager()
+		results = append(results, page, index)
+	}
+	return results
 }
 func (c *Conditions) And(sql string, values ...interface{}) Condition {
-	if c.states != "" {
-		c.states += " and "
-	}
-	c.states += sql
-	c.values = append(c.values, values)
+	c.conditionItems = append(c.conditionItems, ConditionItem{linkType: And, states: sql, values: splitArrays(values)})
 	return c
 }
 func (c *Conditions) Or(sql string, values ...interface{}) Condition {
-	if c.states != "" {
-		c.states += " or "
-	}
-	c.states += sql
-	c.values = append(c.values, values)
+	c.conditionItems = append(c.conditionItems, ConditionItem{linkType: Or, states: sql, values: splitArrays(values)})
 	return c
 }
 func (c *Conditions) AndIn(name string, values ...interface{}) Condition {
 	if len(values) > 0 {
-		if c.states != "" {
-			c.states += " and "
-		}
 		sql, datas := makeInSql(name, values...)
-		c.states += sql
-		c.values = append(c.values, datas...)
+		c.conditionItems = append(c.conditionItems, ConditionItem{linkType: And, states: sql, values: splitArrays(datas)})
 	}
 	return c
 }
 
 func (c *Conditions) OrIn(name string, values ...interface{}) Condition {
 	if len(values) > 0 {
-		if c.states != "" {
-			c.states += " or "
-		}
 		sql, datas := makeInSql(name, values...)
-		c.states += sql
-		c.values = append(c.values, datas...)
+		c.conditionItems = append(c.conditionItems, ConditionItem{linkType: Or, states: sql, values: splitArrays(datas)})
 	}
 	return c
 }
-func (c *Conditions) Raw(sql string, values ...interface{}) Condition {
-	c.states += sql
-	if len(values) > 0 {
-		c.values = append(c.values, values...)
-	}
+func (c *Conditions) Pager(index int, size int) Condition {
+	c.pager = Pagers{index, size}
 	return c
 }
 
+func (c *Conditions) OrderBy(name string, tp OrderType) Condition {
+	c.order = Orders{name, tp}
+	return c
+}
 func splitArrays(values interface{}) []interface{} {
 	var results []interface{}
 	val := reflect.ValueOf(values)
@@ -175,6 +247,6 @@ func (m TableModel) GetPrimaryCondition() Condition {
 	if IsEmpty(m.GetPrimary()) || m.Primary.IsPrimary == false {
 		return nil
 	} else {
-		return &Conditions{"`" + m.Primary.ColumnName + "` = ?", []interface{}{m.GetPrimary()}}
+		return &Conditions{conditionItems: []ConditionItem{{And, "`" + m.Primary.ColumnName + "` = ?", []interface{}{m.GetPrimary()}}}}
 	}
 }

@@ -36,8 +36,11 @@ func TestModel(t *testing.T) {
 }
 func TestCnd(t *testing.T) {
 	cnd := Cnd("id = ?", 1)
-	cnd.Raw(" order by id desc limit ?,?", 2, 3)
-	if "id= ? order by id desc limit ?,?" == cnd.State() {
+	cnd.OrderBy("id", Desc)
+	cnd.Pager(0, 15)
+	cnd.And("name = ?", "kmlixh")
+	cnd.AndIn("id", 1, 2, 3, 4, 5)
+	if "WHERE id = ? AND name = ? AND id in ( ? , ? , ? , ? , ? ) ORDER BY `id` DESC LIMIT ?,?;" == cnd.State() {
 		t.Log("ok")
 	} else {
 		t.Fatal(cnd.State())
