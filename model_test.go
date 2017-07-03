@@ -38,11 +38,7 @@ func TestCnd(t *testing.T) {
 	cnd := Cnd("")
 	cnd.OrderBy("id", Desc)
 	cnd.Pager(0, 15)
-	if "WHERE id = ? AND name = ? AND id in ( ? , ? , ? , ? , ? ) ORDER BY `id` DESC LIMIT ?,?;" == cnd.State() {
-		t.Log("ok")
-	} else {
-		t.Fatal(cnd.State())
-	}
+	t.Log(cnd)
 }
 func BenchmarkTableModel(b *testing.B) {
 	var log Log
