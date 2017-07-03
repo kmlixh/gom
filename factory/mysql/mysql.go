@@ -42,10 +42,10 @@ func (fac MySqlFactory) Replace(model gom.TableModel) (string, []interface{}) {
 func (MySqlFactory) Delete(model gom.TableModel) (string, []interface{}) {
 	sql := "delete from " + "`" + model.TableName + "` "
 	if model.Cnd != nil {
-		sql += " where " + model.Cnd.State() + ";"
+		sql += " where 1=1 " + model.Cnd.State() + ";"
 		return sql, model.Cnd.Value()
 	} else if model.GetPrimaryCondition() != nil {
-		sql += " where " + model.GetPrimaryCondition().State() + " ;"
+		sql += " where 1=1 " + model.GetPrimaryCondition().State() + " ;"
 		return sql, model.GetPrimaryCondition().Value()
 	} else {
 		return sql + ";", []interface{}{}
@@ -66,10 +66,10 @@ func (MySqlFactory) Update(model gom.TableModel) (string, []interface{}) {
 		}
 	}
 	if model.Cnd != nil {
-		sql += " where " + model.Cnd.State() + ";"
+		sql += " where 1=1 " + model.Cnd.State() + ";"
 		datas = append(datas, model.Cnd.Value()...)
 	} else if model.GetPrimaryCondition() != nil {
-		sql += " where " + model.GetPrimaryCondition().State() + ";"
+		sql += " where 1=1 " + model.GetPrimaryCondition().State() + ";"
 		datas = append(datas, model.GetPrimaryCondition().Value()...)
 	} else {
 		sql += ";"
@@ -92,13 +92,13 @@ func (MySqlFactory) Query(model gom.TableModel) (string, []interface{}) {
 	sql += " from " + "`" + model.TableName + "`"
 	if model.Cnd != nil {
 		if model.Cnd.State() != "" {
-			sql += " where " + model.Cnd.State() + ";"
+			sql += " where 1=1 " + model.Cnd.State() + ";"
 		} else {
 			sql += ";"
 		}
 		return sql, model.Cnd.Value()
 	} else if model.GetPrimaryCondition() != nil {
-		sql += " where " + model.GetPrimaryCondition().State() + ";"
+		sql += " where 1=1 " + model.GetPrimaryCondition().State() + ";"
 		return sql, model.GetPrimaryCondition().Value()
 	} else {
 		return sql + ";", []interface{}{}
