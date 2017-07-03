@@ -121,7 +121,7 @@ func (c *Conditions) State() string {
 	length := len(c.conditionItems)
 	if length > 0 {
 		if debug {
-			fmt.Println(length, c.conditionItems)
+			fmt.Println("ConditionItem=====", length, c.conditionItems)
 		}
 		for i := 0; i < length; i++ {
 			if i == 0 {
