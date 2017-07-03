@@ -110,7 +110,11 @@ type ConditionItem struct {
 }
 
 func Cnd(sql string, values ...interface{}) Condition {
-	return &Conditions{conditionItems: []ConditionItem{{linkType: And, states: sql, values: splitArrays(values)}}}
+	if sql == "" {
+		return &Conditions{}
+	} else {
+		return &Conditions{conditionItems: []ConditionItem{{linkType: And, states: sql, values: splitArrays(values)}}}
+	}
 }
 func (c *Conditions) State() string {
 	results := ""
