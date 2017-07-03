@@ -116,9 +116,12 @@ func (c *Conditions) State() string {
 	results := ""
 	length := len(c.conditionItems)
 	if length > 0 {
+		if debug {
+			fmt.Println(length, c.conditionItems)
+		}
 		for i := 0; i < length; i++ {
 			if i == 0 {
-				results += "WHERE "
+				results += " WHERE "
 			} else {
 				if c.conditionItems[i].linkType == And {
 					results += " AND "
