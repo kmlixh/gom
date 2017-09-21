@@ -37,7 +37,7 @@ func TestModel(t *testing.T) {
 func TestCnd(t *testing.T) {
 	cnd := Cnd("")
 	cnd.OrderBy("id", Desc)
-	cnd.Pager(0, 15)
+	cnd.Page(0, 15)
 	t.Log(cnd)
 }
 func BenchmarkTableModel(b *testing.B) {

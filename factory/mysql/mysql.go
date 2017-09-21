@@ -13,6 +13,10 @@ func init() {
 type MySqlFactory struct {
 }
 
+func (MySqlFactory) Condition(cnd gom.Condition) (string, []interface{}) {
+
+}
+
 func (MySqlFactory) Insert(model gom.TableModel) (string, []interface{}) {
 	var datas []interface{}
 	ccs := model.Columns

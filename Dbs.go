@@ -39,7 +39,7 @@ func (Db Db) QueryByTableModel(model TableModel, vs interface{}, c Condition) (i
 		fmt.Println("model:", model)
 	}
 	if len(model.TableName) > 0 {
-		if c.State() != "" {
+		if c.NotNull() {
 			model.Cnd = c
 		}
 		if islice {
@@ -184,7 +184,7 @@ func (db Db) DeleteByConditon(v interface{}, c Condition) (int, error) {
 		return -1, nil
 	}
 	model := models[0]
-	if c.State() != "" {
+	if c.NotNull() {
 		model.Cnd = c
 	}
 	return db.execute(SqlGenerator{db.factory.Delete, []TableModel{model}})
@@ -204,7 +204,7 @@ func (db Db) UpdateByCondition(v interface{}, c Condition) (int, error) {
 		return -1, nil
 	}
 	model := models[0]
-	if c.State() != "" {
+	if c.NotNull() {
 		model.Cnd = c
 	}
 	return db.execute(SqlGenerator{db.factory.Update, []TableModel{model}})
