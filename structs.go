@@ -133,7 +133,7 @@ func (c *Conditions) Values() []interface{} {
 	}
 	if c.MPager != nil {
 		index, page := c.MPager.Page()
-		results = append(results, page, index)
+		results = append(results, index, page)
 	}
 	return results
 }
