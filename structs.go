@@ -120,7 +120,7 @@ func Cnd(sql string, values ...interface{}) Condition {
 }
 
 func (c *Conditions) Items() []ConditionItem {
-	return c.Items()
+	return c.MItems
 }
 func (c *Conditions) Values() []interface{} {
 	results := []interface{}{}
