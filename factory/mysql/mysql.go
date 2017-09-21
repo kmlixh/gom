@@ -13,10 +13,6 @@ func init() {
 type MySqlFactory struct {
 }
 
-func (MySqlFactory) Condition(cnd gom.Condition) (string, []interface{}) {
-
-}
-
 func (MySqlFactory) Insert(model gom.TableModel) (string, []interface{}) {
 	var datas []interface{}
 	ccs := model.Columns
@@ -46,13 +42,13 @@ func (fac MySqlFactory) Replace(model gom.TableModel) (string, []interface{}) {
 func (MySqlFactory) Delete(model gom.TableModel) (string, []interface{}) {
 	sql := "delete from " + "`" + model.TableName + "` "
 	if model.Cnd != nil {
-		sql += model.Cnd.State() + ";"
-		return sql, model.Cnd.Value()
+		sql += cnd(model.Cnd) + ";"
+		return sql, model.Cnd.Values()
 	} else if model.GetPrimaryCondition() != nil {
-		sql += model.GetPrimaryCondition().State() + " ;"
-		return sql, model.GetPrimaryCondition().Value()
+		sql += cnd(model.GetPrimaryCondition()) + " ;"
+		return sql, model.GetPrimaryCondition().Values()
 	} else {
-		return sql + ";", []interface{}{}
+		return sql, []interface{}{}
 	}
 
 }
@@ -70,11 +66,11 @@ func (MySqlFactory) Update(model gom.TableModel) (string, []interface{}) {
 		}
 	}
 	if model.Cnd != nil {
-		sql += model.Cnd.State() + ";"
-		datas = append(datas, model.Cnd.Value()...)
+		sql += cnd(model.Cnd) + ";"
+		datas = append(datas, model.Cnd.Values()...)
 	} else if model.GetPrimaryCondition() != nil {
-		sql += model.GetPrimaryCondition().State() + ";"
-		datas = append(datas, model.GetPrimaryCondition().Value()...)
+		sql += cnd(model.GetPrimaryCondition()) + ";"
+		datas = append(datas, model.GetPrimaryCondition().Values()...)
 	} else {
 		sql += ";"
 	}
@@ -95,16 +91,48 @@ func (MySqlFactory) Query(model gom.TableModel) (string, []interface{}) {
 	}
 	sql += " from " + "`" + model.TableName + "`"
 	if model.Cnd != nil {
-		if model.Cnd.State() != "" {
-			sql += model.Cnd.State() + ";"
+		if model.Cnd.NotNull() {
+			sql += cnd(model.Cnd) + ";"
 		} else {
 			sql += ";"
 		}
-		return sql, model.Cnd.Value()
+		return sql, model.Cnd.Values()
 	} else if model.GetPrimaryCondition() != nil {
-		sql += model.GetPrimaryCondition().State() + ";"
-		return sql, model.GetPrimaryCondition().Value()
+		sql += cnd(model.GetPrimaryCondition()) + ";"
+		return sql, model.GetPrimaryCondition().Values()
 	} else {
-		return sql + ";", []interface{}{}
+		return sql, []interface{}{}
 	}
+}
+func cnd(c gom.Condition) string {
+	results := ""
+	items := c.Items()
+	length := len(items)
+	if length > 0 {
+
+		for i := 0; i < length; i++ {
+			if i == 0 {
+				results += " WHERE "
+			} else {
+				if items[i].LinkType == gom.And {
+					results += " AND "
+				} else {
+					results += " OR "
+				}
+			}
+			results += items[i].States
+		}
+	}
+	if c.Order() != nil {
+		results += " ORDER BY " + c.Order().Name()
+		if c.Order().Type() == gom.Asc {
+			results += " ASC "
+		} else {
+			results += " DESC "
+		}
+	}
+	if c.Pager() != nil {
+		results += " LIMIT ?,?;"
+	}
+	return results
 }

@@ -50,10 +50,10 @@ const (
 	Desc
 )
 
-type linkType int
+type LinkType int
 
 const (
-	_ linkType = iota
+	_ LinkType = iota
 	And
 	Or
 )
@@ -106,7 +106,7 @@ type Conditions struct {
 	MPager Pager
 }
 type ConditionItem struct {
-	LinkType linkType
+	LinkType LinkType
 	States   string
 	Values   []interface{}
 }
