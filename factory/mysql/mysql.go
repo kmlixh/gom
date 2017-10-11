@@ -106,8 +106,10 @@ func (MySqlFactory) Query(model gom.TableModel) (string, []interface{}) {
 }
 func cndValue(cnd gom.Condition) []interface{} {
 	values := cnd.Values()
-	index, size := cnd.Pager().Page()
-	values = append(values, index*size, size)
+	if cnd.Pager() != nil {
+		index, size := cnd.Pager().Page()
+		values = append(values, index*size, size)
+	}
 	return values
 }
 func cndSql(c gom.Condition) string {
