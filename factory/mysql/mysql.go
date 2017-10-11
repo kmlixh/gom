@@ -42,10 +42,10 @@ func (fac MySqlFactory) Replace(model gom.TableModel) (string, []interface{}) {
 func (MySqlFactory) Delete(model gom.TableModel) (string, []interface{}) {
 	sql := "delete from " + "`" + model.TableName + "` "
 	if model.Cnd != nil {
-		sql += cnd(model.Cnd)
-		return sql, model.Cnd.Values()
+		sql += cndSql(model.Cnd)
+		return sql, cndValue(model.Cnd)
 	} else if model.GetPrimaryCondition() != nil {
-		sql += cnd(model.GetPrimaryCondition())
+		sql += cndSql(model.GetPrimaryCondition())
 		return sql, model.GetPrimaryCondition().Values()
 	} else {
 		return sql, []interface{}{}
@@ -66,10 +66,10 @@ func (MySqlFactory) Update(model gom.TableModel) (string, []interface{}) {
 		}
 	}
 	if model.Cnd != nil {
-		sql += cnd(model.Cnd)
-		datas = append(datas, model.Cnd.Values()...)
+		sql += cndSql(model.Cnd)
+		datas = append(datas, cndValue(model.Cnd)...)
 	} else if model.GetPrimaryCondition() != nil {
-		sql += cnd(model.GetPrimaryCondition())
+		sql += cndSql(model.GetPrimaryCondition())
 		datas = append(datas, model.GetPrimaryCondition().Values()...)
 	} else {
 		sql += ";"
@@ -92,19 +92,25 @@ func (MySqlFactory) Query(model gom.TableModel) (string, []interface{}) {
 	sql += " FROM " + "`" + model.TableName + "`"
 	if model.Cnd != nil {
 		if model.Cnd.NotNull() {
-			sql += cnd(model.Cnd)
+			sql += cndSql(model.Cnd)
 		} else {
 			sql += ";"
 		}
-		return sql, model.Cnd.Values()
+		return sql, cndValue(model.Cnd)
 	} else if model.GetPrimaryCondition() != nil {
-		sql += cnd(model.GetPrimaryCondition())
+		sql += cndSql(model.GetPrimaryCondition())
 		return sql, model.GetPrimaryCondition().Values()
 	} else {
 		return sql, []interface{}{}
 	}
 }
-func cnd(c gom.Condition) string {
+func cndValue(cnd gom.Condition) []interface{} {
+	values := cnd.Values()
+	index, size := cnd.Pager().Page()
+	values = append(values, index*size, size)
+	return values
+}
+func cndSql(c gom.Condition) string {
 	results := ""
 	items := c.Items()
 	length := len(items)
