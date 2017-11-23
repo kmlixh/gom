@@ -131,10 +131,6 @@ func (c *Conditions) Values() []interface{} {
 			results = append(results, c.MItems[i].Values...)
 		}
 	}
-	if c.MPager != nil {
-		index, page := c.MPager.Page()
-		results = append(results, index, page)
-	}
 	return results
 }
 func (c *Conditions) Pager() Pager {
