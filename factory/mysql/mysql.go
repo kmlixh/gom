@@ -18,10 +18,11 @@ func (MySqlFactory) Insert(model gom.TableModel) (string, []interface{}) {
 	ccs := model.Columns
 	sql := "insert into " + "`" + model.TableName + "` ("
 	values := ""
-	for i, v := range ccs {
+	for _, v := range ccs {
 		value := model.ModelValue.FieldByName(v.FieldName).Interface()
 		if (!v.Auto) && value != nil {
-			if i > 0 {
+
+			if len(datas) > 0 {
 				sql += ","
 				values += ","
 			}
@@ -55,10 +56,10 @@ func (MySqlFactory) Delete(model gom.TableModel) (string, []interface{}) {
 func (MySqlFactory) Update(model gom.TableModel) (string, []interface{}) {
 	var datas []interface{}
 	sql := "update " + "`" + model.TableName + "` set "
-	for i, v := range model.Columns {
+	for _, v := range model.Columns {
 		value := model.ModelValue.FieldByName(v.FieldName).Interface()
 		if (!v.Auto) && value != nil {
-			if i > 0 {
+			if len(datas) > 0 {
 				sql += ","
 			}
 			sql += "`" + v.ColumnName + "` = ? "
