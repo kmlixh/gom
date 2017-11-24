@@ -133,7 +133,7 @@ func cndSql(c gom.Condition) string {
 		}
 	}
 	if c.Order() != nil {
-		results += " ORDER BY " + c.Order().Name()
+		results += " ORDER BY `" + c.Order().Name() + "`"
 		if c.Order().Type() == gom.Asc {
 			results += " ASC "
 		} else {
