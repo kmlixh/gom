@@ -37,7 +37,7 @@ func (MySqlFactory) Insert(model gom.TableModel) (string, []interface{}) {
 }
 func (fac MySqlFactory) Replace(model gom.TableModel) (string, []interface{}) {
 	sql, datas := fac.Insert(model)
-	sql = strings.Replace(sql, "insert", "replace", 0)
+	sql = strings.Replace(sql, "insert", "replace", 1)
 	return sql, datas
 }
 func (MySqlFactory) Delete(model gom.TableModel) (string, []interface{}) {
