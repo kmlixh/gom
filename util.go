@@ -258,6 +258,13 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 			dds = dbytes
 		case time.Time:
 			dds, _ = TimeFromString(data)
+		case bool:
+			ret,_:=IntfromString(data)
+			if ret >0{
+				dds=true
+			}else{
+				dds=false
+			}
 		default:
 
 			dds = data
