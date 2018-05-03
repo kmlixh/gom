@@ -60,5 +60,5 @@ func UInt64fromString(data string)(uint64,error){
 }
 func TimeFromString(data string)(time.Time,error){
 	TimeFormat:= "2006-01-02 03:04:05"
-	return time.Parse(TimeFormat,data)
+	return time.ParseInLocation(TimeFormat,data,time.Local)
 }
