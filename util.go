@@ -256,7 +256,7 @@ func getArrayFromColumns(columns []Column) []interface{}{
 		if vv.Kind()==reflect.Ptr{
 			vv=vv.Elem()
 		}
-		vt:=vv.Interface()
+		vt:=reflect.New
 		dest[i]=&vt
 	}
 	return dest
