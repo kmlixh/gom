@@ -35,7 +35,7 @@ type TableModel struct {
 	Cnd        Condition
 }
 type Column struct {
-	ColumnType reflect.Type
+	reflect.Type
 	ColumnName string
 	FieldName  string
 	QueryField string

@@ -66,7 +66,7 @@ func GetTableModel(v interface{}, names ...string) (TableModel, error) {
 func CreateSingleValueTableModel(v interface{}, table string, field string) TableModel {
 	tt, _, _ := getType(v)
 	vals := reflect.New(tt).Elem()
-	columns := []Column{{ColumnName: field, ColumnType: tt, IsPrimary: false, Auto: false}}
+	columns := []Column{{ColumnName: field, Type: tt, IsPrimary: false, Auto: false}}
 	return TableModel{Columns: columns, TableName: table, ModelType: tt, ModelValue: vals}
 }
 func getTableModels(vs ...interface{}) ([]TableModel, error) {
@@ -165,8 +165,12 @@ func getColumnFromField(filed reflect.StructField) (Column, int) {
 	if debug {
 		fmt.Println("Tag is:", tag, "type is:", tps)
 	}
+	v:=reflect.New(filed.Type)
+	if v.Kind()==reflect.Ptr{
+		v=v.Elem()
+	}
 	if tps != -1 {
-		return Column{ColumnType: filed.Type, ColumnName: tag, FieldName: filed.Name, Auto: tps == 2, IsPrimary: tps == 1 || tps == 2}, tps
+		return Column{Type: v.Type(), ColumnName: tag, FieldName: filed.Name, Auto: tps == 2, IsPrimary: tps == 1 || tps == 2}, tps
 	} else {
 		return Column{}, -1
 	}
@@ -211,88 +215,44 @@ func getTagFromField(field reflect.StructField) (string, int) {
 	}
 }
 func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
-	maps := getBytesMap(model, row)
-	ccs := model.Columns
+	maps := getDataMap(model, row)
 	vv := reflect.New(model.ModelType).Elem()
 	isStruct := model.ModelType.Kind() == reflect.Struct && model.ModelType != reflect.TypeOf(time.Time{})
-	for _, c := range ccs {
-		vi := reflect.New(c.ColumnType).Elem()
-		var dds interface{}
-		dbytes := maps[c.ColumnName]
-		data := string(dbytes)
-
-		switch v := vi.Interface().(type) {
-
-		case BinaryUnmarshaler:
-			dd, er := v.UnmarshalBinary(dbytes)
-			debugs("jump into BinaryUnmarsh====", dd)
-			if er != nil {
-				fmt.Println("when convert binary data to '", vv.Kind().String(), "', find error:", er.Error())
-			}
-			dds = dd
-		case uint:
-			dds, _ = UIntfromString(data)
-		case uint16:
-			dds, _ = UInt16fromString(data)
-		case uint32:
-			dds, _ = UInt32fromString(data)
-		case uint64:
-			dds, _ = UInt64fromString(data)
-		case int:
-			dds, _ = IntfromString(data)
-		case int8:
-			dds, _ = Int8fromString(data)
-		case int16:
-			dds, _ = Int16fromString(data)
-		case int32:
-			dds, _ = Int32fromString(data)
-		case int64:
-			dds, _ = Int64fromString(data)
-		case float32:
-			dds, _ = Float32fromString(data)
-		case float64:
-			dds, _ = Float64fromString(data)
-		case string:
-			dds = data
-		case []byte:
-			dds = dbytes
-		case time.Time:
-			dds, _ = TimeFromString(data)
-		case bool:
-			ret,_:=IntfromString(data)
-			if ret >0{
-				dds=true
-			}else{
-				dds=false
-			}
-		default:
-
-			dds = data
+	for _, c := range model.Columns {
+		tt:=c.Type
+		if tt.Kind()==reflect.Ptr{
+			tt=tt.Elem()
+		}
+		if tt!=reflect.TypeOf(maps[c.FieldName]){
+			panic("invalid value type: Type "+reflect.TypeOf(maps[c.FieldName]).String()+" Named as '"+c.FieldName+"' not equals to Type '"+c.Type.String()+"'" )
 		}
 		if isStruct {
-			vv.FieldByName(c.FieldName).Set(reflect.ValueOf(dds))
+			vv.FieldByName(c.FieldName).Set(reflect.ValueOf(maps[c.FieldName]))
 		} else {
-			vv.Set(reflect.ValueOf(dds))
+			vv.Set(reflect.ValueOf(maps[c.FieldName]))
 		}
 	}
 	return vv
 }
-func getBytesMap(model TableModel, row RowChooser) map[string][]byte {
-
-	data := make([][]byte, len(model.Columns))
-	dest := make([]interface{}, len(model.Columns)) // A temporary interface{} slice
-	for i, _ := range data {
-		dest[i] = &data[i] // Put pointers to each string in the interface slice
-	}
+func getDataMap(model TableModel, row RowChooser) map[string]interface{} {
+	dest := getArrayFromColumns(model.Columns)
 	err := row.Scan(dest...)
 	if err != nil {
-		return map[string][]byte{}
+		return map[string]interface{}{}
 	}
-	result := make(map[string][]byte, len(model.Columns))
+	result := make(map[string]interface{}, len(model.Columns))
 	ccs := model.Columns
 	for i, dd := range ccs {
-		result[dd.ColumnName] = data[i]
+		result[dd.FieldName] = dest[i]
 	}
 	return result
 
+}
+func getArrayFromColumns(columns []Column) []interface{}{
+	dest := make([]interface{}, len(columns)) // A temporary interface{} slice
+	for i,v:=range columns{
+		vv:=reflect.New(v.Type).Interface()
+		dest[i]=vv
+	}
+	return dest
 }
