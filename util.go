@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"time"
+	"encoding/json"
 )
 
 func IsEmpty(v interface{}) bool {
@@ -218,18 +219,14 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 	maps := getDataMap(model, row)
 	vv := reflect.New(model.ModelType).Elem()
 	isStruct := model.ModelType.Kind() == reflect.Struct && model.ModelType != reflect.TypeOf(time.Time{})
+	if debug {
+		fmt.Println("vv kind is:",vv.Kind())
+	}
 	for _, c := range model.Columns {
-		tt:=c.Type
-		if tt.Kind()==reflect.Ptr{
-			tt=tt.Elem()
-		}
-		if tt!=reflect.TypeOf(maps[c.FieldName]){
-			panic("invalid value type: Type "+reflect.TypeOf(maps[c.FieldName]).String()+" Named as '"+c.FieldName+"' not equals to Type '"+c.Type.String()+"'" )
-		}
 		if isStruct {
-			vv.FieldByName(c.FieldName).Set(reflect.ValueOf(maps[c.FieldName]))
+			vv.FieldByName(c.FieldName).Set(reflect.ValueOf(maps[c.FieldName]).Elem())
 		} else {
-			vv.Set(reflect.ValueOf(maps[c.FieldName]))
+			vv.Set(reflect.ValueOf(maps[c.FieldName]).Elem())
 		}
 	}
 	return vv
@@ -238,6 +235,7 @@ func getDataMap(model TableModel, row RowChooser) map[string]interface{} {
 	dest := getArrayFromColumns(model.Columns)
 	err := row.Scan(dest...)
 	if err != nil {
+		fmt.Println(err)
 		return map[string]interface{}{}
 	}
 	result := make(map[string]interface{}, len(model.Columns))
@@ -245,14 +243,21 @@ func getDataMap(model TableModel, row RowChooser) map[string]interface{} {
 	for i, dd := range ccs {
 		result[dd.FieldName] = dest[i]
 	}
+	if debug {
+		fmt.Println(json.Marshal(result))
+	}
 	return result
 
 }
 func getArrayFromColumns(columns []Column) []interface{}{
 	dest := make([]interface{}, len(columns)) // A temporary interface{} slice
 	for i,v:=range columns{
-		vv:=reflect.New(v.Type).Interface()
-		dest[i]=vv
+		vv:=reflect.New(v.Type)
+		if vv.Kind()==reflect.Ptr{
+			vv=vv.Elem()
+		}
+		vt:=vv.Interface()
+		dest[i]=&vt
 	}
 	return dest
 }
