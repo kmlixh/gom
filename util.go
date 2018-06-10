@@ -1,13 +1,12 @@
 package gom
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 	"time"
-	"encoding/json"
-	"strconv"
 )
 
 func IsEmpty(v interface{}) bool {
@@ -167,9 +166,9 @@ func getColumnFromField(filed reflect.StructField) (Column, int) {
 	if debug {
 		fmt.Println("Tag is:", tag, "type is:", tps)
 	}
-	v:=reflect.New(filed.Type)
-	if v.Kind()==reflect.Ptr{
-		v=v.Elem()
+	v := reflect.New(filed.Type)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
 	}
 	if tps != -1 {
 		return Column{Type: v.Type(), ColumnName: tag, FieldName: filed.Name, Auto: tps == 2, IsPrimary: tps == 1 || tps == 2}, tps
@@ -221,7 +220,7 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 	vv := reflect.New(model.ModelType).Elem()
 	isStruct := model.ModelType.Kind() == reflect.Struct && model.ModelType != reflect.TypeOf(time.Time{})
 	if debug {
-		fmt.Println("vv kind is:",vv.Kind())
+		fmt.Println("vv kind is:", vv.Kind())
 	}
 	for _, c := range model.Columns {
 		if isStruct {
@@ -250,23 +249,23 @@ func getDataMap(model TableModel, row RowChooser) map[string]interface{} {
 	return result
 
 }
-func getArrayFromColumns(columns []Column) []interface{}{
+func getArrayFromColumns(columns []Column) []interface{} {
 	dest := make([]interface{}, len(columns)) // A temporary interface{} slice
-	for i,v:=range columns{
-		result:=getValueOfType(v)
-		dest[i]=&result
+	for i, v := range columns {
+		result := getValueOfType(v)
+		dest[i] = &result
 	}
 	return dest
 }
 func getValueOfType(c Column) interface{} {
 	vi := reflect.New(c.Type).Elem()
 	switch vi.Interface().(type) {
-	case CustomScanner,BinaryUnmarshaler:
-		result,ok:=vi.Interface().(CustomScanner)
-		if ok{
-			res,_:=result.Value()
+	case CustomScanner, BinaryUnmarshaler:
+		result, ok := vi.Interface().(CustomScanner)
+		if ok {
+			res, _ := result.Value()
 			return res
-		}else{
+		} else {
 			return []byte{}
 		}
 	case uint:
