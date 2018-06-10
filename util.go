@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 	"encoding/json"
+	"strconv"
 )
 
 func IsEmpty(v interface{}) bool {
@@ -252,12 +253,53 @@ func getDataMap(model TableModel, row RowChooser) map[string]interface{} {
 func getArrayFromColumns(columns []Column) []interface{}{
 	dest := make([]interface{}, len(columns)) // A temporary interface{} slice
 	for i,v:=range columns{
-		vv:=reflect.New(v.Type)
-		if vv.Kind()==reflect.Ptr{
-			vv=vv.Elem()
-		}
-		vt:=reflect.New
-		dest[i]=&vt
+		result:=getValueOfType(v)
+		dest[i]=&result
 	}
 	return dest
+}
+func getValueOfType(c Column) interface{} {
+	vi := reflect.New(c.Type).Elem()
+	switch vi.Interface().(type) {
+	case CustomScanner,BinaryUnmarshaler:
+		result,ok:=vi.Interface().(CustomScanner)
+		if ok{
+			res,_:=result.Value()
+			return res
+		}else{
+			return []byte{}
+		}
+	case uint:
+		return uint(0)
+	case uint16:
+		return uint16(0)
+	case uint32:
+		return uint32(0)
+	case uint64:
+		return uint64(0)
+	case int:
+		return int(0)
+	case int8:
+		return int8(0)
+	case int16:
+		return int16(0)
+	case int32:
+		return int32(0)
+	case int64:
+		return int64(0)
+	case float32:
+		return float32(0)
+	case float64:
+		return float64(0)
+	case string:
+		return ""
+	case []byte:
+		return []byte{}
+	case time.Time:
+		return time.Now()
+	case bool:
+		return false
+	default:
+		return []byte{}
+	}
 }
