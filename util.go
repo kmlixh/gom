@@ -221,34 +221,36 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 	isStruct := model.ModelType.Kind() == reflect.Struct && model.ModelType != reflect.TypeOf(time.Time{})
 	if debug {
 		fmt.Println("vv kind is:", vv.Kind())
-		d,e:=json.Marshal(maps)
-		fmt.Println("map kind is:",string(d),e)
+		d, e := json.Marshal(maps)
+		fmt.Println("map kind is:", string(d), e)
 	}
 	for _, c := range model.Columns {
 		if debug {
-			fmt.Println("column is:",c.ColumnName,",column type is:",c.Type,",value type is:",reflect.TypeOf(maps[c.ColumnName]))
+			fmt.Println("column is:", c.ColumnName, ",column type is:", c.Type, ",value type is:", reflect.TypeOf(maps[c.ColumnName]))
 		}
-		result:=maps[c.ColumnName]
-		resultBin,ok:=reflect.New(c.Type).Interface().(BinaryUnmarshaler)
-		if(ok){
-			result,_=resultBin.UnmarshalBinary(result.([]byte))
-		}else{
-			resultScanner,ojbk:=maps[c.ColumnName].(IScanner)
-			if ojbk{
-				result,_=resultScanner.Value()
-			}else{
-				panic(errors.New("can't parse data to "+c.Type.String()+",when use Type:"+reflect.TypeOf(maps[c.ColumnName]).String()))
-			}
+		var result interface{}
+		scanner := maps[c.ColumnName]
+		tt := reflect.TypeOf(scanner)
+		if tt.Kind() == reflect.Ptr {
+			tt = tt.Elem()
+		}
+		val, _ := scanner.Value()
+		if tt == c.Type {
+			result = scanner
+		} else if reflect.TypeOf(val) == c.Type {
+			result = val
+		} else {
+			panic(errors.New("can't transfer data"))
 		}
 		if isStruct {
-			vv.FieldByName(c.FieldName).Set(reflect.ValueOf(result))
+			vv.FieldByName(c.FieldName).Set(reflect.Indirect(reflect.ValueOf(result)))
 		} else {
-			vv.Set(reflect.ValueOf(result))
+			vv.Set(reflect.Indirect(reflect.ValueOf(result)))
 		}
 	}
 	return vv
 }
-func getDataMap(model TableModel, row RowChooser) map[string]interface{} {
+func getDataMap(model TableModel, row RowChooser) map[string]IScanner {
 	dest := make([]interface{}, len(model.Columns)) // A temporary interface{} slice
 	for i, v := range model.Columns {
 		result := getValueOfType(v)
@@ -257,41 +259,46 @@ func getDataMap(model TableModel, row RowChooser) map[string]interface{} {
 	err := row.Scan(dest...)
 	if err != nil {
 		fmt.Println(err)
-		return map[string]interface{}{}
+		return map[string]IScanner{}
 	}
-	result := make(map[string]interface{}, len(model.Columns))
+	result := make(map[string]IScanner, len(model.Columns))
 	ccs := model.Columns
 	for i, dd := range ccs {
-		result[dd.ColumnName] = dest[i]
+		result[dd.ColumnName] = dest[i].(IScanner)
 	}
 	return result
 
 }
 func getValueOfType(c Column) IScanner {
-	vi := reflect.New(c.Type).Elem()
-	resultScan, ok := vi.Interface().(IScanner)
-	if ok{
-		return resultScan
+	vs := reflect.New(c.Type)
+	scanner, ojbk := vs.Interface().(IScanner)
+	if ojbk {
+		fmt.Println("it's ok")
+		return scanner
 	}
-	switch vi.Interface().(type) {
+	vi := reflect.Indirect(vs)
 
-	case int,int32:
-		return &Scanner{0,Int32Scan}
+	switch vi.Interface().(type) {
+	case Scanner, IScanner:
+		v, _ := vi.Interface().(Scanner).Value()
+		return &Scanner{v, vi.Interface().(Scanner).ScanFunc}
+	case int, int32:
+		return &Scanner{0, Int32Scan}
 	case int64:
-		return &Scanner{int64(0),Int64Scan}
+		return &Scanner{int64(0), Int64Scan}
 	case float32:
-		return &Scanner{float32(0),Float32Scan}
+		return &Scanner{float32(0), Float32Scan}
 	case float64:
-		return &Scanner{float64(0),Float64Scan}
+		return &Scanner{float64(0), Float64Scan}
 	case string:
-		return &Scanner{"",StringScan}
+		return &Scanner{"", StringScan}
 	case []byte:
-		return &Scanner{[]byte{},ByteArrayScan}
+		return &Scanner{[]byte{}, ByteArrayScan}
 	case time.Time:
-		return &Scanner{time.Time{},TimeScan}
+		return &Scanner{time.Time{}, TimeScan}
 	case bool:
-		return &Scanner{false,BoolScan}
+		return &Scanner{false, BoolScan}
 	default:
-		panic(errors.New("can't parse type '"+reflect.New(c.Type).String()+"' as IScanner"))
+		panic(errors.New("can't parse type '" + reflect.New(c.Type).String() + "' as IScanner"))
 	}
 }
