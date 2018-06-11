@@ -4,6 +4,8 @@ import (
 
 	"strconv"
 	"time"
+	"encoding/binary"
+	"math"
 )
 
 func Stringfrombytes(data []byte) string {
@@ -61,4 +63,40 @@ func UInt64fromString(data string)(uint64,error){
 func TimeFromString(data string)(time.Time,error){
 	TimeFormat:= "2006-01-02 03:04:05"
 	return time.ParseInLocation(TimeFormat,data,time.Local)
+}
+
+func Float64fromBytes(bytes []byte) float64 {
+	bits := binary.LittleEndian.Uint64(bytes)
+	float := math.Float64frombits(bits)
+	return float
+}
+
+func Float64ToBytes(float float64) []byte {
+	bits := math.Float64bits(float)
+	bytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(bytes, bits)
+	return bytes
+}
+func Float32fromBytes(bytes []byte) float32  {
+	bits := binary.LittleEndian.Uint32(bytes)
+	float := math.Float32frombits(bits)
+	return float
+}
+func Float32ToBytes(float float32)  []byte {
+	bits := math.Float32bits(float)
+	bytes := make([]byte, 8)
+	binary.LittleEndian.PutUint32(bytes, bits)
+	return bytes
+}
+func Int64ToBytes(i int64) []byte {
+	var buf = make([]byte, 8)
+	binary.BigEndian.PutUint64(buf, uint64(i))
+	return buf
+}
+
+func Int64FromBytes(buf []byte) int64 {
+	return int64(binary.BigEndian.Uint64(buf))
+}
+func Int32FromBytes(buf []byte) int {
+	return int(binary.BigEndian.Uint32(buf))
 }

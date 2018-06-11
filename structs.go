@@ -3,19 +3,11 @@ package gom
 import (
 	"fmt"
 	"reflect"
-	"database/sql/driver"
 )
 
 type CreateSql func(TableModel) (string, []interface{})
+type TransactionWork func(databaseTx *Db) (int, error)
 
-type BinaryUnmarshaler interface {
-	UnmarshalBinary(dbytes []byte) (interface{}, error)
-}
-
-type CustomScanner interface{
-    Value() (driver.Value, error)
-	Scan(src interface{}) error
-}
 type SqlGenerator struct {
 	createSql   CreateSql
 	tableModels []TableModel

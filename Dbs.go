@@ -7,7 +7,6 @@ import (
 	"reflect"
 )
 
-type TransactionWork func(databaseTx *Db) (int, error)
 
 type sqlExecutor interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
