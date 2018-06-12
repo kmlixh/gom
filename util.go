@@ -259,7 +259,6 @@ func getDataMap(model TableModel, row RowChooser) map[string]IScanner {
 	err := row.Scan(dest...)
 	if err != nil {
 		fmt.Println(err)
-		return map[string]IScanner{}
 	}
 	result := make(map[string]IScanner, len(model.Columns))
 	ccs := model.Columns
@@ -278,9 +277,6 @@ func getValueOfType(c Column) IScanner {
 	vi := reflect.Indirect(vs)
 
 	switch vi.Interface().(type) {
-	case Scanner, IScanner:
-		v, _ := vi.Interface().(Scanner).Value()
-		return &Scanner{v, vi.Interface().(Scanner).ScanFunc}
 	case int, int32:
 		return &Scanner{0, Int32Scan}
 	case int64:
