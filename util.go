@@ -273,7 +273,6 @@ func getValueOfType(c Column) IScanner {
 	vs := reflect.New(c.Type)
 	scanner, ojbk := vs.Interface().(IScanner)
 	if ojbk {
-		fmt.Println("it's ok")
 		return scanner
 	}
 	vi := reflect.Indirect(vs)
@@ -299,6 +298,6 @@ func getValueOfType(c Column) IScanner {
 	case bool:
 		return &Scanner{false, BoolScan}
 	default:
-		panic(errors.New("can't parse type '" + reflect.New(c.Type).String() + "' as IScanner"))
+		panic(errors.New("unsupported type '" + reflect.New(c.Type).String() + "' you would changed it!"))
 	}
 }
