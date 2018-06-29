@@ -14,6 +14,7 @@ type SqlGenerator struct {
 }
 type SqlFactory interface {
 	Insert(TableModel) (string, []interface{})
+	InsertIgnore(TableModel) (string, []interface{})
 	Update(TableModel) (string, []interface{})
 	Replace(TableModel) (string, []interface{})
 	Delete(TableModel) (string, []interface{})
@@ -66,6 +67,7 @@ type Condition interface {
 	AndIn(name string, values ...interface{}) Condition
 	OrIn(name string, values ...interface{}) Condition
 	Page(index int, size int) Condition
+	Limit(index int, size int) Condition
 	OrderBy(name string, tp OrderType) Condition
 }
 type Order interface {
@@ -74,14 +76,14 @@ type Order interface {
 }
 type Orders struct {
 	MName string
-	MType OrderType
+	OrderType
 }
 
 func (o Orders) Name() string {
 	return o.MName
 }
 func (o Orders) Type() OrderType {
-	return o.MType
+	return o.OrderType
 }
 
 type Pager interface {
@@ -163,6 +165,10 @@ func (c *Conditions) OrIn(name string, values ...interface{}) Condition {
 	return c
 }
 func (c *Conditions) Page(index int, size int) Condition {
+	c.MPager = Pagers{index*size, size}
+	return c
+}
+func (c *Conditions) Limit(index int, size int) Condition {
 	c.MPager = Pagers{index, size}
 	return c
 }

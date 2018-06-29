@@ -16,7 +16,7 @@ type MySqlFactory struct {
 func (MySqlFactory) Insert(model gom.TableModel) (string, []interface{}) {
 	var datas []interface{}
 	ccs := model.Columns
-	sql := "insert into " + "`" + model.TableName + "` ("
+	sql := "INSERT INTO " + "`" + model.TableName + "` ("
 	values := ""
 	for _, v := range ccs {
 		value := model.ModelValue.FieldByName(v.FieldName).Interface()
@@ -35,13 +35,18 @@ func (MySqlFactory) Insert(model gom.TableModel) (string, []interface{}) {
 	sql += ") VALUES (" + values + ")"
 	return sql, datas
 }
+func (self MySqlFactory) InsertIgnore(model gom.TableModel) (string, []interface{}) {
+	sql,datas:=self.Insert(model)
+	sql=strings.Replace(sql,"INSERT INTO ","INSERT IGNORE INTO ",1)
+	return sql,datas
+}
 func (fac MySqlFactory) Replace(model gom.TableModel) (string, []interface{}) {
 	sql, datas := fac.Insert(model)
-	sql = strings.Replace(sql, "insert", "replace", 1)
+	sql = strings.Replace(sql, "INSERT", "REPLACE", 1)
 	return sql, datas
 }
 func (MySqlFactory) Delete(model gom.TableModel) (string, []interface{}) {
-	sql := "delete from " + "`" + model.TableName + "` "
+	sql := "DELETE FROM " + "`" + model.TableName + "` "
 	if model.Cnd != nil {
 		sql += cndSql(model.Cnd)
 		return sql, cndValue(model.Cnd)
@@ -55,7 +60,7 @@ func (MySqlFactory) Delete(model gom.TableModel) (string, []interface{}) {
 }
 func (MySqlFactory) Update(model gom.TableModel) (string, []interface{}) {
 	var datas []interface{}
-	sql := "update " + "`" + model.TableName + "` set "
+	sql := "UPDATE " + "`" + model.TableName + "` SET "
 	for _, v := range model.Columns {
 		value := model.ModelValue.FieldByName(v.FieldName).Interface()
 		if (!v.Auto) && value != nil {
@@ -109,7 +114,10 @@ func cndValue(cnd gom.Condition) []interface{} {
 	values := cnd.Values()
 	if cnd.Pager() != nil {
 		index, size := cnd.Pager().Page()
-		values = append(values, index*size, size)
+		if index>=0{
+			values = append(values, index)
+		}
+		values = append(values, size)
 	}
 	return values
 }
@@ -141,7 +149,12 @@ func cndSql(c gom.Condition) string {
 		}
 	}
 	if c.Pager() != nil {
-		results += " LIMIT ?,?;"
+		index,_:=c.Pager().Page()
+		if index>=0{
+			results += " LIMIT ?,?;"
+		}else{
+			results += " LIMIT ?;"
+		}
 	}
 	return results
 }

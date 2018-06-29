@@ -160,6 +160,13 @@ func (db Db) Insert(vs ...interface{}) (int, error) {
 	}
 	return db.execute(SqlGenerator{db.factory.Insert, models})
 }
+func (db Db) InsertIgnore(vs ...interface{}) (int, error) {
+	models, err := getTableModels(vs...)
+	if err != nil {
+		return -1, nil
+	}
+	return db.execute(SqlGenerator{db.factory.InsertIgnore, models})
+}
 
 func (db Db) Replace(vs ...interface{}) (int, error) {
 	models, err := getTableModels(vs...)
