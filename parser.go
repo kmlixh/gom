@@ -66,8 +66,7 @@ func TimeFromString(data string)(time.Time,error){
 }
 
 func Float64fromBytes(bytes []byte) float64 {
-	bits := binary.LittleEndian.Uint64(bytes)
-	float := math.Float64frombits(bits)
+	float,_:=strconv.ParseFloat(string(bytes),64)
 	return float
 }
 
@@ -78,9 +77,8 @@ func Float64ToBytes(float float64) []byte {
 	return bytes
 }
 func Float32fromBytes(bytes []byte) float32  {
-	bits := binary.LittleEndian.Uint32(bytes)
-	float := math.Float32frombits(bits)
-	return float
+	float,_:=strconv.ParseFloat(string(bytes),32)
+	return float32(float)
 }
 func Float32ToBytes(float float32)  []byte {
 	bits := math.Float32bits(float)

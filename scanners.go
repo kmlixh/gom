@@ -89,6 +89,10 @@ func Float32Scan(src interface{}) (interface{}, error) {
 		result = Float32fromBytes(src.([]byte))
 	case time.Time:
 		err = errors.New("can't parse time.Time to float32")
+	case float64:
+		result=float32(src.(float64))
+	case float32:
+		result=src.(float32)
 	}
 	return result, err
 
@@ -102,6 +106,10 @@ func Float64Scan(src interface{}) (interface{}, error) {
 		result = Float64fromBytes(src.([]byte))
 	case time.Time:
 		result = float64(src.(time.Time).Unix())
+	case float32:
+		result=float64(src.(float32))
+	case float64:
+		result=src.(float64)
 	}
 	return result, nil
 
