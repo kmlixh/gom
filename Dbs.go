@@ -7,7 +7,6 @@ import (
 	"reflect"
 )
 
-
 type sqlExecutor interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
 	Query(query string, args ...interface{}) (*sql.Rows, error)
@@ -156,14 +155,14 @@ func (db Db) execute(job SqlGenerator) (int, error) {
 func (db Db) Insert(vs ...interface{}) (int, error) {
 	models, err := getTableModels(vs...)
 	if err != nil {
-		return -1, nil
+		return -1, err
 	}
 	return db.execute(SqlGenerator{db.factory.Insert, models})
 }
 func (db Db) InsertIgnore(vs ...interface{}) (int, error) {
 	models, err := getTableModels(vs...)
 	if err != nil {
-		return -1, nil
+		return -1, err
 	}
 	return db.execute(SqlGenerator{db.factory.InsertIgnore, models})
 }
@@ -171,7 +170,7 @@ func (db Db) InsertIgnore(vs ...interface{}) (int, error) {
 func (db Db) Replace(vs ...interface{}) (int, error) {
 	models, err := getTableModels(vs...)
 	if err != nil {
-		return -1, nil
+		return -1, err
 	}
 	return db.execute(SqlGenerator{db.factory.Replace, models})
 }
@@ -179,7 +178,7 @@ func (db Db) Replace(vs ...interface{}) (int, error) {
 func (db Db) Delete(vs ...interface{}) (int, error) {
 	models, err := getTableModels(vs...)
 	if err != nil {
-		return -1, nil
+		return -1, err
 	}
 	return db.execute(SqlGenerator{db.factory.Delete, models})
 }
@@ -187,7 +186,7 @@ func (db Db) Delete(vs ...interface{}) (int, error) {
 func (db Db) DeleteByConditon(v interface{}, c Condition) (int, error) {
 	models, err := getTableModel(v)
 	if err != nil {
-		return -1, nil
+		return -1, err
 	}
 	model := models[0]
 	if c.NotNull() {
@@ -199,7 +198,7 @@ func (db Db) DeleteByConditon(v interface{}, c Condition) (int, error) {
 func (db Db) Update(vs ...interface{}) (int, error) {
 	models, err := getTableModels(vs...)
 	if err != nil {
-		return -1, nil
+		return -1, err
 	}
 	return db.execute(SqlGenerator{db.factory.Update, models})
 }
@@ -207,7 +206,7 @@ func (db Db) Update(vs ...interface{}) (int, error) {
 func (db Db) UpdateByCondition(v interface{}, c Condition) (int, error) {
 	models, err := getTableModel(v)
 	if err != nil {
-		return -1, nil
+		return -1, err
 	}
 	model := models[0]
 	if c.NotNull() {
