@@ -89,7 +89,8 @@ func getTableModel(v interface{}) ([]TableModel, error) {
 	var tableModels []TableModel
 	var values []reflect.Value
 	tt, isPtr, isSlice := getType(v)
-	if tt.NumField() == 0 || tt.NumMethod() == 0 {
+	_, hasMethod := tt.MethodByName("TableName")
+	if tt.Kind() != reflect.Struct || (tt.Kind() == reflect.Struct && hasMethod) || tt.NumField() == 0 {
 		return tableModels, errors.New(tt.Name() + " is not a valid struct")
 	}
 	value := reflect.ValueOf(v)
