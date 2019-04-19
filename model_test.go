@@ -40,6 +40,7 @@ func TestGetTableModelRepeat(t *testing.T) {
 	t.Log(m1, err)
 	m2, err := getTableModels(&log)
 	t.Log(m2, err)
+
 }
 func TestCnd(t *testing.T) {
 	cnd := Cnd("")
