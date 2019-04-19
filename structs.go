@@ -25,13 +25,21 @@ type RowChooser interface {
 }
 
 type TableModel struct {
-	ModelType  reflect.Type
-	ModelValue reflect.Value
-	TableName  string
-	Columns    []Column
-	Primary    Column
-	Cnd        Condition
+	Type      reflect.Type
+	Value     reflect.Value
+	TableName string
+	Columns   []Column
+	Primary   Column
+	Cnd       Condition
 }
+
+func (this TableModel) Clone() TableModel {
+	return this.CloneWithValue(reflect.New(this.Type))
+}
+func (this TableModel) CloneWithValue(value reflect.Value) TableModel {
+	return TableModel{this.Type, value, this.TableName, this.Columns, this.Primary, this.Cnd}
+}
+
 type Column struct {
 	reflect.Type
 	ColumnName string
@@ -165,7 +173,7 @@ func (c *Conditions) OrIn(name string, values ...interface{}) Condition {
 	return c
 }
 func (c *Conditions) Page(index int, size int) Condition {
-	c.MPager = Pagers{index*size, size}
+	c.MPager = Pagers{index * size, size}
 	return c
 }
 func (c *Conditions) Limit(index int, size int) Condition {
@@ -224,7 +232,7 @@ func (mo TableModel) InsertValues() []interface{} {
 	var interfaces []interface{}
 	results := reflect.Indirect(reflect.ValueOf(&interfaces))
 	for _, column := range mo.Columns {
-		vars := reflect.ValueOf(mo.ModelValue.FieldByName(column.FieldName).Interface())
+		vars := reflect.ValueOf(mo.Value.FieldByName(column.FieldName).Interface())
 		if results.Kind() == reflect.Ptr {
 			results.Set(reflect.Append(results, vars.Addr()))
 		} else {
@@ -234,7 +242,7 @@ func (mo TableModel) InsertValues() []interface{} {
 	return interfaces
 }
 func (m TableModel) GetPrimary() interface{} {
-	return m.ModelValue.FieldByName(m.Primary.FieldName).Interface()
+	return m.Value.FieldByName(m.Primary.FieldName).Interface()
 }
 func (m TableModel) GetPrimaryCondition() Condition {
 	if IsEmpty(m.GetPrimary()) || m.Primary.IsPrimary == false {

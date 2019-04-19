@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -68,7 +69,7 @@ func CreateSingleValueTableModel(v interface{}, table string, field string) Tabl
 	tt, _, _ := getType(v)
 	vals := reflect.New(tt).Elem()
 	columns := []Column{{ColumnName: field, Type: tt, IsPrimary: false, Auto: false}}
-	return TableModel{Columns: columns, TableName: table, ModelType: tt, ModelValue: vals}
+	return TableModel{Columns: columns, TableName: table, Type: tt, Value: vals}
 }
 func getTableModels(vs ...interface{}) ([]TableModel, error) {
 	tablemodels := []TableModel{}
@@ -85,7 +86,17 @@ func getTableModels(vs ...interface{}) ([]TableModel, error) {
 	}
 	return tablemodels, nil
 }
+
+var mutex sync.Mutex
+var tableModelCache map[string]TableModel
+
 func getTableModel(v interface{}) ([]TableModel, error) {
+	//防止重复创建map，需要对map创建过程加锁
+	mutex.Lock()
+	if tableModelCache == nil {
+		tableModelCache = make(map[string]TableModel)
+	}
+	mutex.Unlock()
 	var tableModels []TableModel
 	var values []reflect.Value
 	tt, isPtr, isSlice := getType(v)
@@ -118,22 +129,31 @@ func getTableModel(v interface{}) ([]TableModel, error) {
 			fmt.Println(values)
 		}
 		for _, val := range values {
-			nameMethod := val.MethodByName("TableName")
-			if debug {
-				fmt.Println(nameMethod)
+			var model TableModel
+			cachedModel, ok := tableModelCache[tt.String()]
+			if ok {
+				model = cachedModel.CloneWithValue(val)
+			} else {
+				nameMethod := val.MethodByName("TableName")
+				if debug {
+					fmt.Println(nameMethod)
+				}
+				tableName := nameMethod.Call(nil)[0].String()
+				columns, primary := getColumns(val)
+				ccs := []Column{primary}
+				ccs = append(ccs, columns...)
+				model = TableModel{Type: tt, Value: val, Columns: ccs, TableName: tableName, Primary: primary}
+				tableModelCache[tt.String()] = model.Clone()
 			}
-			tableName := nameMethod.Call(nil)[0].String()
-			columns, primary := getColumns(val)
-			ccs := []Column{primary}
-			ccs = append(ccs, columns...)
-			tableModels = append(tableModels, TableModel{ModelType: tt, ModelValue: val, Columns: ccs, TableName: tableName, Primary: primary})
+			tableModels = append(tableModels, model)
+
 		}
 		return tableModels, nil
-
 	} else {
 		return tableModels, errors.New("can't use interface to build TableModel")
 	}
 }
+
 func getColumns(v reflect.Value) ([]Column, Column) {
 	var columns []Column
 	var primary Column
@@ -218,8 +238,8 @@ func getTagFromField(field reflect.StructField) (string, int) {
 }
 func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 	maps := getDataMap(model, row)
-	vv := reflect.New(model.ModelType).Elem()
-	isStruct := model.ModelType.Kind() == reflect.Struct && model.ModelType != reflect.TypeOf(time.Time{})
+	vv := reflect.New(model.Type).Elem()
+	isStruct := model.Type.Kind() == reflect.Struct && model.Type != reflect.TypeOf(time.Time{})
 	if debug {
 		fmt.Println("vv kind is:", vv.Kind())
 		d, e := json.Marshal(maps)

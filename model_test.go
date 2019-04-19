@@ -29,10 +29,17 @@ func (Log) TableName() string {
 	return "system_log"
 }
 
-func TestModel(t *testing.T) {
+func TestGetTableModel(t *testing.T) {
 	var log []Log
 	m1, err := getTableModels(&log)
 	t.Log(m1, err)
+}
+func TestGetTableModelRepeat(t *testing.T) {
+	var log []Log
+	m1, err := getTableModels(&log)
+	t.Log(m1, err)
+	m2, err := getTableModels(&log)
+	t.Log(m2, err)
 }
 func TestCnd(t *testing.T) {
 	cnd := Cnd("")

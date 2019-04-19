@@ -48,6 +48,6 @@ func Open(driverName string, dsn string, debugs bool) (*Db, error) {
 }
 func debugs(vs ...interface{}) {
 	if debug {
-		fmt.Println(vs)
+		fmt.Println(vs...)
 	}
 }
