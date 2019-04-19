@@ -1,7 +1,6 @@
 package gom
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -240,11 +239,6 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 	maps := getDataMap(model, row)
 	vv := reflect.New(model.Type).Elem()
 	isStruct := model.Type.Kind() == reflect.Struct && model.Type != reflect.TypeOf(time.Time{})
-	if debug {
-		fmt.Println("vv kind is:", vv.Kind())
-		d, e := json.Marshal(maps)
-		fmt.Println("map kind is:", string(d), e)
-	}
 	for _, c := range model.Columns {
 		if debug {
 			fmt.Println("column is:", c.ColumnName, ",column type is:", c.Type, ",value type is:", reflect.TypeOf(maps[c.ColumnName]))
