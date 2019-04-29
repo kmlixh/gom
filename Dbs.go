@@ -41,12 +41,7 @@ func (thiz Db) Fetch(vs interface{}, nameFilters ...string) (interface{}, error)
 	return thiz.QueryByTableModel(model, vs)
 }
 
-func (this Db) Count2(columnName string, table string) (int64, error) {
-	return this.Count(columnName, table)
-}
-
-func (thiz Db) Count(columnName string, table string) (int64, error) {
-	this := thiz.clone()
+func (this Db) Count(columnName string, table string) (int64, error) {
 	var counts int64
 	columns := make(map[string]Column)
 	columns["result"] = Column{ColumnName: "result", Type: reflect.TypeOf(counts), QueryField: "count(" + columnName + ") as result", IsPrimary: false, Auto: false}
