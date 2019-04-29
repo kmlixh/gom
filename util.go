@@ -222,7 +222,7 @@ func getDataMap(model TableModel, row RowChooser) map[string]IScanner {
 	}
 	result := make(map[string]IScanner, len(model.ColumnMap))
 	for _, dd := range dest {
-		result[dd.(Scanner).Name] = dd.(IScanner)
+		result[dd.(*Scanner).Name] = dd.(IScanner)
 	}
 	return result
 
