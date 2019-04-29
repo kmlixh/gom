@@ -47,133 +47,78 @@ func getType(v interface{}) (reflect.Type, bool, bool) {
 }
 
 func GetTableModel(v interface{}, names ...string) (TableModel, error) {
-	tms, err := getTableModel(v)
-	if err != nil {
-		return TableModel{}, nil
-	}
-	tm := tms[0]
-	var cc []Column
-	for _, ct := range tm.Columns {
-		for _, name := range names {
-			if ct.ColumnName == name {
-				cc = append(cc, ct)
-			}
-		}
-	}
-	tm.Columns = cc
-	return tm, nil
+	return getTableModel(v, names...)
 
 }
 func CreateSingleValueTableModel(v interface{}, table string, field string) TableModel {
 	tt, _, _ := getType(v)
 	vals := reflect.New(tt).Elem()
-	columns := []Column{{ColumnName: field, Type: tt, IsPrimary: false, Auto: false}}
-	return TableModel{Columns: columns, TableName: table, Type: tt, Value: vals}
-}
-func getTableModels(vs ...interface{}) ([]TableModel, error) {
-	tablemodels := []TableModel{}
-	for _, v := range vs {
-		tt, _, _ := getType(v)
-		if tt.Kind() == reflect.Interface {
-			return tablemodels, errors.New("can't use interface as struct")
-		}
-		tbs, err := getTableModel(v)
-		if err != nil {
-			return tablemodels, err
-		}
-		tablemodels = append(tablemodels, tbs...)
-	}
-	return tablemodels, nil
+	columns := make(map[string]Column)
+	columns[field] = Column{}
+	return TableModel{ColumnMap: columns, TableName: table, Type: tt, Value: vals}
 }
 
 var mutex sync.Mutex
 var tableModelCache map[string]TableModel
 
-func getTableModel(v interface{}) ([]TableModel, error) {
+func getTableModel(v interface{}, nameFilters ...string) (TableModel, error) {
 	//防止重复创建map，需要对map创建过程加锁
 	mutex.Lock()
 	if tableModelCache == nil {
 		tableModelCache = make(map[string]TableModel)
 	}
 	mutex.Unlock()
-	var tableModels []TableModel
-	var values []reflect.Value
 	tt, isPtr, isSlice := getType(v)
 	_, hasMethod := tt.MethodByName("TableName")
 	if tt.Kind() != reflect.Struct || (tt.Kind() == reflect.Struct && !hasMethod) || tt.NumField() == 0 {
-		return tableModels, errors.New(tt.Name() + " is not a valid struct")
+		return TableModel{}, errors.New(tt.Name() + " is not a valid struct")
 	}
-	value := reflect.ValueOf(v)
-	if v != nil && tt.Kind() != reflect.Interface {
 
+	if v != nil && tt.Kind() != reflect.Interface {
+		value := reflect.ValueOf(v)
 		if isPtr {
 			value = value.Elem()
+		}
+		if isSlice {
+			value = reflect.Indirect(reflect.New(tt))
 		}
 		if debug {
 			fmt.Println("model info:", tt, isPtr, isSlice, value)
 		}
-		if isSlice {
-			if value.Len() > 0 {
-				for i := 0; i < value.Len(); i++ {
-					val := value.Index(i)
-					values = append(values, val)
-				}
-			} else {
-				values = append(values, reflect.New(tt).Elem())
-			}
+		var model TableModel
+		cachedModel, ok := tableModelCache[tt.String()]
+		if ok {
+			model = cachedModel.CloneWithValueAndFilters(value, nameFilters...)
 		} else {
-			values = append(values, value)
-		}
-		if debug {
-			fmt.Println(values)
-		}
-		for _, val := range values {
-			var model TableModel
-			cachedModel, ok := tableModelCache[tt.String()]
-			if ok {
-				model = cachedModel.CloneWithValue(val)
-			} else {
-				nameMethod := val.MethodByName("TableName")
-				if debug {
-					fmt.Println(nameMethod)
-				}
-				tableName := nameMethod.Call(nil)[0].String()
-				columns, primary := getColumns(val)
-				ccs := []Column{primary}
-				ccs = append(ccs, columns...)
-				model = TableModel{Type: tt, Value: val, Columns: ccs, TableName: tableName, Primary: primary}
-				tableModelCache[tt.String()] = model.Clone()
+			nameMethod := value.MethodByName("TableName")
+			if debug {
+				fmt.Println(nameMethod)
 			}
-			tableModels = append(tableModels, model)
-
+			tableName := nameMethod.Call(nil)[0].String()
+			columns, primary := getColumns(value)
+			temp := TableModel{Type: tt, Value: reflect.New(tt), ColumnMap: columns, TableName: tableName, Primary: primary}
+			tableModelCache[tt.String()] = temp
+			model = temp.CloneWithValueAndFilters(value, nameFilters...)
 		}
-		return tableModels, nil
+		return model, nil
+
 	} else {
-		return tableModels, errors.New("can't use interface to build TableModel")
+		return TableModel{}, errors.New("can't use interface")
 	}
 }
 
-func getColumns(v reflect.Value) ([]Column, Column) {
-	var columns []Column
+func getColumns(v reflect.Value) (map[string]Column, Column) {
+	columns := make(map[string]Column)
 	var primary Column
-	results := reflect.Indirect(reflect.ValueOf(&columns))
 	oo := v.Type()
-
 	for i := 0; i < oo.NumField(); i++ {
 		field := oo.Field(i)
 		col, tps := getColumnFromField(field)
+		columns[col.ColumnName] = col
 		if tps != -1 {
 			if tps == 1 || tps == 2 {
 				primary = col
-			} else {
-				n := reflect.Indirect(reflect.ValueOf(&col))
-				if results.Kind() == reflect.Ptr {
-					results.Set(reflect.Append(results, n.Addr()))
-				} else {
-					results.Set(reflect.Append(results, n))
-				}
 			}
-
 		}
 	}
 	if debug {
@@ -239,7 +184,7 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 	maps := getDataMap(model, row)
 	vv := reflect.New(model.Type).Elem()
 	isStruct := model.Type.Kind() == reflect.Struct && model.Type != reflect.TypeOf(time.Time{})
-	for _, c := range model.Columns {
+	for _, c := range model.ColumnMap {
 		if debug {
 			fmt.Println("column is:", c.ColumnName, ",column type is:", c.Type, ",value type is:", reflect.TypeOf(maps[c.ColumnName]))
 		}
@@ -266,19 +211,18 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 	return vv
 }
 func getDataMap(model TableModel, row RowChooser) map[string]IScanner {
-	dest := make([]interface{}, len(model.Columns)) // A temporary interface{} slice
-	for i, v := range model.Columns {
+	dest := make([]interface{}, len(model.ColumnMap)) // A temporary interface{} slice
+	for _, v := range model.ColumnMap {
 		result := getValueOfType(v)
-		dest[i] = result
+		dest = append(dest, result)
 	}
 	err := row.Scan(dest...)
 	if err != nil {
 		fmt.Println(err)
 	}
-	result := make(map[string]IScanner, len(model.Columns))
-	ccs := model.Columns
-	for i, dd := range ccs {
-		result[dd.ColumnName] = dest[i].(IScanner)
+	result := make(map[string]IScanner, len(model.ColumnMap))
+	for _, dd := range dest {
+		result[dd.(Scanner).Name] = dd.(IScanner)
 	}
 	return result
 
@@ -293,21 +237,21 @@ func getValueOfType(c Column) IScanner {
 
 	switch vi.Interface().(type) {
 	case int, int32:
-		return &Scanner{0, Int32Scan}
+		return &Scanner{c.ColumnName, 0, Int32Scan}
 	case int64:
-		return &Scanner{int64(0), Int64Scan}
+		return &Scanner{c.ColumnName, int64(0), Int64Scan}
 	case float32:
-		return &Scanner{float32(0), Float32Scan}
+		return &Scanner{c.ColumnName, float32(0), Float32Scan}
 	case float64:
-		return &Scanner{float64(0), Float64Scan}
+		return &Scanner{c.ColumnName, float64(0), Float64Scan}
 	case string:
-		return &Scanner{"", StringScan}
+		return &Scanner{c.ColumnName, "", StringScan}
 	case []byte:
-		return &Scanner{[]byte{}, ByteArrayScan}
+		return &Scanner{c.ColumnName, []byte{}, ByteArrayScan}
 	case time.Time:
-		return &Scanner{time.Time{}, TimeScan}
+		return &Scanner{c.ColumnName, time.Time{}, TimeScan}
 	case bool:
-		return &Scanner{false, BoolScan}
+		return &Scanner{c.ColumnName, false, BoolScan}
 	default:
 		panic(errors.New("unsupported type '" + reflect.New(c.Type).String() + "' you would changed it!"))
 	}

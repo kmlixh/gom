@@ -32,7 +32,7 @@ func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int, deb
 	} else {
 		db.SetMaxOpenConns(maxOpen)
 		db.SetMaxIdleConns(maxIdle)
-		return &Db{rawDb: db, executor: db, factory: factorys[driverName]}, nil
+		return &Db{db: db, factory: factorys[driverName]}, nil
 	}
 }
 
@@ -43,7 +43,7 @@ func Open(driverName string, dsn string, debugs bool) (*Db, error) {
 	if err != nil {
 		return nil, err
 	} else {
-		return &Db{rawDb: db, executor: db, factory: factorys[driverName]}, nil
+		return &Db{db: db, factory: factorys[driverName]}, nil
 	}
 }
 func debugs(vs ...interface{}) {

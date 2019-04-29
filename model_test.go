@@ -31,14 +31,14 @@ func (Log) TableName() string {
 
 func TestGetTableModel(t *testing.T) {
 	var log []Log
-	m1, err := getTableModels(&log)
+	m1, err := getTableModel(&log)
 	t.Log(m1, err)
 }
 func TestGetTableModelRepeat(t *testing.T) {
 	var log []Log
-	m1, err := getTableModels(&log)
+	m1, err := getTableModel(&log)
 	t.Log(m1, err)
-	m2, err := getTableModels(&log)
+	m2, err := getTableModel(&log)
 	t.Log(m2, err)
 
 }

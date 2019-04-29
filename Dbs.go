@@ -7,46 +7,66 @@ import (
 	"reflect"
 )
 
-type sqlExecutor interface {
+type ISqlGenerator interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
 	Query(query string, args ...interface{}) (*sql.Rows, error)
 	QueryRow(query string, args ...interface{}) *sql.Row
 	Prepare(query string) (*sql.Stmt, error)
 }
 type Db struct {
-	factory  SqlFactory
-	rawDb    *sql.DB
-	executor sqlExecutor
+	factory SqlFactory
+	db      *sql.DB
+	cnd     Condition
 }
 
-func (db Db) RawDb() *sql.DB {
-	return db.rawDb
+func (this Db) RawDb() *sql.DB {
+	return this.db
 }
-func (Db Db) makeInsertSqlGenerator(tableModel []TableModel) SqlGenerator {
-	return SqlGenerator{Db.factory.Insert, tableModel}
+func (this *Db) Where(sql string, patches ...interface{}) *Db {
+	this.Where2(Cnd(sql, patches...))
+	return this
 }
-func (Db Db) makeUpdateSqlGenerator(tableModel []TableModel) SqlGenerator {
-	return SqlGenerator{Db.factory.Update, tableModel}
+func (db *Db) Where2(cnd Condition) {
+	db.cnd = cnd
 }
-func (Db Db) makeDeleteSqlGenerator(tableModel []TableModel) SqlGenerator {
-	return SqlGenerator{Db.factory.Delete, tableModel}
+func (this Db) clone() Db {
+	return Db{this.factory, this.db, nil}
 }
-func (Db Db) QueryByTableModel(model TableModel, vs interface{}, c Condition) (interface{}, error) {
+func (thiz Db) Fetch(vs interface{}, nameFilters ...string) (interface{}, error) {
+
+	model, err := getTableModel(vs, nameFilters...)
+	if err != nil {
+		return nil, err
+	}
+	return thiz.QueryByTableModel(model, vs)
+}
+
+func (this Db) Count2(columnName string, table string) (int64, error) {
+	return this.Count(columnName, table)
+}
+
+func (thiz Db) Count(columnName string, table string) (int64, error) {
+	this := thiz.clone()
+	var counts int64
+	columns := make(map[string]Column)
+	columns["result"] = Column{ColumnName: "result", Type: reflect.TypeOf(counts), QueryField: "count(" + columnName + ") as result", IsPrimary: false, Auto: false}
+	tableModel := TableModel{ColumnMap: columns, Type: reflect.TypeOf(counts), Value: reflect.ValueOf(counts), TableName: table}
+	_, er := this.QueryByTableModel(tableModel, &counts)
+	return counts, er
+}
+func (this Db) QueryByTableModel(model TableModel, vs interface{}) (interface{}, error) {
 	tps, isPtr, islice := getType(vs)
 	if debug {
 		fmt.Println("model:", model)
 	}
 	if len(model.TableName) > 0 {
-		if c.NotNull() {
-			model.Cnd = c
-		}
 		if islice {
 			results := reflect.Indirect(reflect.ValueOf(vs))
-			sqls, datas := Db.factory.Query(model)
+			sqls, datas := this.factory.Query(model, this.cnd)
 			if debug {
 				fmt.Println(sqls, datas)
 			}
-			st, err := Db.executor.Prepare(sqls)
+			st, err := this.db.Prepare(sqls)
 			if err != nil {
 				return nil, err
 			}
@@ -61,11 +81,11 @@ func (Db Db) QueryByTableModel(model TableModel, vs interface{}, c Condition) (i
 			}
 			return vs, nil
 		} else {
-			sqls, datas := Db.factory.Query(model)
+			sqls, datas := this.factory.Query(model, this.cnd)
 			if debug {
 				fmt.Println(sqls, datas)
 			}
-			st, err := Db.executor.Prepare(sqls)
+			st, err := this.db.Prepare(sqls)
 			if err != nil {
 				return nil, err
 			}
@@ -90,32 +110,13 @@ func (Db Db) QueryByTableModel(model TableModel, vs interface{}, c Condition) (i
 	}
 }
 
-func (db Db) Query(vs interface{}, c Condition) (interface{}, error) {
-	models, err := getTableModel(vs)
-	if err != nil {
-		return nil, err
-	}
-	model := models[0]
-	return db.QueryByTableModel(model, vs, c)
-
-}
-func (db Db) Count(column string, table string, c Condition) (int64, error) {
-	var counts int64
-	columns := []Column{{ColumnName: "result", Type: reflect.TypeOf(counts), QueryField: "count(" + column + ") as result", IsPrimary: false, Auto: false}}
-	tableModel := TableModel{Columns: columns, Type: reflect.TypeOf(counts), Value: reflect.ValueOf(counts), TableName: table}
-	tableModel.Cnd = c
-	_, er := db.QueryByTableModel(tableModel, &counts, c)
-	return counts, er
-}
-
-func (db Db) WorkInTransaction(work TransactionWork) (int, error) {
+func (this Db) WorkInTransaction(work TransactionWork) (int, error) {
 	result := 0
-	tx, err := db.rawDb.Begin()
+	tx, err := this.db.Begin()
 	if err != nil {
 		return result, err
 	}
-
-	result, err = work(&Db{rawDb: db.rawDb, factory: db.factory, executor: tx})
+	result, err = work(&Db{db: this.db, factory: this.factory})
 	if err != nil {
 		tx.Rollback()
 		return result, err
@@ -123,94 +124,113 @@ func (db Db) WorkInTransaction(work TransactionWork) (int, error) {
 	tx.Commit()
 	return result, nil
 }
-func (db Db) execute(job SqlGenerator) (int, error) {
+func (this Db) execute(createSql CreateSql, table TableModel) (int, error) {
 	result := 0
+	sql, datas := createSql(table, this.cnd)
 	if debug {
-		fmt.Println("tableModels were:", job.tableModels)
+		fmt.Println(sql, datas)
 	}
-	for _, table := range job.tableModels {
-		sql, datas := job.createSql(table)
+	st, ers := this.db.Prepare(sql)
+	if ers != nil {
 		if debug {
-			fmt.Println(sql, datas)
+			fmt.Println("error when execute sql:", sql, "error:", ers.Error())
 		}
-		st, ers := db.executor.Prepare(sql)
-		if ers != nil {
-			if debug {
-				fmt.Println("error when execute sql:", sql, "error:", ers.Error())
-			}
-			return -1, ers
-		}
-		rt, ers := st.Exec(datas...)
-		if ers != nil {
-			return -1, ers
-		}
-		count, ers := rt.RowsAffected()
-		result += int(count)
-		if ers != nil {
-			return result, ers
-		}
+		return -1, ers
+	}
+	rt, ers := st.Exec(datas...)
+	if ers != nil {
+		return -1, ers
+	}
+	count, ers := rt.RowsAffected()
+	result += int(count)
+	if ers != nil {
+		return result, ers
 	}
 	return result, nil
 }
-func (db Db) Insert(vs ...interface{}) (int, error) {
-	models, err := getTableModels(vs...)
-	if err != nil {
-		return -1, err
+func (thiz Db) execute2(createSql CreateSql, vs ...interface{}) (int, error) {
+	c := 0
+	var er error
+	len := len(vs)
+	for _, v := range vs {
+		kind := reflect.Indirect(reflect.ValueOf(v)).Kind()
+		if kind == reflect.Interface {
+			panic("can't work with interface")
+		} else if kind == reflect.Slice || kind == reflect.Array {
+			ct, et := thiz.clone().execute2(createSql, v.([]interface{})...)
+			if et != nil {
+				return ct, et
+			}
+			c += ct
+		} else if kind == reflect.Struct {
+			model, err := getTableModel(vs)
+			if err == nil {
+				if len > 1 {
+					ct, et := thiz.clone().execute(createSql, model)
+					if et != nil {
+						return ct, et
+					}
+					c += ct
+				} else {
+					ct, et := thiz.execute(createSql, model)
+					if et != nil {
+						return ct, et
+					}
+					c += ct
+				}
+
+			} else {
+				return 0, err
+			}
+		}
 	}
-	return db.execute(SqlGenerator{db.factory.Insert, models})
+	return c, er
 }
-func (db Db) InsertIgnore(vs ...interface{}) (int, error) {
-	models, err := getTableModels(vs...)
-	if err != nil {
-		return -1, err
-	}
-	return db.execute(SqlGenerator{db.factory.InsertIgnore, models})
+func (thiz Db) Insert(vs ...interface{}) (int, error) {
+	return thiz.execute2(thiz.factory.Insert, vs...)
+}
+func (thiz Db) InsertIgnore(vs ...interface{}) (int, error) {
+	return thiz.execute2(thiz.factory.InsertIgnore, vs...)
 }
 
-func (db Db) Replace(vs ...interface{}) (int, error) {
-	models, err := getTableModels(vs...)
-	if err != nil {
-		return -1, err
-	}
-	return db.execute(SqlGenerator{db.factory.Replace, models})
+func (thiz Db) Replace(vs ...interface{}) (int, error) {
+	return thiz.execute2(thiz.factory.Replace, vs...)
+}
+func (thiz Db) Delete(vs ...interface{}) (int, error) {
+	return thiz.execute2(thiz.factory.Delete, vs...)
 }
 
-func (db Db) Delete(vs ...interface{}) (int, error) {
-	models, err := getTableModels(vs...)
-	if err != nil {
-		return -1, err
+func (thiz Db) Update(vs interface{}, nameFilters ...string) (int, error) {
+	kind := reflect.Indirect(reflect.ValueOf(vs)).Kind()
+	if kind == reflect.Interface {
+		panic("can't work with interface")
+	} else if kind == reflect.Slice || kind == reflect.Array {
+		return thiz.Update2(vs.([]interface{})...)
+	} else if kind == reflect.Struct {
+		model, err := getTableModel(vs, nameFilters...)
+		if err == nil {
+			return thiz.execute(thiz.factory.Update, model)
+		} else {
+			return 0, err
+		}
 	}
-	return db.execute(SqlGenerator{db.factory.Delete, models})
+	return 0, nil
 }
 
-func (db Db) DeleteByConditon(v interface{}, c Condition) (int, error) {
-	models, err := getTableModel(v)
-	if err != nil {
-		return -1, err
-	}
-	model := models[0]
-	if c.NotNull() {
-		model.Cnd = c
-	}
-	return db.execute(SqlGenerator{db.factory.Delete, []TableModel{model}})
-}
+func (thiz Db) Update2(vs ...interface{}) (int, error) {
+	c := 0
+	var er error
+	if len(vs) == 1 {
+		return thiz.Update(vs[0])
+	} else {
+		for v := range vs {
+			cc, ers := thiz.clone().Update(v)
+			if ers != nil {
+				return cc, ers
+			}
+			c += cc
 
-func (db Db) Update(vs ...interface{}) (int, error) {
-	models, err := getTableModels(vs...)
-	if err != nil {
-		return -1, err
+		}
 	}
-	return db.execute(SqlGenerator{db.factory.Update, models})
-}
-
-func (db Db) UpdateByCondition(v interface{}, c Condition) (int, error) {
-	models, err := getTableModel(v)
-	if err != nil {
-		return -1, err
-	}
-	model := models[0]
-	if c.NotNull() {
-		model.Cnd = c
-	}
-	return db.execute(SqlGenerator{db.factory.Update, []TableModel{model}})
+	return c, er
 }

@@ -19,6 +19,7 @@ type IScanner interface {
 type Object driver.Value
 
 type Scanner struct {
+	Name string
 	Object
 	ScanFunc
 }
@@ -28,7 +29,7 @@ func (scanner *Scanner) Scan(src interface{}) error {
 	if error != nil {
 		return error
 	}
-	*scanner = Scanner{result, scanner.ScanFunc}
+	scanner.Object = result
 	return nil
 }
 func (scanner Scanner) Value() (driver.Value, error) {
@@ -90,9 +91,9 @@ func Float32Scan(src interface{}) (interface{}, error) {
 	case time.Time:
 		err = errors.New("can't parse time.Time to float32")
 	case float64:
-		result=float32(src.(float64))
+		result = float32(src.(float64))
 	case float32:
-		result=src.(float32)
+		result = src.(float32)
 	}
 	return result, err
 
@@ -107,9 +108,9 @@ func Float64Scan(src interface{}) (interface{}, error) {
 	case time.Time:
 		result = float64(src.(time.Time).Unix())
 	case float32:
-		result=float64(src.(float32))
+		result = float64(src.(float32))
 	case float64:
-		result=src.(float64)
+		result = src.(float64)
 	}
 	return result, nil
 

@@ -5,20 +5,15 @@ import (
 	"reflect"
 )
 
-type CreateSql func(TableModel) (string, []interface{})
+type CreateSql func(TableModel, Condition) (string, []interface{})
 type TransactionWork func(databaseTx *Db) (int, error)
-
-type SqlGenerator struct {
-	createSql   CreateSql
-	tableModels []TableModel
-}
 type SqlFactory interface {
-	Insert(TableModel) (string, []interface{})
-	InsertIgnore(TableModel) (string, []interface{})
-	Update(TableModel) (string, []interface{})
-	Replace(TableModel) (string, []interface{})
-	Delete(TableModel) (string, []interface{})
-	Query(TableModel) (string, []interface{})
+	Insert(TableModel, Condition) (string, []interface{})
+	InsertIgnore(TableModel, Condition) (string, []interface{})
+	Replace(TableModel, Condition) (string, []interface{})
+	Update(TableModel, Condition) (string, []interface{})
+	Delete(TableModel, Condition) (string, []interface{})
+	Query(TableModel, Condition) (string, []interface{})
 }
 type RowChooser interface {
 	Scan(dest ...interface{}) error
@@ -28,16 +23,23 @@ type TableModel struct {
 	Type      reflect.Type
 	Value     reflect.Value
 	TableName string
-	Columns   []Column
+	ColumnMap map[string]Column
 	Primary   Column
-	Cnd       Condition
 }
 
 func (this TableModel) Clone() TableModel {
-	return this.CloneWithValue(reflect.New(this.Type))
+	return this.CloneWithValueAndFilters(reflect.New(this.Type))
 }
-func (this TableModel) CloneWithValue(value reflect.Value) TableModel {
-	return TableModel{this.Type, value, this.TableName, this.Columns, this.Primary, this.Cnd}
+func (this TableModel) CloneWithValueAndFilters(value reflect.Value, nameFilters ...string) TableModel {
+	tcls := make(map[string]Column)
+	if len(nameFilters) > 0 {
+		for _, v := range nameFilters {
+			tcls[v] = this.ColumnMap[v]
+		}
+	} else {
+		tcls = this.ColumnMap
+	}
+	return TableModel{this.Type, value, this.TableName, tcls, this.Primary}
 }
 
 type Column struct {
@@ -48,6 +50,11 @@ type Column struct {
 	IsPrimary  bool
 	Auto       bool
 }
+
+func (this Column) Clone() Column {
+	return Column{this.Type, this.ColumnName, this.FieldName, this.QueryField, this.IsPrimary, this.Auto}
+}
+
 type OrderType int
 
 const (
@@ -231,7 +238,7 @@ func makeInSql(name string, values ...interface{}) (string, []interface{}) {
 func (mo TableModel) InsertValues() []interface{} {
 	var interfaces []interface{}
 	results := reflect.Indirect(reflect.ValueOf(&interfaces))
-	for _, column := range mo.Columns {
+	for _, column := range mo.ColumnMap {
 		vars := reflect.ValueOf(mo.Value.FieldByName(column.FieldName).Interface())
 		if results.Kind() == reflect.Ptr {
 			results.Set(reflect.Append(results, vars.Addr()))
