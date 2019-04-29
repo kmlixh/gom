@@ -211,7 +211,7 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 	return vv
 }
 func getDataMap(model TableModel, row RowChooser) map[string]IScanner {
-	dest := make([]interface{}, len(model.ColumnMap)) // A temporary interface{} slice
+	var dest []interface{} // A temporary interface{} slice
 	for _, v := range model.ColumnMap {
 		result := getValueOfType(v)
 		dest = append(dest, result)
