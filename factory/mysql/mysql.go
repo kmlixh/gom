@@ -18,10 +18,10 @@ type MySqlFactory struct {
 
 func (MySqlFactory) Insert(model gom.TableModel, c gom.Condition) (string, []interface{}) {
 	var datas []interface{}
-	ccs := model.ColumnMap
 	sql := "INSERT INTO " + "`" + model.TableName + "` ("
 	values := ""
-	for _, v := range ccs {
+	for _, name := range model.ColumnNames {
+		v := model.Columns[name]
 		value := model.Value.FieldByName(v.FieldName).Interface()
 		if (!v.Auto) && value != nil {
 
@@ -64,7 +64,8 @@ func (MySqlFactory) Delete(model gom.TableModel, cnd gom.Condition) (string, []i
 func (MySqlFactory) Update(model gom.TableModel, cnd gom.Condition) (string, []interface{}) {
 	var datas []interface{}
 	sql := "UPDATE " + "`" + model.TableName + "` SET "
-	for _, v := range model.ColumnMap {
+	for _, name := range model.ColumnNames {
+		v := model.Columns[name]
 		value := model.Value.FieldByName(v.FieldName).Interface()
 		if (!v.Auto) && value != nil {
 			if len(datas) > 0 {
@@ -88,7 +89,8 @@ func (MySqlFactory) Update(model gom.TableModel, cnd gom.Condition) (string, []i
 func (MySqlFactory) Query(model gom.TableModel, cnd gom.Condition) (string, []interface{}) {
 	sql := "SELECT "
 	i := 0
-	for name, v := range model.ColumnMap {
+	for _, name := range model.ColumnNames {
+		v := model.Columns[name]
 		if i > 0 {
 			sql += ","
 		}

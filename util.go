@@ -55,7 +55,7 @@ func CreateSingleValueTableModel(v interface{}, table string, field string) Tabl
 	vals := reflect.New(tt).Elem()
 	columns := make(map[string]Column)
 	columns[field] = Column{}
-	return TableModel{ColumnMap: columns, TableName: table, Type: tt, Value: vals}
+	return TableModel{Columns: columns, ColumnNames: []string{field}, TableName: table, Type: tt, Value: vals}
 }
 
 var mutex sync.Mutex
@@ -88,17 +88,17 @@ func getTableModel(v interface{}, nameFilters ...string) (TableModel, error) {
 		var model TableModel
 		cachedModel, ok := tableModelCache[tt.String()]
 		if ok {
-			model = cachedModel.CloneWithValueAndFilters(value, nameFilters...)
+			model = cachedModel.Clone(value, nameFilters...)
 		} else {
 			nameMethod := value.MethodByName("TableName")
 			if debug {
 				fmt.Println(nameMethod)
 			}
 			tableName := nameMethod.Call(nil)[0].String()
-			columns, primary := getColumns(value)
-			temp := TableModel{Type: tt, Value: reflect.New(tt), ColumnMap: columns, TableName: tableName, Primary: primary}
+			columnNames, columns, primary := getColumns(value)
+			temp := TableModel{Type: tt, Value: reflect.New(tt), ColumnNames: columnNames, Columns: columns, TableName: tableName, Primary: primary}
 			tableModelCache[tt.String()] = temp
-			model = temp.CloneWithValueAndFilters(value, nameFilters...)
+			model = temp.Clone(value, nameFilters...)
 		}
 		return model, nil
 
@@ -107,7 +107,8 @@ func getTableModel(v interface{}, nameFilters ...string) (TableModel, error) {
 	}
 }
 
-func getColumns(v reflect.Value) (map[string]Column, Column) {
+func getColumns(v reflect.Value) ([]string, map[string]Column, Column) {
+	var columnNames []string
 	columns := make(map[string]Column)
 	var primary Column
 	oo := v.Type()
@@ -115,6 +116,7 @@ func getColumns(v reflect.Value) (map[string]Column, Column) {
 		field := oo.Field(i)
 		col, tps := getColumnFromField(field)
 		columns[col.ColumnName] = col
+		columnNames = append(columnNames, col.ColumnName)
 		if tps != -1 {
 			if tps == 1 || tps == 2 {
 				primary = col
@@ -124,7 +126,7 @@ func getColumns(v reflect.Value) (map[string]Column, Column) {
 	if debug {
 		fmt.Println("columns is:", columns)
 	}
-	return columns, primary
+	return columnNames, columns, primary
 }
 func getColumnFromField(filed reflect.StructField) (Column, int) {
 	tag, tps := getTagFromField(filed)
@@ -184,7 +186,7 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 	maps := getDataMap(model, row)
 	vv := reflect.New(model.Type).Elem()
 	isStruct := model.Type.Kind() == reflect.Struct && model.Type != reflect.TypeOf(time.Time{})
-	for _, c := range model.ColumnMap {
+	for _, c := range model.Columns {
 		if debug {
 			fmt.Println("column is:", c.ColumnName, ",column type is:", c.Type, ",value type is:", reflect.TypeOf(maps[c.ColumnName]))
 		}
@@ -212,7 +214,8 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 }
 func getDataMap(model TableModel, row RowChooser) map[string]IScanner {
 	var dest []interface{} // A temporary interface{} slice
-	for _, v := range model.ColumnMap {
+	for _, name := range model.ColumnNames {
+		v := model.Columns[name]
 		result := getValueOfType(v)
 		dest = append(dest, result)
 	}
@@ -220,7 +223,7 @@ func getDataMap(model TableModel, row RowChooser) map[string]IScanner {
 	if err != nil {
 		fmt.Println(err)
 	}
-	result := make(map[string]IScanner, len(model.ColumnMap))
+	result := make(map[string]IScanner, len(model.ColumnNames))
 	for _, dd := range dest {
 		result[dd.(*Scanner).Name] = dd.(IScanner)
 	}

@@ -3,6 +3,7 @@ package gom
 import (
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 type CreateSql func(TableModel, Condition) (string, []interface{})
@@ -20,26 +21,20 @@ type RowChooser interface {
 }
 
 type TableModel struct {
-	Type      reflect.Type
-	Value     reflect.Value
-	TableName string
-	ColumnMap map[string]Column
-	Primary   Column
+	Type        reflect.Type
+	Value       reflect.Value
+	TableName   string
+	ColumnNames []string
+	Columns     map[string]Column
+	Primary     Column
 }
 
-func (this TableModel) Clone() TableModel {
-	return this.CloneWithValueAndFilters(reflect.New(this.Type))
-}
-func (this TableModel) CloneWithValueAndFilters(value reflect.Value, nameFilters ...string) TableModel {
-	tcls := make(map[string]Column)
+func (this TableModel) Clone(value reflect.Value, nameFilters ...string) TableModel {
+	var names []string
 	if len(nameFilters) > 0 {
-		for _, v := range nameFilters {
-			tcls[v] = this.ColumnMap[v]
-		}
-	} else {
-		tcls = this.ColumnMap
+		names = nameFilters
 	}
-	return TableModel{this.Type, value, this.TableName, tcls, this.Primary}
+	return TableModel{this.Type, value, this.TableName, names, this.Columns, this.Primary}
 }
 
 type Column struct {
@@ -238,13 +233,16 @@ func makeInSql(name string, values ...interface{}) (string, []interface{}) {
 func (mo TableModel) InsertValues() []interface{} {
 	var interfaces []interface{}
 	results := reflect.Indirect(reflect.ValueOf(&interfaces))
-	for _, column := range mo.ColumnMap {
-		vars := reflect.ValueOf(mo.Value.FieldByName(column.FieldName).Interface())
-		if results.Kind() == reflect.Ptr {
-			results.Set(reflect.Append(results, vars.Addr()))
-		} else {
-			results.Set(reflect.Append(results, vars))
+	for _, name := range mo.ColumnNames {
+		if !mo.Primary.Auto || !strings.EqualFold(mo.Primary.ColumnName, name) {
+			vars := reflect.ValueOf(mo.Value.FieldByName(mo.Columns[name].FieldName).Interface())
+			if results.Kind() == reflect.Ptr {
+				results.Set(reflect.Append(results, vars.Addr()))
+			} else {
+				results.Set(reflect.Append(results, vars))
+			}
 		}
+
 	}
 	return interfaces
 }

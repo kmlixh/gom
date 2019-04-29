@@ -45,7 +45,7 @@ func (this Db) Count(columnName string, table string) (int64, error) {
 	var counts int64
 	columns := make(map[string]Column)
 	columns["result"] = Column{ColumnName: "result", Type: reflect.TypeOf(counts), QueryField: "count(" + columnName + ") as result", IsPrimary: false, Auto: false}
-	tableModel := TableModel{ColumnMap: columns, Type: reflect.TypeOf(counts), Value: reflect.ValueOf(counts), TableName: table}
+	tableModel := TableModel{Columns: columns, ColumnNames: []string{"result"}, Type: reflect.TypeOf(counts), Value: reflect.ValueOf(counts), TableName: table}
 	_, er := this.QueryByTableModel(tableModel, &counts)
 	return counts, er
 }
