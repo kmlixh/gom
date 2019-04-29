@@ -158,7 +158,7 @@ func (thiz Db) execute2(createSql CreateSql, vs ...interface{}) (int, error) {
 			}
 			c += ct
 		} else if kind == reflect.Struct {
-			model, err := getTableModel(vs)
+			model, err := getTableModel(v)
 			if err == nil {
 				if len > 1 {
 					ct, et := thiz.clone().execute(createSql, model)

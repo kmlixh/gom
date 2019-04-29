@@ -186,7 +186,8 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 	maps := getDataMap(model, row)
 	vv := reflect.New(model.Type).Elem()
 	isStruct := model.Type.Kind() == reflect.Struct && model.Type != reflect.TypeOf(time.Time{})
-	for _, c := range model.Columns {
+	for _, name := range model.ColumnNames {
+		c := model.Columns[name]
 		if debug {
 			fmt.Println("column is:", c.ColumnName, ",column type is:", c.Type, ",value type is:", reflect.TypeOf(maps[c.ColumnName]))
 		}

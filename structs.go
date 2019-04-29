@@ -33,6 +33,8 @@ func (this TableModel) Clone(value reflect.Value, nameFilters ...string) TableMo
 	var names []string
 	if len(nameFilters) > 0 {
 		names = nameFilters
+	} else {
+		names = this.ColumnNames
 	}
 	return TableModel{this.Type, value, this.TableName, names, this.Columns, this.Primary}
 }
