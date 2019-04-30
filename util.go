@@ -115,9 +115,9 @@ func getColumns(v reflect.Value) ([]string, map[string]Column, Column) {
 	for i := 0; i < oo.NumField(); i++ {
 		field := oo.Field(i)
 		col, tps := getColumnFromField(field)
-		columns[col.ColumnName] = col
-		columnNames = append(columnNames, col.ColumnName)
 		if tps != -1 {
+			columns[col.ColumnName] = col
+			columnNames = append(columnNames, col.ColumnName)
 			if tps == 1 || tps == 2 {
 				primary = col
 			}
