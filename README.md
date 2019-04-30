@@ -1,18 +1,40 @@
 # gom
 
 
-[![GoDoc](https://godoc.org/github.com/jinzhu/gorm?status.svg)](https://godoc.org/github.com/janyees/gom)
+[![GoDoc](https://godoc.org/github.com/janyees/gom?status.svg)](https://godoc.org/github.com/janyees/gom)
 [![wercker status](https://app.wercker.com/status/56931116573ad6b913d0c7176e72e759/s/master "wercker status")](https://app.wercker.com/project/byKey/56931116573ad6b913d0c7176e72e759)
 
-gom是一个基于golang语言的ORM框架,目标是实现数据操作的简化,直接针对结构体本身进行数据库操作(增删改查，不包含create和其他会改变表本身结构和数据本身结构的所有方法)
+gom是一个基于golang语言的关系型数据库ORM框架,目标是实现数据操作的简化,直接针对结构体本身进行数据库操作(增删改查及事务，不包含create和其他会改变表本身结构和数据本身结构的所有方法)
 
 Gom is an ORM framework based on golang language, the target is to realize the data of simplified operation, directly to the structure itself for gom.Db operations
 
 目前支持的数据库类型为*`mysql`*及其衍生品*`mariadb`*
 
-Currently supported gom.Db types is _`mysql`_ and its derivatives _`mariadb`_
+支持自定义扩展（参考factory/mysql/mysql.go）
 
-典型的使用范例如下:
+
+## 迭代注记
+
+#### 2019年4月30日 11:15:38
+
+    1.修复了大量的bug；（具体可以看提交记录）
+    2.改造了数据获取的方式，从原来的固定格式转换，变成了接近于数据库底层的Scanner模式的性能
+    3.优化了自定义类型的查询和存储
+
+#### 2017年6月22日 12:54:36
+
+    1.修复若干bug(具体修复哪些bug记不清了 ^_^)
+    2.修复Update,Insert,Delete方法传入不定参数时的bug（无法解析，或者解析不正确，使用递归解决）
+    3.修复Condition为空的情况下会莫名注入一个“where”进入sql语句的bug
+    4.Db对象增加了一个Count函数，故名思议，用来做count的
+
+#### 2017年6月18日22:47:53
+
+    1.修复无法使用事务的bug
+    2.修改了数据库操作的一些基础逻辑，每次操作前都会进行Prepare操作，以提高一些“性能”
+    3.为了修复上面的bug，修改了整体的gom.Db结构
+
+
 
 _The use of a typical example is as follows:_
 
@@ -42,7 +64,9 @@ func main() {
 	if err!=nil{
 		fmt.Println(err)
 	}
-	db.Query(&logs,gom.Cnds("id=?","0d9c1726873f4bc3b6fb955877e5a082"))
+	db.Where2(gom.Cnd("id=?","0d9c1726873f4bc3b6fb955877e5a082").OrderBy("id",gom.Desc).Limit(0,5)).Select(&logs)
+	db.Where("id=? order by id desc","0d9c1726873f4bc3b6fb955877e5a082").Select(&logs)
+	//以上两个语句等价
 	idelte,ed:=db.Delete(logs)
 	fmt.Println(idelte,ed)
 	logs.Date=time.Now()
@@ -125,13 +149,13 @@ if err!=nil{//检查是否有错误?
 2.查询数据
 ```go
 var logs []Log
-db.Query(&logs,nil)
+db.Select(&logs,nil)
 ```
 查询结果会存放在logs中,如果传递的不是logs的地址,那么接收查询的返回也是可以的:
 ```go
 var logs []Log
-logs=db.Query(logs,nil)
-db.QueryByTableModel(TableModel,interface{},gom.Cnd(""))
+logs=db.Select(logs,nil)
+db.SelectByTableModel(TableModel,interface{},gom.Cnd(""))
 ```
 只是这里需要说明的是,如果你传递的是一个struct对象进行查询,则返回的也只会是一个,如果是一个数组、切片,那么返回的就是一个数组、切片.所以,不会提供诸如Fetch之类的查询语句
 
@@ -139,15 +163,15 @@ QueryByTableModel这个函数，目的实现对目标数据库中某列或者某
 
 针对这个函数，作者提供了另外两个辅助的函数：
 
-    func GetTableModel(v interface{}, names ...string) TableModel
-    //过滤针对某个struct生成的TableModel进行精简，去掉names之外列。
+    func GetTableModel(v interface{}, columns ...string) TableModel
+    //过滤针对某个struct生成的TableModel进行精简，去掉columns之外的列。
     func CreateSingleValueTableModel(v interface{}, table string, field string) TableModel 
     //这个函数的目的是解决查询某一个列，并需要返回大量数据的情形。诸如查询某个表符合某些条件的某列。
     
 ```go
 ids []int
 model:=db.CreateSingleValueTableModel(ids,"user_info","id")
-db.QueryByTalbeModel(model,&ids,gom.Cnd("create_time < ?",time.Now()))
+db.SelectWithModel(model,&ids,gom.Cnd("create_time < ?",time.Now()))
 ```
 然后在使用queryByTableModel就可以实现查询表“user_info”中id这列符合某个条件的所有值，并存入ids数组。是不是很简单快捷？
 
@@ -162,14 +186,15 @@ db.Replace(log)
 4.修改数据
 ```go
 db.Update(log)
-db.UpdateByCondition(log,gom.Cnd(""))
+db.Update(log,columns...string)//更新指定的列
 ```
 5.删除数据
 ```go
 log:=Log{Id:"dsfa"}
 db.Delete(log)
-db.DeleteByCondition(log,gom.Cnd(""))
+db.Where("").Delete(log)//按条件删除。
 ```
+这里需要重点说明一个问题，就是当Delete函数被调用前设置了条件，且Delete函数的参数为单个struct，那么就认为是按条件删除。否则按删除此struct处理
 ### 第四步,是否支持事务??
 答案是肯定的。*WorkInTransaction*函数就是为事务而准备的,其参数是一个参数为gom.Db的函数，对，函数本身最为参数传入另一个函数，这个函数的原型是：
 
@@ -186,27 +211,48 @@ work=func(db *gom.gom.Db) (int,error){
 这里传入了一个包含事务实例的gom.Db对象，原理是，当前gom.Db使用原始的*`*sql.DB`*对象创建了一个*`*sql.Tx`*事务对象，并使用该事务对象创建一个新的gom.Db对象，事实上，这个gom.Db对象并不知道自己包含了事务实例，换句话说，你可以无限制的在事务内部创建新的事务。
 只是需要说明的是,只要操作过程中返回的error不为空,所有的操作都会回滚.
 如果你觉得这样做不好，你可以使用RawDb函数引用原始的sql.DB对象。
+### 自定义类型的支持
+自定义类型，请实现下面的IScanner接口
+```go
+type IScanner interface {
+	Value() (driver.Value, error)
+	Scan(src interface{}) error
+}
+```
+一个简单的例子如下：
+```go
+type UserTest struct {
+	Id        int64        `json:"id" gom:"@"`
+	UserName  TestIScanner `json:"user_name" gom:"user_name"`
+	Money     int64        `json:"money" gom:"money"`
+	Date      time.Time    `json:"date" gom:"date"`
+}
+func (UserTest) TableName() string {
+	return "user_test"
+}
+type TestIScanner struct {
+	Data string
+}
 
+func (t TestIScanner) Value() (driver.Value, error) {
+	return t.Data, nil
+}
+func (t *TestIScanner) Scan(src interface{}) error {
+	result := ""
+	switch src.(type) {
+	case string:
+		result = src.(string)
+	case []byte:
+		result = string(src.([]byte))
+	}
+	t.Data = result
+	return nil
+}
+```
 到这里,框架怎么用,应该已经说的差不多了。
 
-### 题外话,如何扩展支持其他数据库?
+### 题外话:如何扩展支持其他数据库?
 
-_有这方面的准备,但还在考虑中_
+参考 factory/mysql/mysql.go中的写法。自行实现Factory，自行实现sql的拼接即可
 
-## 迭代注记
-
-#### 2017年6月22日 12:54:36
-
-    1.修复若干bug(具体修复哪些bug记不清了 ^_^)
-    2.修复Update,Insert,Delete方法传入不定参数时的bug（无法解析，或者解析不正确，使用递归解决）
-    3.修复Condition为空的情况下会莫名注入一个“where”进入sql语句的bug
-    4.Db对象增加了一个Count函数，故名思议，用来做count的
-
-#### 2017年6月18日22:47:53
-
-    1.修复无法使用事务的bug
-    2.修改了数据库操作的一些基础逻辑，每次操作前都会进行Prepare操作，以提高一些“性能”
-    3.为了修复上面的bug，修改了整体的gom.Db结构
-
-
-**额外说明的是，目前的测试代码是不充足的。也就是说，测试是不充足的，可能存在很多不易见的bug*
+*额外说明的是，目前的测试代码是不充足的。也就是说，可能存在很多不易见的bug*

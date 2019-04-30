@@ -7,9 +7,6 @@ import (
 	"time"
 )
 
-type BinaryUnmarshaler interface {
-	UnmarshalBinary(dbytes []byte) (interface{}, error)
-}
 type ScanFunc func(src interface{}) (interface{}, error)
 
 type IScanner interface {
@@ -19,7 +16,7 @@ type IScanner interface {
 type Object driver.Value
 
 type Scanner struct {
-	Name string
+	_Name string
 	Object
 	ScanFunc
 }
@@ -34,6 +31,9 @@ func (scanner *Scanner) Scan(src interface{}) error {
 }
 func (scanner Scanner) Value() (driver.Value, error) {
 	return scanner.Object, nil
+}
+func (s Scanner) Name() string {
+	return s._Name
 }
 func StringScan(src interface{}) (interface{}, error) {
 	var result = ""

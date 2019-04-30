@@ -29,14 +29,32 @@ type TableModel struct {
 	Primary     Column
 }
 
-func (this TableModel) Clone(value reflect.Value, nameFilters ...string) TableModel {
+func (this TableModel) Clone(value reflect.Value, columnFilters ...string) TableModel {
 	var names []string
-	if len(nameFilters) > 0 {
-		names = nameFilters
+	if len(columnFilters) > 0 {
+		names = columnFilters
 	} else {
 		names = this.ColumnNames
 	}
 	return TableModel{this.Type, value, this.TableName, names, this.Columns, this.Primary}
+}
+func (model TableModel) ColumnsValues() []interface{} {
+	var datas []interface{}
+	for _, name := range model.ColumnNames {
+		column := model.Columns[name]
+		var data interface{}
+		value := model.Value.FieldByName(column.FieldName)
+		if !column.Auto {
+			scanner, ok := value.Interface().(IScanner)
+			if ok {
+				data, _ = scanner.Value()
+			} else {
+				data = value.Interface()
+			}
+			datas = append(datas, data)
+		}
+	}
+	return datas
 }
 
 type Column struct {
@@ -69,7 +87,7 @@ const (
 )
 
 type Condition interface {
-	Items() []ConditionItem
+	Items() []_ConditionItem
 	Values() []interface{}
 	Pager() Pager
 	Order() Order
@@ -111,12 +129,12 @@ func (p Pagers) Page() (int, int) {
 	return p.MIndex, p.MSize
 }
 
-type Conditions struct {
-	MItems []ConditionItem
+type _Condition struct {
+	MItems []_ConditionItem
 	MOrder Order
 	MPager Pager
 }
-type ConditionItem struct {
+type _ConditionItem struct {
 	LinkType LinkType
 	States   string
 	Values   []interface{}
@@ -124,16 +142,16 @@ type ConditionItem struct {
 
 func Cnd(sql string, values ...interface{}) Condition {
 	if sql == "" {
-		return &Conditions{}
+		return &_Condition{}
 	} else {
-		return &Conditions{MItems: []ConditionItem{{LinkType: And, States: sql, Values: splitArrays(values)}}}
+		return &_Condition{MItems: []_ConditionItem{{LinkType: And, States: sql, Values: splitArrays(values)}}}
 	}
 }
 
-func (c *Conditions) Items() []ConditionItem {
+func (c *_Condition) Items() []_ConditionItem {
 	return c.MItems
 }
-func (c *Conditions) Values() []interface{} {
+func (c *_Condition) Values() []interface{} {
 	results := []interface{}{}
 	length := len(c.MItems)
 	if length > 0 {
@@ -144,48 +162,48 @@ func (c *Conditions) Values() []interface{} {
 	}
 	return results
 }
-func (c *Conditions) Pager() Pager {
+func (c *_Condition) Pager() Pager {
 	return c.MPager
 }
-func (c *Conditions) Order() Order {
+func (c *_Condition) Order() Order {
 	return c.MOrder
 }
-func (c *Conditions) NotNull() bool {
+func (c *_Condition) NotNull() bool {
 	return len(c.MItems) > 0 || c.MOrder != nil || c.MPager != nil
 }
-func (c *Conditions) And(sql string, values ...interface{}) Condition {
-	c.MItems = append(c.MItems, ConditionItem{LinkType: And, States: sql, Values: splitArrays(values)})
+func (c *_Condition) And(sql string, values ...interface{}) Condition {
+	c.MItems = append(c.MItems, _ConditionItem{LinkType: And, States: sql, Values: splitArrays(values)})
 	return c
 }
-func (c *Conditions) Or(sql string, values ...interface{}) Condition {
-	c.MItems = append(c.MItems, ConditionItem{LinkType: Or, States: sql, Values: splitArrays(values)})
+func (c *_Condition) Or(sql string, values ...interface{}) Condition {
+	c.MItems = append(c.MItems, _ConditionItem{LinkType: Or, States: sql, Values: splitArrays(values)})
 	return c
 }
-func (c *Conditions) AndIn(name string, values ...interface{}) Condition {
+func (c *_Condition) AndIn(name string, values ...interface{}) Condition {
 	if len(values) > 0 {
 		sql, datas := makeInSql(name, values...)
-		c.MItems = append(c.MItems, ConditionItem{LinkType: And, States: sql, Values: splitArrays(datas)})
+		c.MItems = append(c.MItems, _ConditionItem{LinkType: And, States: sql, Values: splitArrays(datas)})
 	}
 	return c
 }
 
-func (c *Conditions) OrIn(name string, values ...interface{}) Condition {
+func (c *_Condition) OrIn(name string, values ...interface{}) Condition {
 	if len(values) > 0 {
 		sql, datas := makeInSql(name, values...)
-		c.MItems = append(c.MItems, ConditionItem{LinkType: Or, States: sql, Values: splitArrays(datas)})
+		c.MItems = append(c.MItems, _ConditionItem{LinkType: Or, States: sql, Values: splitArrays(datas)})
 	}
 	return c
 }
-func (c *Conditions) Page(index int, size int) Condition {
+func (c *_Condition) Page(index int, size int) Condition {
 	c.MPager = Pagers{index * size, size}
 	return c
 }
-func (c *Conditions) Limit(index int, size int) Condition {
+func (c *_Condition) Limit(index int, size int) Condition {
 	c.MPager = Pagers{index, size}
 	return c
 }
 
-func (c *Conditions) OrderBy(name string, tp OrderType) Condition {
+func (c *_Condition) OrderBy(name string, tp OrderType) Condition {
 	c.MOrder = Orders{name, tp}
 	return c
 }
@@ -255,6 +273,6 @@ func (m TableModel) GetPrimaryCondition() Condition {
 	if IsEmpty(m.GetPrimary()) || m.Primary.IsPrimary == false {
 		return nil
 	} else {
-		return &Conditions{MItems: []ConditionItem{{And, "`" + m.Primary.ColumnName + "` = ?", []interface{}{m.GetPrimary()}}}}
+		return &_Condition{MItems: []_ConditionItem{{And, "`" + m.Primary.ColumnName + "` = ?", []interface{}{m.GetPrimary()}}}}
 	}
 }

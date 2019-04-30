@@ -26,19 +26,20 @@ func (this *Db) Where(sql string, patches ...interface{}) *Db {
 	this.Where2(Cnd(sql, patches...))
 	return this
 }
-func (db *Db) Where2(cnd Condition) {
-	db.cnd = cnd
+func (this *Db) Where2(cnd Condition) *Db {
+	this.cnd = cnd
+	return this
 }
 func (this Db) clone() Db {
 	return Db{this.factory, this.db, nil}
 }
-func (thiz Db) Fetch(vs interface{}, nameFilters ...string) (interface{}, error) {
+func (thiz Db) Select(vs interface{}, nameFilters ...string) (interface{}, error) {
 
 	model, err := getTableModel(vs, nameFilters...)
 	if err != nil {
 		return nil, err
 	}
-	return thiz.QueryByTableModel(model, vs)
+	return thiz.SelectWithModel(model, vs)
 }
 
 func (this Db) Count(columnName string, table string) (int64, error) {
@@ -46,10 +47,10 @@ func (this Db) Count(columnName string, table string) (int64, error) {
 	columns := make(map[string]Column)
 	columns["result"] = Column{ColumnName: "result", Type: reflect.TypeOf(counts), QueryField: "count(" + columnName + ") as result", IsPrimary: false, Auto: false}
 	tableModel := TableModel{Columns: columns, ColumnNames: []string{"result"}, Type: reflect.TypeOf(counts), Value: reflect.ValueOf(counts), TableName: table}
-	_, er := this.QueryByTableModel(tableModel, &counts)
+	_, er := this.SelectWithModel(tableModel, &counts)
 	return counts, er
 }
-func (this Db) QueryByTableModel(model TableModel, vs interface{}) (interface{}, error) {
+func (this Db) SelectWithModel(model TableModel, vs interface{}) (interface{}, error) {
 	tps, isPtr, islice := getType(vs)
 	if debug {
 		fmt.Println("model:", model)

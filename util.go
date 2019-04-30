@@ -46,22 +46,22 @@ func getType(v interface{}) (reflect.Type, bool, bool) {
 	return tt, isPtr, islice
 }
 
-func GetTableModel(v interface{}, names ...string) (TableModel, error) {
-	return getTableModel(v, names...)
+func GetTableModel(v interface{}, columns ...string) (TableModel, error) {
+	return getTableModel(v, columns...)
 
 }
 func CreateSingleValueTableModel(v interface{}, table string, field string) TableModel {
 	tt, _, _ := getType(v)
 	vals := reflect.New(tt).Elem()
 	columns := make(map[string]Column)
-	columns[field] = Column{}
+	columns[field] = Column{ColumnName: field, Type: tt, IsPrimary: false, Auto: false}
 	return TableModel{Columns: columns, ColumnNames: []string{field}, TableName: table, Type: tt, Value: vals}
 }
 
 var mutex sync.Mutex
 var tableModelCache map[string]TableModel
 
-func getTableModel(v interface{}, nameFilters ...string) (TableModel, error) {
+func getTableModel(v interface{}, choosedColumns ...string) (TableModel, error) {
 	//防止重复创建map，需要对map创建过程加锁
 	mutex.Lock()
 	if tableModelCache == nil {
@@ -88,17 +88,17 @@ func getTableModel(v interface{}, nameFilters ...string) (TableModel, error) {
 		var model TableModel
 		cachedModel, ok := tableModelCache[tt.String()]
 		if ok {
-			model = cachedModel.Clone(value, nameFilters...)
+			model = cachedModel.Clone(value, choosedColumns...)
 		} else {
 			nameMethod := value.MethodByName("TableName")
 			if debug {
 				fmt.Println(nameMethod)
 			}
 			tableName := nameMethod.Call(nil)[0].String()
-			columnNames, columns, primary := getColumns(value)
-			temp := TableModel{Type: tt, Value: reflect.New(tt), ColumnNames: columnNames, Columns: columns, TableName: tableName, Primary: primary}
+			columnNames, columnMap, primary := getColumns(value)
+			temp := TableModel{Type: tt, Value: reflect.New(tt), ColumnNames: columnNames, Columns: columnMap, TableName: tableName, Primary: primary}
 			tableModelCache[tt.String()] = temp
-			model = temp.Clone(value, nameFilters...)
+			model = temp.Clone(value, choosedColumns...)
 		}
 		return model, nil
 
@@ -191,24 +191,22 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 		if debug {
 			fmt.Println("column is:", c.ColumnName, ",column type is:", c.Type, ",value type is:", reflect.TypeOf(maps[c.ColumnName]))
 		}
-		var result interface{}
-		scanner := maps[c.ColumnName]
-		tt := reflect.TypeOf(scanner)
-		if tt.Kind() == reflect.Ptr {
-			tt = tt.Elem()
-		}
-		val, _ := scanner.Value()
-		if tt == c.Type {
-			result = scanner
-		} else if reflect.TypeOf(val) == c.Type {
-			result = val
+		scanner, ok := maps[c.ColumnName]
+		if ok {
+			result, _ := scanner.Value()
+			if isStruct {
+				if reflect.Indirect(reflect.ValueOf(scanner)).Type() == c.Type {
+					//如果列本身就是IScanner的话，那么直接赋值
+					vv.FieldByName(c.FieldName).Set(reflect.Indirect(reflect.ValueOf(scanner)))
+				} else {
+					vv.FieldByName(c.FieldName).Set(reflect.Indirect(reflect.ValueOf(result)))
+				}
+			} else {
+				//如果对象本身就是一个基础类型，那么直接赋值
+				vv.Set(reflect.Indirect(reflect.ValueOf(result)))
+			}
 		} else {
-			panic(errors.New("can't transfer data"))
-		}
-		if isStruct {
-			vv.FieldByName(c.FieldName).Set(reflect.Indirect(reflect.ValueOf(result)))
-		} else {
-			vv.Set(reflect.Indirect(reflect.ValueOf(result)))
+			panic("can't transfer data of type:" + c.Type.Name())
 		}
 	}
 	return vv
@@ -225,8 +223,8 @@ func getDataMap(model TableModel, row RowChooser) map[string]IScanner {
 		fmt.Println(err)
 	}
 	result := make(map[string]IScanner, len(model.ColumnNames))
-	for _, dd := range dest {
-		result[dd.(*Scanner).Name] = dd.(IScanner)
+	for i, dd := range dest {
+		result[model.ColumnNames[i]] = dd.(IScanner)
 	}
 	return result
 
