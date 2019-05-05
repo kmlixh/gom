@@ -22,16 +22,13 @@ type Db struct {
 func (this Db) RawDb() *sql.DB {
 	return this.db
 }
-func (this *Db) Where(sql string, patches ...interface{}) *Db {
-	this.Where2(Cnd(sql, patches...))
-	return this
+func (this Db) Where(sql string, patches ...interface{}) Db {
+	return this.Where2(Cnd(sql, patches...))
 }
-func (thiz *Db) Where2(cnd Condition) *Db {
-	this := thiz.clone()
-	this.cnd = cnd
-	return &this
+func (this Db) Where2(cnd Condition) Db {
+	return Db{this.factory, this.db, cnd}
 }
-func (this Db) clone() Db {
+func (this Db) Clone() Db {
 	return Db{this.factory, this.db, nil}
 }
 func (thiz Db) Select(vs interface{}, nameFilters ...string) (interface{}, error) {
