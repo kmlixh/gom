@@ -26,9 +26,10 @@ func (this *Db) Where(sql string, patches ...interface{}) *Db {
 	this.Where2(Cnd(sql, patches...))
 	return this
 }
-func (this *Db) Where2(cnd Condition) *Db {
+func (thiz *Db) Where2(cnd Condition) *Db {
+	this := thiz.clone()
 	this.cnd = cnd
-	return this
+	return &this
 }
 func (this Db) clone() Db {
 	return Db{this.factory, this.db, nil}
