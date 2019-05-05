@@ -29,6 +29,9 @@ func (this Db) Where2(cnd Condition) Db {
 	return Db{this.factory, this.db, cnd}
 }
 func (this Db) Clone() Db {
+	return this.clone()
+}
+func (this Db) clone() Db {
 	return Db{this.factory, this.db, nil}
 }
 func (thiz Db) Select(vs interface{}, nameFilters ...string) (interface{}, error) {
