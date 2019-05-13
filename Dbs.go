@@ -71,11 +71,11 @@ func (this Db) SelectWithModel(model TableModel, vs interface{}) (interface{}, e
 			if err != nil {
 				return nil, err
 			}
-			defer rows.Close()
-			for rows.NextResultSet() {
+			for rows.Next() {
 				val := getValueOfTableRow(model, rows)
 				results.Set(reflect.Append(results, val))
 			}
+			rows.Close()
 			return vs, nil
 		} else {
 			sqls, datas := this.factory.Query(model, this.cnd)
@@ -90,17 +90,22 @@ func (this Db) SelectWithModel(model TableModel, vs interface{}) (interface{}, e
 			if err != nil {
 				return nil, err
 			}
-			defer rows.Close()
-			val := getValueOfTableRow(model, rows)
-			var vt reflect.Value
-			if isPtr {
-				vt = reflect.ValueOf(vs).Elem()
-			} else {
-				vt = reflect.New(tps).Elem()
+			if rows.Next() {
+				val := getValueOfTableRow(model, rows)
+				var vt reflect.Value
+				if isPtr {
+					vt = reflect.ValueOf(vs).Elem()
+				} else {
+					vt = reflect.New(tps).Elem()
 
+				}
+				vt.Set(val)
+				rows.Close()
+				return vt.Interface(), nil
+			} else {
+				return vs, nil
 			}
-			vt.Set(val)
-			return vt.Interface(), nil
+
 		}
 
 	} else {

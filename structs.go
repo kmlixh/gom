@@ -270,6 +270,30 @@ func (m TableModel) GetPrimaryCondition() Condition {
 	if IsEmpty(m.GetPrimary()) || m.Primary.IsPrimary == false {
 		return nil
 	} else {
+		t := m.Primary.Type
+		switch t.Kind() {
+		case reflect.Int64, reflect.Int32, reflect.Int, reflect.Int8, reflect.Int16:
+			if m.GetPrimary().(int64) == 0 {
+				return nil
+			}
+		}
+		switch t.Kind() {
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32:
+			if m.GetPrimary().(int64) == 0 {
+				return nil
+			}
+		}
+		switch t.Kind() {
+		case reflect.Float32, reflect.Float64:
+			if m.GetPrimary().(float64) == 0 {
+				return nil
+			}
+		}
+		if t.Kind() == reflect.String {
+			if len(m.GetPrimary().(string)) == 0 {
+				return nil
+			}
+		}
 		return &_Condition{MItems: []_ConditionItem{{And, "`" + m.Primary.ColumnName + "` = ?", []interface{}{m.GetPrimary()}}}}
 	}
 }

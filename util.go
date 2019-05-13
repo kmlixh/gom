@@ -184,7 +184,6 @@ func getTagFromField(field reflect.StructField) (string, int) {
 	}
 }
 func getValueOfTableRow(model TableModel, rows *sql.Rows) reflect.Value {
-	rows.Next()
 	maps := getDataMap(model, rows)
 	vv := reflect.New(model.Type).Elem()
 	isStruct := model.Type.Kind() == reflect.Struct && model.Type != reflect.TypeOf(time.Time{})
