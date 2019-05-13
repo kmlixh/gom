@@ -72,7 +72,7 @@ func (this Db) SelectWithModel(model TableModel, vs interface{}) (interface{}, e
 				return nil, err
 			}
 			defer rows.Close()
-			for rows.Next() {
+			for rows.NextResultSet() {
 				val := getValueOfTableRow(model, rows)
 				results.Set(reflect.Append(results, val))
 			}
@@ -86,11 +86,12 @@ func (this Db) SelectWithModel(model TableModel, vs interface{}) (interface{}, e
 			if err != nil {
 				return nil, err
 			}
-			row := st.QueryRow(datas...)
-			if debug {
-				fmt.Println("row is", row)
+			rows, err := st.Query(datas...)
+			if err != nil {
+				return nil, err
 			}
-			val := getValueOfTableRow(model, row)
+			defer rows.Close()
+			val := getValueOfTableRow(model, rows)
 			var vt reflect.Value
 			if isPtr {
 				vt = reflect.ValueOf(vs).Elem()

@@ -1,6 +1,7 @@
 package gom
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"reflect"
@@ -182,8 +183,9 @@ func getTagFromField(field reflect.StructField) (string, int) {
 		return "", -1
 	}
 }
-func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
-	maps := getDataMap(model, row)
+func getValueOfTableRow(model TableModel, rows *sql.Rows) reflect.Value {
+	rows.Next()
+	maps := getDataMap(model, rows)
 	vv := reflect.New(model.Type).Elem()
 	isStruct := model.Type.Kind() == reflect.Struct && model.Type != reflect.TypeOf(time.Time{})
 	for _, name := range model.ColumnNames {
@@ -211,7 +213,7 @@ func getValueOfTableRow(model TableModel, row RowChooser) reflect.Value {
 	}
 	return vv
 }
-func getDataMap(model TableModel, row RowChooser) map[string]IScanner {
+func getDataMap(model TableModel, row *sql.Rows) map[string]IScanner {
 	var dest []interface{} // A temporary interface{} slice
 	for _, name := range model.ColumnNames {
 		v := model.Columns[name]

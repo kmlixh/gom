@@ -16,9 +16,6 @@ type SqlFactory interface {
 	Delete(TableModel, Condition) (string, []interface{})
 	Query(TableModel, Condition) (string, []interface{})
 }
-type RowChooser interface {
-	Scan(dest ...interface{}) error
-}
 
 type TableModel struct {
 	Type        reflect.Type
