@@ -11,11 +11,11 @@ Gom is an ORM framework based on golang language, the target is to realize the d
 目前支持的数据库类型为*`mysql`*及其衍生品*`mariadb`*
 
 支持自定义扩展（参考factory/mysql/mysql.go）
-目前最新版本为v1.0.5
+目前最新版本为v1.0.8
 
 使用go mod的情况下：
 ```
-require github.com/janyees/gom v1.0.5
+require github.com/janyees/gom v1.0.8
 ```
 上一个公开的古老版本是
 ```
@@ -25,6 +25,11 @@ require github.com/janyees/gom v0.2.2
 
 
 ## 迭代注记
+
+#### 2019年5月15日 09:18:06
+    v1.0.8
+    截止1.0.8又修复了若干bug，详细请看commit
+    
 
 #### 2019年4月30日 11:15:38
 
