@@ -267,6 +267,9 @@ func (m TableModel) GetPrimary() interface{} {
 	return m.Value.FieldByName(m.Primary.FieldName).Interface()
 }
 func (m TableModel) GetPrimaryCondition() Condition {
+	if m.Type.Kind() != reflect.Struct {
+		return nil
+	}
 	if IsEmpty(m.GetPrimary()) || m.Primary.IsPrimary == false {
 		return nil
 	} else {
