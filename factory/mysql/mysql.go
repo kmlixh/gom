@@ -1,8 +1,8 @@
 package mysql
 
 import (
+	"gitee.com/janyees/gom"
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/janyees/gom"
 	"strings"
 )
 

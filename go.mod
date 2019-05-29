@@ -1,4 +1,4 @@
-module github.com/janyees/gom
+module gitee.com/janyees/gom
 
 go 1.12
 
