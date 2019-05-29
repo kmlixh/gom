@@ -59,8 +59,8 @@ package main
 
 import (
 	"fmt"
-	_ "github.com/janyees/gom/factory/mysql"
-	"github.com/janyees/gom"
+	_ "gitee.com/janyees/gom/factory/mysql"
+	"gitee.com/janyees/gom"
 	"time"
 )
 type Log struct {
@@ -101,8 +101,8 @@ func main() {
 
 
 ```go
-_ "github.com/janyees/gom/factory/mysql"    //这一行也是必须的，目的用于加载相应数据库的驱动和‘方言’
-"github.com/janyees/gom"
+_ "gitee.com/janyees/gom/factory/mysql"    //这一行也是必须的，目的用于加载相应数据库的驱动和‘方言’
+"gitee.com/janyees/gom"
 ```
 在import节点增加以上两行,第一行是注册相应的mysql工厂.第二行为引用gom
 
