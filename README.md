@@ -1,7 +1,7 @@
 # gom
 
 
-[![GoDoc](https://godoc.org/github.com/janyees/gom?status.svg)](https://godoc.org/github.com/janyees/gom)
+[![GoDoc](https://godoc.org/gitee.com/janyees/gom?status.svg)](https://godoc.org/gitee.com/janyees/gom)
 [![wercker status](https://app.wercker.com/status/56931116573ad6b913d0c7176e72e759/s/master "wercker status")](https://app.wercker.com/project/byKey/56931116573ad6b913d0c7176e72e759)
 
 gom是一个基于golang语言的关系型数据库ORM框架,目标是实现数据操作的简化,直接针对结构体本身进行数据库操作(增删改查及事务，不包含create和其他会改变表本身结构和数据本身结构的所有方法)
@@ -15,11 +15,11 @@ Gom is an ORM framework based on golang language, the target is to realize the d
 
 使用go mod的情况下：
 ```
-require github.com/janyees/gom v1.0.8
+require gitee.com/janyees/gom v1.0.8
 ```
 上一个公开的古老版本是
 ```
-require github.com/janyees/gom v0.2.2
+require gitee.com/janyees/gom v0.2.2
 ```
 特别抱歉，v1.0.1版本和v0.2.2在语法结构上有较大的改变，内部也经过了非常多的优化和调整。建议升级到v1.0.1
 
