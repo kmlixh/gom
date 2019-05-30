@@ -127,9 +127,9 @@ func (this Db) WorkInTransaction(work TransactionWork) (int, error) {
 	tx.Commit()
 	return result, nil
 }
-func (this Db) execute(createSql CreateSql, table TableModel) (int, error) {
+func (this Db) execute(createSql CreateSql, model TableModel) (int, error) {
 	result := 0
-	sql, datas := createSql(table, this.cnd)
+	sql, datas := createSql(model, this.cnd)
 	if debug {
 		fmt.Println(sql, datas)
 	}
@@ -156,15 +156,34 @@ func (thiz Db) execute2(createSql CreateSql, vs ...interface{}) (int, error) {
 	var er error
 	len := len(vs)
 	for _, v := range vs {
-		kind := reflect.Indirect(reflect.ValueOf(v)).Kind()
+		vv := reflect.Indirect(reflect.ValueOf(v))
+		kind := vv.Kind()
 		if kind == reflect.Interface {
 			panic("can't work with interface")
 		} else if kind == reflect.Slice || kind == reflect.Array {
-			ct, et := thiz.clone().execute2(createSql, v.([]interface{})...)
-			if et != nil {
-				return ct, et
+			len := vv.Len()
+			if len > 0 {
+				i := 0
+				for i < len {
+					vt := vv.Index(i)
+					if vt.Kind() == reflect.Interface {
+						panic("can't work with interface")
+					}
+					model, er := getTableModel(vt.Interface())
+					if er != nil {
+						panic("find err when get Model:" + er.Error())
+					}
+					ct, et := thiz.clone().execute(createSql, model)
+					if et != nil {
+						return ct, et
+					}
+					c += ct
+					i++
+				}
+			} else {
+				panic("slice length is zero")
 			}
-			c += ct
+
 		} else if kind == reflect.Struct {
 			model, err := getTableModel(v)
 			if err == nil {
