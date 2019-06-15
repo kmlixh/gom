@@ -92,7 +92,9 @@ type Condition interface {
 	Or(sql string, values ...interface{}) Condition
 	And(sql string, values ...interface{}) Condition
 	AndIn(name string, values ...interface{}) Condition
+	AndNotIn(name string, values ...interface{}) Condition
 	OrIn(name string, values ...interface{}) Condition
+	OrNotIn(name string, values ...interface{}) Condition
 	Page(index int, size int) Condition
 	Limit(index int, size int) Condition
 	OrderBy(name string, tp OrderType) Condition
@@ -183,10 +185,24 @@ func (c *_Condition) AndIn(name string, values ...interface{}) Condition {
 	}
 	return c
 }
+func (c *_Condition) AndNotIn(name string, values ...interface{}) Condition {
+	if len(values) > 0 {
+		sql, datas := makeNotInSql(name, values...)
+		c.MItems = append(c.MItems, _ConditionItem{LinkType: And, States: sql, Values: splitArrays(datas)})
+	}
+	return c
+}
 
 func (c *_Condition) OrIn(name string, values ...interface{}) Condition {
 	if len(values) > 0 {
 		sql, datas := makeInSql(name, values...)
+		c.MItems = append(c.MItems, _ConditionItem{LinkType: Or, States: sql, Values: splitArrays(datas)})
+	}
+	return c
+}
+func (c *_Condition) OrNotIn(name string, values ...interface{}) Condition {
+	if len(values) > 0 {
+		sql, datas := makeNotInSql(name, values...)
 		c.MItems = append(c.MItems, _ConditionItem{LinkType: Or, States: sql, Values: splitArrays(datas)})
 	}
 	return c
@@ -244,6 +260,11 @@ func makeInSql(name string, values ...interface{}) (string, []interface{}) {
 	if debug {
 		fmt.Println("make in sql was :", sql, datas)
 	}
+	return sql, datas
+}
+func makeNotInSql(name string, values ...interface{}) (string, []interface{}) {
+	sql, datas := makeInSql(name, values...)
+	sql = strings.Replace(sql, " in ", " not in ", 1)
 	return sql, datas
 }
 
