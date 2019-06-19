@@ -52,11 +52,11 @@ func GetTableModel(v interface{}, columns ...string) (TableModel, error) {
 
 }
 func CreateSingleValueTableModel(v interface{}, table string, field string) TableModel {
-	tt, _, _ := getType(v)
-	vals := reflect.New(tt).Elem()
+	t, _, _ := getType(v)
 	columns := make(map[string]Column)
-	columns[field] = Column{ColumnName: field, Type: tt, IsPrimary: false, Auto: false}
-	return TableModel{Columns: columns, ColumnNames: []string{field}, TableName: table, Type: tt, Value: vals}
+	columns["result"] = Column{ColumnName: "result", Type: t, QueryField: field + " as result", IsPrimary: false, Auto: false}
+	tableModel := TableModel{Columns: columns, ColumnNames: []string{"result"}, Type: t, Value: reflect.Indirect(reflect.New(t)), TableName: table}
+	return tableModel
 }
 
 var mutex sync.Mutex
