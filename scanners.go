@@ -74,7 +74,7 @@ func Int32Scan(src interface{}) (interface{}, error) {
 	case int64:
 		result = int(src.(int64))
 	case []byte:
-		result = Int32FromBytes(src.([]byte))
+		result = int(Int32FromBytes(src.([]byte)))
 	case time.Time:
 		result = int(src.(time.Time).Unix())
 	}

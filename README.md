@@ -15,7 +15,7 @@ Gom is an ORM framework based on golang language, the target is to realize the d
 
 使用go mod的情况下：
 ```
-require gitee.com/janyees/gom v1.1.2
+require gitee.com/janyees/gom v1.1.3
 ```
 上一个公开的古老版本是
 ```
@@ -28,6 +28,7 @@ require gitee.com/janyees/gom v0.2.2
 #### 2019年6月19日 17:44:18
     v1.1.2
     修复CreateSingleTable的一些bug
+    
 
 #### 2019年6月15日 08:18:25
     v1.1.1
