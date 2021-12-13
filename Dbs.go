@@ -17,6 +17,9 @@ type Db struct {
 	factory SqlFactory
 	db      *sql.DB
 	cnd     Condition
+	Table   string
+	RawSql  string
+	tx      *sql.Tx
 }
 
 func (this Db) RawDb() *sql.DB {
@@ -26,13 +29,13 @@ func (this Db) Where(sql string, patches ...interface{}) Db {
 	return this.Where2(Cnd(sql, patches...))
 }
 func (this Db) Where2(cnd Condition) Db {
-	return Db{this.factory, this.db, cnd}
+	return Db{this.factory, this.db, cnd, "", "", nil}
 }
 func (this Db) Clone() Db {
 	return this.clone()
 }
 func (this Db) clone() Db {
-	return Db{this.factory, this.db, nil}
+	return Db{this.factory, this.db, nil, "", "", nil}
 }
 func (thiz Db) Select(vs interface{}, nameFilters ...string) (interface{}, error) {
 
@@ -75,7 +78,7 @@ func (this Db) SelectWithModel(model TableModel, vs interface{}) (interface{}, e
 				val := getValueOfTableRow(model, rows)
 				results.Set(reflect.Append(results, val))
 			}
-			rows.Close()
+			defer rows.Close()
 			return vs, nil
 		} else {
 			sqls, datas := this.factory.Query(model, this.cnd)
@@ -100,7 +103,7 @@ func (this Db) SelectWithModel(model TableModel, vs interface{}) (interface{}, e
 
 				}
 				vt.Set(val)
-				rows.Close()
+				defer rows.Close()
 				return vt.Interface(), nil
 			} else {
 				return vs, nil
@@ -124,8 +127,11 @@ func (this Db) WorkInTransaction(work TransactionWork) (int, error) {
 		tx.Rollback()
 		return result, err
 	}
-	tx.Commit()
-	return result, nil
+	err = tx.Commit()
+	if err != nil {
+		fmt.Println("transaction commit error:", err)
+	}
+	return result, err
 }
 func (this Db) execute(createSql CreateSql, model TableModel) (int, error) {
 	result := 0
@@ -147,6 +153,7 @@ func (this Db) execute(createSql CreateSql, model TableModel) (int, error) {
 	count, ers := rt.RowsAffected()
 	result += int(count)
 	if ers != nil {
+		fmt.Println("gom Execute error:", ers.Error())
 		return result, ers
 	}
 	return result, nil

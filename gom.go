@@ -39,7 +39,6 @@ func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int, deb
 func Open(driverName string, dsn string, debugs bool) (*Db, error) {
 	debug = debugs
 	db, err := sql.Open(driverName, dsn)
-	db.SetMaxIdleConns(0)
 	if err != nil {
 		return nil, err
 	} else {

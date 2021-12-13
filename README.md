@@ -11,7 +11,7 @@ Gom is an ORM framework based on golang language, the target is to realize the d
 目前支持的数据库类型为*`mysql`*及其衍生品*`mariadb`*
 
 支持自定义扩展（参考factory/mysql/mysql.go）
-目前最新版本为v1.1.2
+目前最新版本为v1.1.3
 
 使用go mod的情况下：
 ```
@@ -50,7 +50,7 @@ require gitee.com/janyees/gom v0.2.2
 
     1.修复若干bug(具体修复哪些bug记不清了 ^_^)
     2.修复Update,Insert,Delete方法传入不定参数时的bug（无法解析，或者解析不正确，使用递归解决）
-    3.修复Condition为空的情况下会莫名注入一个“where”进入sql语句的bug
+    3.修复Condition为空的情况下会莫名注入一个“where”进入sql语句的bug 
     4.Db对象增加了一个Count函数，故名思议，用来做count的
 
 #### 2017年6月18日22:47:53
