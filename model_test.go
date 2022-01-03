@@ -31,22 +31,16 @@ func (Log) TableName() string {
 
 func TestGetTableModel(t *testing.T) {
 	var log []Log
-	m1, err := getTableModel(&log)
+	m1, err := getStructModel(&log)
 	t.Log(m1, err)
 }
 func TestGetTableModelRepeat(t *testing.T) {
 	var log []Log
-	m1, err := getTableModel(&log)
+	m1, err := getStructModel(&log)
 	t.Log(m1, err)
-	m2, err := getTableModel(&log)
+	m2, err := getStructModel(&log)
 	t.Log(m2, err)
 
-}
-func TestCnd(t *testing.T) {
-	cnd := Cnd("")
-	cnd.OrderBy("id", Desc)
-	cnd.Page(0, 15)
-	t.Log()
 }
 
 type TestTable struct {

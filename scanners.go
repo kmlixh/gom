@@ -13,15 +13,13 @@ type IScanner interface {
 	Value() (driver.Value, error)
 	Scan(src interface{}) error
 }
-type Object driver.Value
 
-type Scanner struct {
-	_Name string
-	Object
+type ScannerImpl struct {
+	Object driver.Value
 	ScanFunc
 }
 
-func (scanner *Scanner) Scan(src interface{}) error {
+func (scanner *ScannerImpl) Scan(src interface{}) error {
 	result, error := scanner.ScanFunc(src)
 	if error != nil {
 		return error
@@ -29,12 +27,15 @@ func (scanner *Scanner) Scan(src interface{}) error {
 	scanner.Object = result
 	return nil
 }
-func (scanner Scanner) Value() (driver.Value, error) {
+func (scanner ScannerImpl) Value() (driver.Value, error) {
 	return scanner.Object, nil
 }
-func (s Scanner) Name() string {
-	return s._Name
+func emptyScanner() IScanner {
+	return &ScannerImpl{0, func(src interface{}) (interface{}, error) {
+		return nil, nil
+	}}
 }
+
 func StringScan(src interface{}) (interface{}, error) {
 	var result = ""
 	var err error

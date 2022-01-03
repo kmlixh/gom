@@ -1,167 +1,221 @@
 package mysql
 
 import (
+	"errors"
 	"gitee.com/janyees/gom"
 	_ "github.com/go-sql-driver/mysql"
-	"strings"
 )
 
+var funcMap map[gom.SqlType]gom.GenerateSQLFunc
+
 func init() {
-	gom.Register("mysql", &MySqlFactory{})
-}
-func MysqlRegister() {
-	gom.Register("mysql", &MySqlFactory{})
-}
-
-type MySqlFactory struct {
-}
-
-func (MySqlFactory) Insert(model gom.TableModel, c gom.Condition) (string, []interface{}) {
-	var datas []interface{}
-	sql := "INSERT INTO " + "`" + model.TableName + "` ("
-	values := ""
-	for _, name := range model.ColumnNames {
-		v := model.Columns[name]
-		value := model.Value.FieldByName(v.FieldName).Interface()
-		if (!v.Auto) && value != nil {
-
-			if len(datas) > 0 {
-				sql += ","
-				values += ","
-			}
-			datas = append(datas, value)
-			values += " ? "
-			sql += "`" + v.ColumnName + "`"
+	m := Factory{}
+	gom.Register("mysql", &m)
+	funcMap[gom.Query] = func(models ...gom.TableModel) []gom.SqlProto {
+		model := models[0]
+		sql := "SELECT "
+		counts := len(model.Columns)
+		if counts == 0 {
+			panic(errors.New("columns is null or empty"))
 		}
-
-	}
-	sql += ") VALUES (" + values + ")"
-	return sql, datas
-}
-func (self MySqlFactory) InsertIgnore(model gom.TableModel, c gom.Condition) (string, []interface{}) {
-	sql, datas := self.Insert(model, c)
-	sql = strings.Replace(sql, "INSERT INTO ", "INSERT IGNORE INTO ", 1)
-	return sql, datas
-}
-func (fac MySqlFactory) Replace(model gom.TableModel, c gom.Condition) (string, []interface{}) {
-	sql, datas := fac.Insert(model, c)
-	sql = strings.Replace(sql, "INSERT", "REPLACE", 1)
-	return sql, datas
-}
-func (MySqlFactory) Delete(model gom.TableModel, cnd gom.Condition) (string, []interface{}) {
-	sql := "DELETE FROM " + "`" + model.TableName + "` "
-	if cnd != nil {
-		sql += cndSql(cnd)
-		return sql, cndValue(cnd)
-	} else if model.GetPrimaryCondition() != nil {
-		sql += cndSql(model.GetPrimaryCondition())
-		return sql, model.GetPrimaryCondition().Values()
-	} else {
-		return sql, []interface{}{}
-	}
-
-}
-func (MySqlFactory) Update(model gom.TableModel, cnd gom.Condition) (string, []interface{}) {
-	var datas []interface{}
-	sql := "UPDATE " + "`" + model.TableName + "` SET "
-	for _, name := range model.ColumnNames {
-		v := model.Columns[name]
-		value := model.Value.FieldByName(v.FieldName).Interface()
-		if (!v.Auto) && value != nil {
-			if len(datas) > 0 {
-				sql += ","
-			}
-			sql += "`" + v.ColumnName + "` = ? "
-			datas = append(datas, value)
-		}
-	}
-	if cnd != nil {
-		sql += cndSql(cnd)
-		datas = append(datas, cndValue(cnd)...)
-	} else if model.GetPrimaryCondition() != nil {
-		sql += cndSql(model.GetPrimaryCondition())
-		datas = append(datas, model.GetPrimaryCondition().Values()...)
-	} else {
-		sql += ";"
-	}
-	return sql, datas
-}
-func (MySqlFactory) Query(model gom.TableModel, cnd gom.Condition) (string, []interface{}) {
-	sql := "SELECT "
-	i := 0
-	for _, name := range model.ColumnNames {
-		v := model.Columns[name]
-		if i > 0 {
-			sql += ","
-		}
-		if v.QueryField == "" {
-			sql += "`" + name + "`"
-		} else {
-			sql += v.QueryField
-		}
-		i++
-
-	}
-	sql += " FROM " + "`" + model.TableName + "`"
-	if cnd != nil {
-		if cnd.NotNull() {
-			sql += cndSql(cnd)
-		} else {
-			sql += ";"
-		}
-		return sql, cndValue(cnd)
-	} else if model.GetPrimaryCondition() != nil {
-		sql += cndSql(model.GetPrimaryCondition())
-		return sql, model.GetPrimaryCondition().Values()
-	} else {
-		return sql, []interface{}{}
-	}
-}
-func cndValue(cnd gom.Condition) []interface{} {
-	values := cnd.Values()
-	if cnd.Pager() != nil {
-		index, size := cnd.Pager().Page()
-		if index >= 0 {
-			values = append(values, index)
-		}
-		values = append(values, size)
-	}
-	return values
-}
-func cndSql(c gom.Condition) string {
-	results := ""
-	items := c.Items()
-	length := len(items)
-	if length > 0 {
-
-		for i := 0; i < length; i++ {
-			if i == 0 {
-				results += " WHERE "
-			} else {
-				if items[i].LinkType == gom.And {
-					results += " AND "
+		if counts > 1 {
+			for i := 0; i < len(model.Columns); i++ {
+				if i == 0 {
+					sql += model.Columns[i] + " "
 				} else {
-					results += " OR "
+					sql += ", " + model.Columns[i] + " "
 				}
 			}
-			results += items[i].States
-		}
-	}
-	if c.Order() != nil {
-		results += " ORDER BY `" + c.Order().Name() + "`"
-		if c.Order().Type() == gom.Asc {
-			results += " ASC "
 		} else {
-			results += " DESC "
+			sql += " " + model.Columns[0] + " FROM　" + model.Table
 		}
-	}
-	if c.Pager() != nil {
-		index, _ := c.Pager().Page()
-		if index >= 0 {
-			results += " LIMIT ?,?;"
-		} else {
-			results += " LIMIT ?;"
+		cnds, dds := m.ConditionToSql(model.Condition)
+		if len(cnds) > 0 {
+			sql += " WHERE " + cnds
 		}
+		if model.GroupBys != nil && len(model.GroupBys) > 1 {
+			sql += " GROUP BY "
+			for i := 0; i < len(model.GroupBys); i++ {
+				if i == 0 {
+					sql += model.GroupBys[i] + " "
+				} else {
+					sql += ", " + model.GroupBys[i] + " "
+				}
+			}
+		}
+		if model.OrderBys != nil && len(model.OrderBys) > 1 {
+			sql += " ORDER BY "
+			for i := 0; i < len(model.OrderBys); i++ {
+				if i > 0 {
+					sql += ", "
+				}
+				t := ""
+				if model.OrderBys[i].Type() == gom.Asc {
+					t = "ASC"
+				} else {
+					t = "DESC"
+				}
+				sql += model.OrderBys[i].Name() + t + " "
+			}
+		}
+		if model.Page != nil {
+			idx, size := model.Page.Page()
+			dds = append(dds, idx, size)
+			sql += "LIMIT ?,? "
+		}
+		sql += " ;"
+		return []gom.SqlProto{{sql, dds}}
 	}
-	return results
+	funcMap[gom.Update] = func(models ...gom.TableModel) []gom.SqlProto {
+		model := models[0]
+		var datas []interface{}
+		sql := "UPDATE　"
+		sql += " " + model.Table + " SET　"
+		for i := 0; i < len(model.Columns); i++ {
+			if i == 0 {
+				sql += model.Columns[i] + " = ? "
+			} else {
+				sql += ", " + model.Columns[i] + " = ? "
+			}
+			datas = append(datas, model.Data[model.Columns[i]])
+		}
+		cnds, dds := m.ConditionToSql(model.Condition)
+		if len(cnds) > 0 {
+			sql += " WHERE " + cnds + ";"
+		}
+		datas = append(datas, dds)
+		return []gom.SqlProto{{sql, datas}}
+	}
+	funcMap[gom.Insert] = func(models ...gom.TableModel) []gom.SqlProto {
+		model := models[0]
+		var datas []interface{}
+
+		sql := "INSERT　INTO " + model.Table + "("
+		valuesPattern := "VALUES("
+		for i, c := range model.Columns {
+			if i > 0 {
+				sql += ","
+				valuesPattern += ","
+			}
+			sql += c
+			valuesPattern += "?"
+			datas = append(datas, model.Data[c])
+		}
+		sql += ")"
+		valuesPattern += ");"
+		return []gom.SqlProto{{sql, datas}}
+	}
+	funcMap[gom.Delete] = func(models ...gom.TableModel) []gom.SqlProto {
+		model := models[0]
+		var datas []interface{}
+		sql := "DELETE　FROM　"
+		sql += " " + model.Table
+		cnds, dds := m.ConditionToSql(model.Condition)
+		if len(cnds) > 0 {
+			sql += " WHERE " + cnds + ";"
+		}
+		datas = append(datas, dds)
+		return []gom.SqlProto{{sql, datas}}
+	}
+}
+
+type Factory struct {
+}
+
+func (m Factory) GetSqlFunc(sqlType gom.SqlType) gom.GenerateSQLFunc {
+	return funcMap[sqlType]
+}
+func (m Factory) SupportPatch(sqlType gom.SqlType) bool {
+	return false
+}
+func (m Factory) ConditionToSql(cnd gom.Condition) (string, []interface{}) {
+	if cnd == nil {
+		return "", nil
+	}
+	if !cnd.IsEnalbe() {
+		return "", nil
+	}
+	var data []interface{}
+	data = append(data, cnd.Values())
+	var sql string
+	if len(cnd.RawExpression()) > 0 {
+		sql = cnd.RawExpression()
+	} else {
+		sql += linkerToString(cnd)
+		if cnd.HasSubConditions() {
+			sql += "("
+		}
+		sql += cnd.Field() + operationToString(cnd)
+		if cnd.HasSubConditions() {
+			for _, v := range cnd.Items() {
+				s, dd := m.ConditionToSql(v)
+				sql += s
+				data = append(data, dd)
+			}
+		}
+
+		if cnd.HasSubConditions() {
+			sql += ")"
+		}
+
+	}
+	return sql, data
+
+}
+
+func linkerToString(cnd gom.Condition) string {
+	switch cnd.Linker() {
+	case gom.And:
+		return " AND "
+	case gom.Or:
+		return " OR "
+	default:
+		return " AND "
+	}
+}
+func operationToString(cnd gom.Condition) string {
+	opers := ""
+	switch cnd.Operation() {
+	case gom.Eq:
+		opers = " = " + valueSpace(len(cnd.Values()))
+	case gom.NotEq:
+		opers = " <> " + valueSpace(len(cnd.Values()))
+	case gom.Ge:
+		opers = " >= " + valueSpace(len(cnd.Values()))
+	case gom.Gt:
+		opers = " > " + valueSpace(len(cnd.Values()))
+	case gom.Le:
+		opers = " <= " + valueSpace(len(cnd.Values()))
+	case gom.Lt:
+		opers = " < " + valueSpace(len(cnd.Values()))
+	case gom.In:
+		opers = " IN " + valueSpace(len(cnd.Values()))
+	case gom.NotIn:
+		opers = " NOT IN " + valueSpace(len(cnd.Values()))
+	case gom.Like:
+		opers = " LIKE CONCAT('%',?,'%')"
+	case gom.LikeIgnoreStart:
+		opers = " LIKE CONCAT('%',?)"
+	case gom.LikeIgnoreEnd:
+		opers = " LIKE CONCAT(?,'%')"
+	case gom.IsNull:
+		opers = " IS NULL "
+	case gom.IsNotNull:
+		opers = " IS NOT NULL "
+	}
+
+	return opers
+}
+
+func valueSpace(count int) string {
+	if count == 1 {
+		return " ? "
+	} else {
+		str := "("
+		for i := 0; i < count-1; i++ {
+			str += "?,"
+		}
+		str += "?)"
+		return str
+	}
 }
