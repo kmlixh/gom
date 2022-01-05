@@ -116,20 +116,20 @@ func (this DB) CleanOrders() DB {
 	this.orderBys = make([]OrderBy, 0)
 	return this
 }
-func (this DB) OrderByAsc(field string) DB {
+func (this *DB) OrderByAsc(field string) DB {
 	this.cloneIfOriginRoutine()
 	this.orderBys = append(this.orderBys, _OrderBy{field, Asc})
-	return this
+	return *this
 }
-func (this DB) OrderByDesc(field string) DB {
+func (this *DB) OrderByDesc(field string) DB {
 	this.cloneIfOriginRoutine()
 	this.orderBys = append(this.orderBys, _OrderBy{field, Desc})
-	return this
+	return *this
 }
-func (this DB) GroupBy(names ...string) DB {
+func (this *DB) GroupBy(names ...string) DB {
 	this.cloneIfOriginRoutine()
 	this.groupBys = append(this.groupBys, names...)
-	return this
+	return *this
 }
 func (this DB) Where2(sql string, patches ...interface{}) DB {
 	this.cloneIfOriginRoutine()
@@ -137,7 +137,6 @@ func (this DB) Where2(sql string, patches ...interface{}) DB {
 }
 func (this DB) Where(cnd Condition) DB {
 	this.cloneIfOriginRoutine()
-
 	this.cnd = cnd
 	return this
 }

@@ -75,5 +75,25 @@ func TestCustomTableName(t *testing.T) {
 	}
 	fmt.Println(len(users))
 }
-
-var rountineIds = make(map[int64]int64)
+func TestOrderByDesc(t *testing.T) {
+	users := make([]UserInfo, 0)
+	_, er := db.OrderByDesc("id").Page(0, 10).Select(&users)
+	if er != nil {
+		panic(er)
+	}
+	if len(users) != 10 {
+		t.Fail()
+	}
+	fmt.Println(users)
+}
+func TestOrderByAsc(t *testing.T) {
+	users := make([]UserInfo, 0)
+	_, er := db.OrderByAsc("id").Page(0, 10).Select(&users)
+	if er != nil {
+		panic(er)
+	}
+	if len(users) != 10 {
+		t.Fail()
+	}
+	fmt.Println(users)
+}

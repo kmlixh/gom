@@ -45,7 +45,7 @@ func init() {
 				}
 			}
 		}
-		if model.OrderBys != nil && len(model.OrderBys) > 1 {
+		if model.OrderBys != nil && len(model.OrderBys) > 0 {
 			sql += " ORDER BY "
 			for i := 0; i < len(model.OrderBys); i++ {
 				if i > 0 {
@@ -53,9 +53,9 @@ func init() {
 				}
 				t := ""
 				if model.OrderBys[i].Type() == gom.Asc {
-					t = "ASC"
+					t = " ASC "
 				} else {
-					t = "DESC"
+					t = " DESC "
 				}
 				sql += model.OrderBys[i].Name() + t + " "
 			}
