@@ -1,6 +1,7 @@
-package gom
+package test
 
 import (
+	"gitee.com/janyees/gom"
 	"testing"
 	"time"
 )
@@ -31,16 +32,15 @@ func (Log) TableName() string {
 
 func TestGetTableModel(t *testing.T) {
 	var log []Log
-	m1, err := getStructModel(&log)
+	m1, err := gom.GetStructModel(&log)
 	t.Log(m1, err)
 }
 func TestGetTableModelRepeat(t *testing.T) {
 	var log []Log
-	m1, err := getStructModel(&log)
+	m1, err := gom.GetStructModel(&log)
 	t.Log(m1, err)
-	m2, err := getStructModel(&log)
+	m2, err := gom.GetStructModel(&log)
 	t.Log(m2, err)
-
 }
 
 type TestTable struct {

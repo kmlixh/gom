@@ -11,6 +11,7 @@ var funcMap map[gom.SqlType]gom.GenerateSQLFunc
 func init() {
 	m := Factory{}
 	gom.Register("mysql", &m)
+	funcMap = make(map[gom.SqlType]gom.GenerateSQLFunc)
 	funcMap[gom.Query] = func(models ...gom.TableModel) []gom.SqlProto {
 		model := models[0]
 		sql := "SELECT "
@@ -21,14 +22,15 @@ func init() {
 		if counts > 1 {
 			for i := 0; i < len(model.Columns); i++ {
 				if i == 0 {
-					sql += model.Columns[i] + " "
+					sql += "`" + model.Columns[i] + "` "
 				} else {
-					sql += ", " + model.Columns[i] + " "
+					sql += ", " + "`" + model.Columns[i] + "` "
 				}
 			}
 		} else {
-			sql += " " + model.Columns[0] + " FROM　" + model.Table
+			sql += " " + "`" + model.Columns[0] + "`"
 		}
+		sql += " FROM " + model.Table + " "
 		cnds, dds := m.ConditionToSql(model.Condition)
 		if len(cnds) > 0 {
 			sql += " WHERE " + cnds
@@ -61,7 +63,7 @@ func init() {
 		if model.Page != nil {
 			idx, size := model.Page.Page()
 			dds = append(dds, idx, size)
-			sql += "LIMIT ?,? "
+			sql += " LIMIT ?,? "
 		}
 		sql += " ;"
 		return []gom.SqlProto{{sql, dds}}

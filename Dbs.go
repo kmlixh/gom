@@ -66,6 +66,7 @@ func (p PageImpl) Page() (int, int) {
 }
 
 type DB struct {
+	id       int64
 	factory  SqlFactory
 	db       *sql.DB
 	cnd      Condition
@@ -84,43 +85,59 @@ func (this DB) RawDb() *sql.DB {
 	return this.db
 }
 func (this DB) Table(table string) DB {
+	this.cloneIfOriginRoutine()
 	this.table = table
 	return this
 }
-func (this DB) Raw(sql string, datas []interface{}) DB {
+func (this *DB) cloneIfOriginRoutine() {
+	if this.id == defaultDBId {
+		*this = this.clone()
+	}
+}
+func (this DB) Raw(sql string, datas ...interface{}) DB {
+	this.cloneIfOriginRoutine()
 	this.rawSql = sql
-	this.rawData = datas
+	this.rawData = UnZipSlice(datas)
 	return this
 }
 
 func (this DB) Columns(cols ...string) DB {
+	this.cloneIfOriginRoutine()
 	this.cols = cols
 	return this
 }
 func (this DB) OrderBy(field string, t OrderType) DB {
+	this.cloneIfOriginRoutine()
 	this.orderBys = append(this.orderBys, _OrderBy{field, t})
 	return this
 }
 func (this DB) CleanOrders() DB {
+	this.cloneIfOriginRoutine()
 	this.orderBys = make([]OrderBy, 0)
 	return this
 }
 func (this DB) OrderByAsc(field string) DB {
+	this.cloneIfOriginRoutine()
 	this.orderBys = append(this.orderBys, _OrderBy{field, Asc})
 	return this
 }
 func (this DB) OrderByDesc(field string) DB {
+	this.cloneIfOriginRoutine()
 	this.orderBys = append(this.orderBys, _OrderBy{field, Desc})
 	return this
 }
 func (this DB) GroupBy(names ...string) DB {
+	this.cloneIfOriginRoutine()
 	this.groupBys = append(this.groupBys, names...)
 	return this
 }
 func (this DB) Where2(sql string, patches ...interface{}) DB {
+	this.cloneIfOriginRoutine()
 	return this.Where(CndRaw(sql, patches...))
 }
 func (this DB) Where(cnd Condition) DB {
+	this.cloneIfOriginRoutine()
+
 	this.cnd = cnd
 	return this
 }
@@ -128,14 +145,16 @@ func (this DB) Clone() DB {
 	return this.clone()
 }
 func (this DB) clone() DB {
-	return DB{factory: this.factory, db: this.db}
+	return DB{id: GetGoid(), factory: this.factory, db: this.db}
 }
 func (this DB) Page(index int, pageSize int) DB {
+	this.cloneIfOriginRoutine()
 	this.page = PageImpl{index: index, size: pageSize}
 	return this
 }
 
 func (this DB) Count(columnName string, table string) (int64, error) {
+	this.cloneIfOriginRoutine()
 	var counts int64
 	columns := make(map[string]Column)
 	columns["result"] = Column{ColumnName: "result", Type: reflect.TypeOf(counts), QueryField: "count(" + columnName + ") as result", IsPrimary: false, Auto: false}
@@ -146,7 +165,12 @@ func (this DB) Count(columnName string, table string) (int64, error) {
 	}
 	return i.(int64), nil
 }
-func (this DB) Select(model StructModel) (interface{}, error) {
+func (this DB) Select(vs interface{}) (interface{}, error) {
+	this.cloneIfOriginRoutine()
+	model, er := GetStructModel(vs)
+	if er != nil {
+		panic(er)
+	}
 	this.model = model
 	if len(this.rawSql) > 0 {
 		return this.query(this.rawSql, this.rawData, model)
@@ -157,22 +181,26 @@ func (this DB) Select(model StructModel) (interface{}, error) {
 	}
 }
 func (this DB) First(vs interface{}) (interface{}, error) {
-	model, er := getStructModel(vs)
+	model, er := GetStructModel(vs)
 	if er != nil {
 		panic(er)
 	}
 	return this.Page(0, 1).Select(model)
 }
 func (thiz DB) Update(vs ...interface{}) (int64, error) {
+	thiz.cloneIfOriginRoutine()
 	return thiz.Execute(Update, vs...)
 }
 func (thiz DB) Insert(vs ...interface{}) (int64, error) {
+	thiz.cloneIfOriginRoutine()
 	return thiz.Execute(Insert, vs...)
 }
 func (thiz DB) Delete(vs ...interface{}) (int64, error) {
+	thiz.cloneIfOriginRoutine()
 	return thiz.Execute(Delete, vs...)
 }
 func (thiz DB) Execute(sqlType SqlType, vs ...interface{}) (int64, error) {
+	thiz.cloneIfOriginRoutine()
 	count, er := thiz.Transaction(func(this *DB) (int64, error) {
 		count := int64(0)
 		var vmap = SliceToMapSlice(vs)
@@ -194,7 +222,7 @@ func (this DB) subExecute(sqlType SqlType, vs ...interface{}) (int64, error) {
 	var models []TableModel
 	updateFunc := this.factory.GetSqlFunc(sqlType)
 	for _, v := range vs {
-		structModel, er := getStructModel(v)
+		structModel, er := GetStructModel(v)
 		if er != nil {
 			return 0, er
 		}
@@ -276,7 +304,7 @@ func (this DB) query(sql string, data []interface{}, model StructModel) (interfa
 	if err != nil {
 		return nil, err
 	}
-	rows, errs := st.Query(data)
+	rows, errs := st.Query(data...)
 	if errs != nil {
 		return nil, errs
 	}
@@ -286,7 +314,7 @@ func (this DB) query(sql string, data []interface{}, model StructModel) (interfa
 	if er != nil {
 		panic(er)
 	}
-	if transfer.model.Type.Kind() == reflect.Slice {
+	if transfer.model.Value.Kind() == reflect.Slice {
 		results := reflect.Indirect(transfer.model.Value)
 
 		for rows.Next() {

@@ -12,6 +12,8 @@ var (
 )
 var debug bool
 
+const defaultDBId = -1000
+
 func Register(name string, factory SqlFactory) {
 	factorysMux.Lock()
 	defer factorysMux.Unlock()
@@ -32,7 +34,7 @@ func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int, deb
 	} else {
 		db.SetMaxOpenConns(maxOpen)
 		db.SetMaxIdleConns(maxIdle)
-		return &DB{db: db, factory: factorys[driverName]}, nil
+		return &DB{id: defaultDBId, db: db, factory: factorys[driverName]}, nil
 	}
 }
 
@@ -43,6 +45,6 @@ func Open(driverName string, dsn string, debugs bool) (*DB, error) {
 	if err != nil {
 		return nil, err
 	} else {
-		return &DB{db: db, factory: factorys[driverName]}, nil
+		return &DB{id: defaultDBId, db: db, factory: factorys[driverName]}, nil
 	}
 }

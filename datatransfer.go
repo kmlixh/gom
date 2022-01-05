@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var dataTransferCache map[string]DataTransfer
+var dataTransferCache = make(map[string]DataTransfer)
 
 //从rows到value的过程需要更加智能化和快速,这里可以缓存一种对应关系,即缓存rows列到struct的映射关系,这种操作可以减少更多的反复创建的逻辑.
 type DataTransfer struct {
@@ -49,11 +49,12 @@ func (dd DataTransfer) getValueOfTableRow(rows *sql.Rows) reflect.Value {
 	isStruct := model.Type.Kind() == reflect.Struct && model.Type != reflect.TypeOf(time.Time{})
 	for _, idx := range dd.dataIdx {
 		c := model.Columns[dd.columns[idx]]
-		if debug {
-			fmt.Println("column is:", ",column type is:", c.Type, ",value type is:", c.Type)
-		}
+
 		scanner := dd.scanners[idx].(IScanner)
 		result, _ := scanner.Value()
+		if debug {
+			fmt.Println("column is:", c.ColumnName, ",column type is:", c.Type, ",value type is:", reflect.TypeOf(result))
+		}
 		if isStruct {
 			if reflect.Indirect(reflect.ValueOf(scanner)).Type() == c.Type {
 				//如果列本身就是IScanner的话，那么直接赋值

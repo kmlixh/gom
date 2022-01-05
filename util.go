@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -51,7 +53,7 @@ func getType(v interface{}) (reflect.Type, bool, bool) {
 var mutex sync.Mutex
 var tableModelCache map[string]StructModel
 
-func getStructModel(v interface{}, choosedColumns ...string) (StructModel, error) {
+func GetStructModel(v interface{}, choosedColumns ...string) (StructModel, error) {
 	//防止重复创建map，需要对map创建过程加锁
 	mutex.Lock()
 	if tableModelCache == nil {
@@ -69,25 +71,27 @@ func getStructModel(v interface{}, choosedColumns ...string) (StructModel, error
 	}
 
 	if v != nil && tt.Kind() != reflect.Interface {
-		value := reflect.ValueOf(v)
+		dstValue := reflect.ValueOf(v)
 		if isPtr {
-			value = value.Elem()
+			dstValue = dstValue.Elem()
 		}
-		if isSlice {
-			value = reflect.Indirect(reflect.New(tt))
-		}
+
 		if debug {
-			fmt.Println("model info:", tt, isPtr, isSlice, value)
+			fmt.Println("model info:", tt, isPtr, isSlice, dstValue)
 		}
 		var model StructModel
 		cachedModel, ok := tableModelCache[tt.String()]
 		if ok {
-			model = cachedModel.Clone(value, choosedColumns...)
+			model = cachedModel.Clone(dstValue, choosedColumns...)
 		} else {
-			columnNames, columnMap, primary := getColumns(value)
-			temp := StructModel{Type: tt, Value: reflect.New(tt), ColumnNames: columnNames, Columns: columnMap, TableName: tableName, Primary: primary}
+			tempVal := dstValue
+			if isSlice {
+				tempVal = reflect.Indirect(reflect.New(tt))
+			}
+			columnNames, columnMap, primary := getColumns(tempVal)
+			temp := StructModel{Type: tt, Value: tempVal, ColumnNames: columnNames, Columns: columnMap, TableName: tableName, Primary: primary}
 			tableModelCache[tt.String()] = temp
-			model = temp.Clone(value, choosedColumns...)
+			model = temp.Clone(dstValue, choosedColumns...)
 		}
 		return model, nil
 
@@ -255,7 +259,7 @@ func getValueOfType(c Column) IScanner {
 	}
 }
 func UnZipSlice(vs interface{}) []interface{} {
-	var result []interface{}
+	var result = make([]interface{}, 0)
 	t := reflect.TypeOf(vs)
 	isPtr := false
 	if t.Kind() == reflect.Ptr {
@@ -274,8 +278,7 @@ func UnZipSlice(vs interface{}) []interface{} {
 			}
 
 		}
-	}
-	if t.Kind() == reflect.Struct {
+	} else {
 		result = append(result, vs)
 	}
 	return result
@@ -293,4 +296,20 @@ func SliceToMapSlice(vs interface{}) map[string][]interface{} {
 		result[t] = lst
 	}
 	return result
+}
+
+func GetGoid() int64 {
+	var (
+		buf [64]byte
+		n   = runtime.Stack(buf[:], false)
+		stk = strings.TrimPrefix(string(buf[:n]), "goroutine ")
+	)
+
+	idField := strings.Fields(stk)[0]
+	id, err := strconv.Atoi(idField)
+	if err != nil {
+		panic(fmt.Errorf("can not get goroutine id: %v", err))
+	}
+
+	return int64(id)
 }
