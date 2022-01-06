@@ -6,6 +6,12 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+type MyCndStruct struct {
+	Linker     string
+	Expression string
+	Data       []interface{}
+}
+
 var funcMap map[gom.SqlType]gom.GenerateSQLFunc
 
 func init() {
@@ -14,6 +20,7 @@ func init() {
 	funcMap = make(map[gom.SqlType]gom.GenerateSQLFunc)
 	funcMap[gom.Query] = func(models ...gom.TableModel) []gom.SqlProto {
 		model := models[0]
+		var datas []interface{}
 		sql := "SELECT "
 		counts := len(model.Columns)
 		if counts == 0 {
@@ -35,38 +42,39 @@ func init() {
 		if len(cnds) > 0 {
 			sql += " WHERE " + cnds
 		}
+		datas = append(datas, dds...)
 		if model.GroupBys != nil && len(model.GroupBys) > 1 {
 			sql += " GROUP BY "
 			for i := 0; i < len(model.GroupBys); i++ {
 				if i == 0 {
-					sql += model.GroupBys[i] + " "
+					sql += "`" + model.GroupBys[i] + "` "
 				} else {
-					sql += ", " + model.GroupBys[i] + " "
+					sql += ",`" + model.GroupBys[i] + "`"
 				}
 			}
 		}
 		if model.OrderBys != nil && len(model.OrderBys) > 0 {
-			sql += " ORDER BY "
+			sql += " ORDER BY"
 			for i := 0; i < len(model.OrderBys); i++ {
 				if i > 0 {
-					sql += ", "
+					sql += ","
 				}
 				t := ""
 				if model.OrderBys[i].Type() == gom.Asc {
-					t = " ASC "
+					t = " ASC"
 				} else {
-					t = " DESC "
+					t = " DESC"
 				}
-				sql += model.OrderBys[i].Name() + t + " "
+				sql += " `" + model.OrderBys[i].Name() + "`" + t
 			}
 		}
 		if model.Page != nil {
 			idx, size := model.Page.Page()
-			dds = append(dds, idx, size)
-			sql += " LIMIT ?,? "
+			datas = append(datas, idx, size)
+			sql += " LIMIT ?,?"
 		}
-		sql += " ;"
-		return []gom.SqlProto{{sql, dds}}
+		sql += ";"
+		return []gom.SqlProto{{sql, datas}}
 	}
 	funcMap[gom.Update] = func(models ...gom.TableModel) []gom.SqlProto {
 		model := models[0]
@@ -137,32 +145,77 @@ func (m Factory) ConditionToSql(cnd gom.Condition) (string, []interface{}) {
 	if !cnd.IsEnalbe() {
 		return "", nil
 	}
+	myCnd := cndToMyCndStruct(cnd)
 	var data []interface{}
-	data = append(data, cnd.Values())
+	data = append(data, cnd.Values()...)
 	var sql string
-	if len(cnd.RawExpression()) > 0 {
-		sql = cnd.RawExpression()
-	} else {
-		sql += linkerToString(cnd)
-		if cnd.HasSubConditions() {
-			sql += "("
-		}
-		sql += cnd.Field() + operationToString(cnd)
-		if cnd.HasSubConditions() {
-			for _, v := range cnd.Items() {
-				s, dd := m.ConditionToSql(v)
-				sql += s
-				data = append(data, dd)
-			}
-		}
-
-		if cnd.HasSubConditions() {
-			sql += ")"
-		}
-
+	if cnd.Depth() > 0 {
+		sql += myCnd.Linker
 	}
+
+	if cnd.HasSubConditions() && cnd.Depth() > 0 {
+		sql += " ("
+	}
+	sql += myCnd.Expression
+	if cnd.HasSubConditions() {
+		for _, v := range cnd.Items() {
+			s, dd := m.ConditionToSql(v)
+			sql += s
+			data = append(data, dd...)
+		}
+	}
+
+	if cnd.HasSubConditions() && cnd.Depth() > 0 {
+		sql += ")"
+	}
+
 	return sql, data
 
+}
+
+func cndToMyCndStruct(cnd gom.Condition) MyCndStruct {
+	if len(cnd.RawExpression()) > 0 {
+		return MyCndStruct{linkerToString(cnd), cnd.RawExpression(), cnd.Values()}
+	}
+	opers := cnd.Field()
+	switch cnd.Operation() {
+	case gom.Eq:
+		opers += " = ? "
+	case gom.NotEq:
+		opers += " <> ? "
+	case gom.Ge:
+		opers += " >= ? "
+	case gom.Gt:
+		opers += " > ? "
+	case gom.Le:
+		opers += " <= ? "
+	case gom.Lt:
+		opers += " < ? "
+	case gom.In:
+		opers += " IN " + valueSpace(len(cnd.Values()))
+	case gom.NotIn:
+		opers += " NOT IN " + valueSpace(len(cnd.Values()))
+	case gom.Like:
+		opers += " LIKE ? "
+		vals := cnd.Values()
+		vals[0] = "%" + vals[0].(string) + "%"
+		cnd.SetValues(vals)
+	case gom.LikeIgnoreStart:
+		opers += " LIKE ? "
+		vals := cnd.Values()
+		vals[0] = "%" + vals[0].(string)
+		cnd.SetValues(vals)
+	case gom.LikeIgnoreEnd:
+		opers += " LIKE ? "
+		vals := cnd.Values()
+		vals[0] = vals[0].(string) + "%"
+		cnd.SetValues(vals)
+	case gom.IsNull:
+		opers += " IS NULL "
+	case gom.IsNotNull:
+		opers += " IS NOT NULL "
+	}
+	return MyCndStruct{linkerToString(cnd), opers, cnd.Values()}
 }
 
 func linkerToString(cnd gom.Condition) string {
@@ -174,39 +227,6 @@ func linkerToString(cnd gom.Condition) string {
 	default:
 		return " AND "
 	}
-}
-func operationToString(cnd gom.Condition) string {
-	opers := ""
-	switch cnd.Operation() {
-	case gom.Eq:
-		opers = " = " + valueSpace(len(cnd.Values()))
-	case gom.NotEq:
-		opers = " <> " + valueSpace(len(cnd.Values()))
-	case gom.Ge:
-		opers = " >= " + valueSpace(len(cnd.Values()))
-	case gom.Gt:
-		opers = " > " + valueSpace(len(cnd.Values()))
-	case gom.Le:
-		opers = " <= " + valueSpace(len(cnd.Values()))
-	case gom.Lt:
-		opers = " < " + valueSpace(len(cnd.Values()))
-	case gom.In:
-		opers = " IN " + valueSpace(len(cnd.Values()))
-	case gom.NotIn:
-		opers = " NOT IN " + valueSpace(len(cnd.Values()))
-	case gom.Like:
-		opers = " LIKE CONCAT('%',?,'%')"
-	case gom.LikeIgnoreStart:
-		opers = " LIKE CONCAT('%',?)"
-	case gom.LikeIgnoreEnd:
-		opers = " LIKE CONCAT(?,'%')"
-	case gom.IsNull:
-		opers = " IS NULL "
-	case gom.IsNotNull:
-		opers = " IS NOT NULL "
-	}
-
-	return opers
 }
 
 func valueSpace(count int) string {

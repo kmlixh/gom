@@ -8,8 +8,9 @@ import (
 )
 import _ "gitee.com/janyees/gom/factory/mysql"
 
-var dsn = "remote:remote123@tcp(10.0.1.5)/test?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
-var db = &gom.DB{}
+//var dsn = "remote:remote123@tcp(10.0.1.5)/test?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
+var dsn = "root:123456@tcp(192.168.32.187)/fochan?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
+var db *gom.DB
 
 type UserInfo struct {
 	Id          int64     `json:"id" gom:"@"`
@@ -26,12 +27,12 @@ type UserInfo struct {
 }
 
 func init() {
+	fmt.Println("init DB.............")
 	temp, er := gom.Open("mysql", dsn, false)
 	if er != nil {
 		panic(er)
 	}
 	db = temp
-	fmt.Println(db)
 }
 
 func (UserInfo) TableName() string {
@@ -93,6 +94,63 @@ func TestOrderByAsc(t *testing.T) {
 		panic(er)
 	}
 	if len(users) != 10 {
+		t.Fail()
+	}
+	fmt.Println(users)
+}
+func TestMultiOrders(t *testing.T) {
+	users := make([]UserInfo, 0)
+	_, er := db.OrderByAsc("id").OrderBy("nick_name", gom.Desc).OrderByDesc("create_date").Page(0, 10).Select(&users)
+	if er != nil {
+		panic(er)
+	}
+	if len(users) != 10 {
+		t.Fail()
+	}
+	fmt.Println(users)
+}
+func TestRawCondition(t *testing.T) {
+	users := make([]UserInfo, 0)
+	_, er := db.Where2("nick_name like ? ", "%淑兰%").Page(0, 10).Select(&users)
+	if er != nil {
+		panic(er)
+	}
+	if len(users) == 0 {
+		t.Fail()
+	}
+	fmt.Println(users)
+}
+func TestCondition(t *testing.T) {
+	users := make([]UserInfo, 0)
+	_, er := db.Where(gom.Cnd("nick_name", gom.LikeIgnoreStart, "淑兰")).Page(0, 10).Select(&users)
+	if er != nil {
+		panic(er)
+	}
+	if len(users) == 0 {
+		t.Fail()
+	}
+	fmt.Println(users)
+}
+func TestMultiCondition(t *testing.T) {
+	users := make([]UserInfo, 0)
+	_, er := db.Where(gom.Cnd("nick_name", gom.LikeIgnoreStart, "淑兰").Or(gom.Cnd("phone_number", gom.Eq, "13663049871").Eq("nick_name", "吃素是福"))).Page(0, 10).Select(&users)
+	if er != nil {
+		panic(er)
+	}
+	if len(users) == 0 {
+		t.Fail()
+	}
+	fmt.Println(users)
+}
+
+func TestStructCondition(t *testing.T) {
+	user := UserInfo{PhoneNumber: "13663049871", NickName: "吃素是福"}
+	users := make([]UserInfo, 0)
+	_, er := db.Where(gom.StructToCondition(user)).Page(0, 10).Select(&users)
+	if er != nil {
+		panic(er)
+	}
+	if len(users) == 0 {
 		t.Fail()
 	}
 	fmt.Println(users)

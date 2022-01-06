@@ -84,7 +84,7 @@ type DB struct {
 func (this DB) RawDb() *sql.DB {
 	return this.db
 }
-func (this DB) Table(table string) DB {
+func (this *DB) Table(table string) *DB {
 	this.cloneIfOriginRoutine()
 	this.table = table
 	return this
@@ -94,48 +94,48 @@ func (this *DB) cloneIfOriginRoutine() {
 		*this = this.clone()
 	}
 }
-func (this DB) Raw(sql string, datas ...interface{}) DB {
+func (this *DB) Raw(sql string, datas ...interface{}) *DB {
 	this.cloneIfOriginRoutine()
 	this.rawSql = sql
 	this.rawData = UnZipSlice(datas)
 	return this
 }
 
-func (this DB) Columns(cols ...string) DB {
+func (this *DB) Columns(cols ...string) *DB {
 	this.cloneIfOriginRoutine()
 	this.cols = cols
 	return this
 }
-func (this DB) OrderBy(field string, t OrderType) DB {
+func (this *DB) OrderBy(field string, t OrderType) *DB {
 	this.cloneIfOriginRoutine()
 	this.orderBys = append(this.orderBys, _OrderBy{field, t})
 	return this
 }
-func (this DB) CleanOrders() DB {
+func (this *DB) CleanOrders() *DB {
 	this.cloneIfOriginRoutine()
 	this.orderBys = make([]OrderBy, 0)
 	return this
 }
-func (this *DB) OrderByAsc(field string) DB {
+func (this *DB) OrderByAsc(field string) *DB {
 	this.cloneIfOriginRoutine()
 	this.orderBys = append(this.orderBys, _OrderBy{field, Asc})
-	return *this
+	return this
 }
-func (this *DB) OrderByDesc(field string) DB {
+func (this *DB) OrderByDesc(field string) *DB {
 	this.cloneIfOriginRoutine()
 	this.orderBys = append(this.orderBys, _OrderBy{field, Desc})
-	return *this
+	return this
 }
-func (this *DB) GroupBy(names ...string) DB {
+func (this *DB) GroupBy(names ...string) *DB {
 	this.cloneIfOriginRoutine()
 	this.groupBys = append(this.groupBys, names...)
-	return *this
+	return this
 }
-func (this DB) Where2(sql string, patches ...interface{}) DB {
+func (this *DB) Where2(sql string, patches ...interface{}) *DB {
 	this.cloneIfOriginRoutine()
 	return this.Where(CndRaw(sql, patches...))
 }
-func (this DB) Where(cnd Condition) DB {
+func (this *DB) Where(cnd Condition) *DB {
 	this.cloneIfOriginRoutine()
 	this.cnd = cnd
 	return this
@@ -146,7 +146,7 @@ func (this DB) Clone() DB {
 func (this DB) clone() DB {
 	return DB{id: GetGoid(), factory: this.factory, db: this.db}
 }
-func (this DB) Page(index int, pageSize int) DB {
+func (this *DB) Page(index int, pageSize int) *DB {
 	this.cloneIfOriginRoutine()
 	this.page = PageImpl{index: index, size: pageSize}
 	return this

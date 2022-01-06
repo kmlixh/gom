@@ -183,26 +183,50 @@ func getColumnNameAndTypeFromField(field reflect.StructField) (string, int) {
 		return "", -1
 	}
 }
-func StructToMap(vs interface{}) (map[string]interface{}, error) {
+func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, error) {
 	t, _, isSlice := getType(vs)
 	v := reflect.ValueOf(vs)
 	if isSlice {
 		return nil, errors.New("can't convert slice or array to map")
 	}
-	var maps map[string]interface{}
+	maps := make(map[string]interface{})
 	if t.Kind() == reflect.Struct {
-		for i := 0; i < t.NumField(); i++ {
-			f := t.Field(i)
-			vv := v.Field(i)
-			maps[f.Name] = vv
+		model, err := GetStructModel(vs, columns...)
+		if err != nil {
+			panic(err)
 		}
+		for _, col := range model.ColumnNames {
+			vv := v.FieldByName(model.Columns[col].FieldName)
+			switch vv.Type().Kind() {
+			case reflect.Int, reflect.Int32, reflect.Int64, reflect.Int8:
+				if vv.Int() > 0 {
+					maps[col] = vv.Int()
+				}
+			case reflect.Float64, reflect.Float32:
+				if vv.Float() > 0 {
+					maps[col] = vv.Float()
+				}
+			case reflect.String:
+				if len(vv.String()) > 0 {
+					maps[col] = vv.String()
+
+				}
+			case reflect.Bool:
+				maps[col] = vv.Bool()
+			case reflect.TypeOf(time.Now()).Kind():
+				if !vv.Interface().(time.Time).IsZero() {
+					maps[col] = vv.Interface().(time.Time)
+				}
+			}
+		}
+
 		return maps, nil
 	}
 	return nil, errors.New("can't convert slice or array to map")
 
 }
-func StructToCondition(vs interface{}) Condition {
-	maps, err := StructToMap(vs)
+func StructToCondition(vs interface{}, columns ...string) Condition {
+	maps, err := StructToMap(vs, columns...)
 	if err != nil {
 		panic(err)
 	}
@@ -221,7 +245,7 @@ func MapToCondition(maps map[string]interface{}) Condition {
 			//	value = v.(time.Time).Format("2006-01-02 15:04:05")
 			//}
 			if cnd == nil {
-				cnd = CndAnd(k, Eq, value)
+				cnd = Cnd(k, Eq, value)
 			} else {
 				cnd.And(k, Eq, value)
 			}

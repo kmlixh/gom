@@ -30,7 +30,16 @@ type StructModel struct {
 func (this StructModel) Clone(value reflect.Value, columnFilters ...string) StructModel {
 	var names []string
 	if len(columnFilters) > 0 {
-		names = columnFilters
+		for _, col := range columnFilters {
+			_, ok := this.Columns[col]
+			if !ok {
+				col = camelToSnakeString(col)
+				_, ok = this.Columns[col]
+			}
+			if ok {
+				names = append(names, col)
+			}
+		}
 	} else {
 		names = this.ColumnNames
 	}
