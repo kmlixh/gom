@@ -43,16 +43,6 @@ func init() {
 			sql += " WHERE " + cnds
 		}
 		datas = append(datas, dds...)
-		if model.GroupBys != nil && len(model.GroupBys) > 1 {
-			sql += " GROUP BY "
-			for i := 0; i < len(model.GroupBys); i++ {
-				if i == 0 {
-					sql += "`" + model.GroupBys[i] + "` "
-				} else {
-					sql += ",`" + model.GroupBys[i] + "`"
-				}
-			}
-		}
 		if model.OrderBys != nil && len(model.OrderBys) > 0 {
 			sql += " ORDER BY"
 			for i := 0; i < len(model.OrderBys); i++ {

@@ -66,7 +66,7 @@ func GetStructModel(v interface{}, choosedColumns ...string) (StructModel, error
 	if hasTable {
 		tableName = reflect.New(tt).Interface().(Table).TableName()
 	}
-	if tt.Kind() != reflect.Struct || (tt.Kind() == reflect.Struct && !hasTable) || tt.NumField() == 0 {
+	if tt.Kind() != reflect.Struct || (tt.Kind() == reflect.Struct && tt.NumField() == 0) {
 		return StructModel{}, errors.New(tt.Name() + " is not a valid struct")
 	}
 
@@ -144,43 +144,39 @@ func getColumnFromField(filed reflect.StructField) (Column, int) {
 }
 func getColumnNameAndTypeFromField(field reflect.StructField) (string, int) {
 	tag, hasTag := field.Tag.Lookup("gom")
-	if hasTag {
-		if len(tag) == 0 {
-			tag = camelToSnakeString(field.Name)
+	if !hasTag {
+		tag = camelToSnakeString(field.Name)
+	}
+	if strings.EqualFold(tag, "-") {
+		return "", -1
+	} else if len(tag) == 1 {
+		tps := 0
+		if strings.EqualFold(tag, "@") {
+			tps = 2
 		}
-		if strings.EqualFold(tag, "-") {
-			return "", -1
-		} else if len(tag) == 1 {
-			tps := 0
-			if strings.EqualFold(tag, "@") {
-				tps = 2
-			}
-			if strings.EqualFold(tag, "!") {
-				tps = 1
-			}
-			return camelToSnakeString(field.Name), tps
-		} else {
-			if strings.Contains(tag, ",") {
-				tags := strings.Split(tag, ",")
-				if len(tags) == 2 {
-					if strings.EqualFold(tags[0], "!") || strings.EqualFold(tags[0], "primary") {
-						return tags[1], 1
-					} else if strings.EqualFold(tags[0], "@") || strings.EqualFold(tags[0], "auto") {
-						return tags[1], 2
-					} else if strings.EqualFold(tags[0], "#") || strings.EqualFold(tags[0], "column") {
-						return tags[1], 0
-					} else {
-						return "", -1
-					}
+		if strings.EqualFold(tag, "!") {
+			tps = 1
+		}
+		return camelToSnakeString(field.Name), tps
+	} else {
+		if strings.Contains(tag, ",") {
+			tags := strings.Split(tag, ",")
+			if len(tags) == 2 {
+				if strings.EqualFold(tags[0], "!") || strings.EqualFold(tags[0], "primary") {
+					return tags[1], 1
+				} else if strings.EqualFold(tags[0], "@") || strings.EqualFold(tags[0], "auto") {
+					return tags[1], 2
+				} else if strings.EqualFold(tags[0], "#") || strings.EqualFold(tags[0], "column") {
+					return tags[1], 0
 				} else {
 					return "", -1
 				}
 			} else {
-				return tag, 0
+				return "", -1
 			}
+		} else {
+			return tag, 0
 		}
-	} else {
-		return "", -1
 	}
 }
 func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, error) {

@@ -14,7 +14,6 @@ type TableModel struct {
 	Data    map[string]interface{}
 	Condition
 	OrderBys []OrderBy
-	GroupBys []string
 	Page
 }
 

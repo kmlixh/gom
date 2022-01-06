@@ -75,7 +75,6 @@ type DB struct {
 	rawData  []interface{}
 	tx       *sql.Tx
 	orderBys []OrderBy
-	groupBys []string
 	cols     []string
 	page     Page
 	model    StructModel
@@ -126,11 +125,7 @@ func (this *DB) OrderByDesc(field string) *DB {
 	this.orderBys = append(this.orderBys, _OrderBy{field, Desc})
 	return this
 }
-func (this *DB) GroupBy(names ...string) *DB {
-	this.cloneIfOriginRoutine()
-	this.groupBys = append(this.groupBys, names...)
-	return this
-}
+
 func (this *DB) Where2(sql string, patches ...interface{}) *DB {
 	this.cloneIfOriginRoutine()
 	return this.Where(CndRaw(sql, patches...))
@@ -175,7 +170,7 @@ func (this DB) Select(vs interface{}) (interface{}, error) {
 		return this.query(this.rawSql, this.rawData, model)
 	} else {
 		selectFunc := this.factory.GetSqlFunc(Query)
-		sqlProtos := selectFunc(TableModel{this.getTableName(), this.getQueryColumns(), nil, this.cnd, this.orderBys, this.groupBys, this.page})
+		sqlProtos := selectFunc(TableModel{this.getTableName(), this.getQueryColumns(), nil, this.cnd, this.orderBys, this.page})
 		return this.query(sqlProtos[0].Sql, sqlProtos[0].Data, model)
 	}
 }
@@ -226,7 +221,7 @@ func (this DB) subExecute(sqlType SqlType, vs ...interface{}) (int64, error) {
 			return 0, er
 		}
 		this.model = structModel
-		model := TableModel{this.getTableName(), this.getUpdateColumns(), this.model.StructToMap(), this.cnd, this.orderBys, this.groupBys, this.page}
+		model := TableModel{this.getTableName(), this.getUpdateColumns(), this.model.StructToMap(), this.cnd, this.orderBys, this.page}
 		models = append(models, model)
 	}
 	sqlProtos := updateFunc(models...)
