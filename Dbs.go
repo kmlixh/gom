@@ -3,82 +3,26 @@ package gom
 import (
 	"database/sql"
 	"fmt"
+	"gitee.com/janyees/gom/structs"
 	"reflect"
 	"strings"
 )
 
-type SqlProto struct {
-	Sql  string
-	Data []interface{}
-}
-
-type GenerateSQLFunc func(model ...TableModel) []SqlProto
-type TransactionWork func(databaseTx *DB) (int64, error)
-type SqlFactory interface {
-	GetSqlFunc(sqlType SqlType) GenerateSQLFunc
-	ConditionToSql(condition Condition) (string, []interface{})
-}
-type OrderType int
-
-type SqlType int
-
-const (
-	_ SqlType = iota
-	Query
-	Insert
-	Update
-	Delete
-)
-
-const (
-	_ OrderType = iota
-	Asc
-	Desc
-)
-
-type OrderBy interface {
-	Name() string
-	Type() OrderType
-}
-type _OrderBy struct {
-	name      string
-	orderType OrderType
-}
-
-func (o _OrderBy) Name() string {
-	return o.name
-}
-func (o _OrderBy) Type() OrderType {
-	return o.orderType
-}
-
-type Page interface {
-	Page() (int, int)
-}
-
-type PageImpl struct {
-	index int
-	size  int
-}
-
-func (p PageImpl) Page() (int, int) {
-	return p.index, p.size
-}
-
 type DB struct {
 	id       int64
-	factory  SqlFactory
+	factory  structs.SqlFactory
 	db       *sql.DB
-	cnd      Condition
+	cnd      structs.Condition
 	table    string
 	rawSql   string
 	rawData  []interface{}
 	tx       *sql.Tx
-	orderBys []OrderBy
+	orderBys []structs.OrderBy
 	cols     []string
-	page     Page
-	model    StructModel
+	page     structs.Page
+	model    structs.StructModel
 }
+type TransactionWork func(databaseTx *DB) (int64, error)
 
 func (this DB) RawDb() *sql.DB {
 	return this.db
@@ -89,14 +33,14 @@ func (this *DB) Table(table string) *DB {
 	return this
 }
 func (this *DB) cloneIfOriginRoutine() {
-	if this.id == defaultDBId {
+	if this.id != structs.GetGoid() {
 		*this = this.clone()
 	}
 }
 func (this *DB) Raw(sql string, datas ...interface{}) *DB {
 	this.cloneIfOriginRoutine()
 	this.rawSql = sql
-	this.rawData = UnZipSlice(datas)
+	this.rawData = structs.UnZipSlice(datas)
 	return this
 }
 
@@ -105,32 +49,32 @@ func (this *DB) Columns(cols ...string) *DB {
 	this.cols = cols
 	return this
 }
-func (this *DB) OrderBy(field string, t OrderType) *DB {
+func (this *DB) OrderBy(field string, t structs.OrderType) *DB {
 	this.cloneIfOriginRoutine()
-	this.orderBys = append(this.orderBys, _OrderBy{field, t})
+	this.orderBys = append(this.orderBys, structs.MakeOrderBy(field, t))
 	return this
 }
 func (this *DB) CleanOrders() *DB {
 	this.cloneIfOriginRoutine()
-	this.orderBys = make([]OrderBy, 0)
+	this.orderBys = make([]structs.OrderBy, 0)
 	return this
 }
 func (this *DB) OrderByAsc(field string) *DB {
 	this.cloneIfOriginRoutine()
-	this.orderBys = append(this.orderBys, _OrderBy{field, Asc})
+	this.orderBys = append(this.orderBys, structs.MakeOrderBy(field, structs.Asc))
 	return this
 }
 func (this *DB) OrderByDesc(field string) *DB {
 	this.cloneIfOriginRoutine()
-	this.orderBys = append(this.orderBys, _OrderBy{field, Desc})
+	this.orderBys = append(this.orderBys, structs.MakeOrderBy(field, structs.Desc))
 	return this
 }
 
 func (this *DB) Where2(sql string, patches ...interface{}) *DB {
 	this.cloneIfOriginRoutine()
-	return this.Where(CndRaw(sql, patches...))
+	return this.Where(structs.CndRaw(sql, patches...))
 }
-func (this *DB) Where(cnd Condition) *DB {
+func (this *DB) Where(cnd structs.Condition) *DB {
 	this.cloneIfOriginRoutine()
 	this.cnd = cnd
 	return this
@@ -139,67 +83,71 @@ func (this DB) Clone() DB {
 	return this.clone()
 }
 func (this DB) clone() DB {
-	return DB{id: GetGoid(), factory: this.factory, db: this.db}
+	return DB{id: structs.GetGoid(), factory: this.factory, db: this.db}
 }
 func (this *DB) Page(index int, pageSize int) *DB {
 	this.cloneIfOriginRoutine()
-	this.page = PageImpl{index: index, size: pageSize}
+	this.page = structs.MakePage(index, pageSize)
 	return this
 }
 
-func (this DB) Count(columnName string, table string) (int64, error) {
+func (this DB) Count(columnName string) structs.CountResult {
 	this.cloneIfOriginRoutine()
-	var counts int64
-	columns := make(map[string]Column)
-	columns["result"] = Column{ColumnName: "result", Type: reflect.TypeOf(counts), QueryField: "count(" + columnName + ") as result", IsPrimary: false, Auto: false}
-	tableModel := StructModel{Columns: columns, ColumnNames: []string{"result"}, Type: reflect.TypeOf(counts), Value: reflect.ValueOf(counts), TableName: table}
-	i, er := this.Select(tableModel)
-	if er != nil {
-		panic(er)
-	}
-	return i.(int64), nil
+	var countResult structs.CountResult
+	this.Columns("count(" + columnName + ") as count")
+	this.Select(&countResult)
+	return countResult
 }
+
+func (this DB) Sum(columnName string) structs.CountResult {
+	this.cloneIfOriginRoutine()
+	var countResult structs.CountResult
+	this.Columns("SUM(" + columnName + ") as count")
+	this.Select(&countResult)
+	return countResult
+}
+
 func (this DB) Select(vs interface{}) (interface{}, error) {
 	this.cloneIfOriginRoutine()
-	model, er := GetStructModel(vs)
+	model, er := structs.GetStructModel(vs)
 	if er != nil {
 		panic(er)
 	}
+	return this.SelectByModel(model)
+}
+func (this DB) SelectByModel(model structs.StructModel) (interface{}, error) {
+	this.cloneIfOriginRoutine()
 	this.model = model
 	if len(this.rawSql) > 0 {
 		return this.query(this.rawSql, this.rawData, model)
 	} else {
-		selectFunc := this.factory.GetSqlFunc(Query)
-		sqlProtos := selectFunc(TableModel{this.getTableName(), this.getQueryColumns(), nil, this.cnd, this.orderBys, this.page})
+		selectFunc := this.factory.GetSqlFunc(structs.Query)
+		sqlProtos := selectFunc(structs.TableModel{this.getTableName(), this.getQueryColumns(), nil, this.cnd, this.orderBys, this.page})
 		return this.query(sqlProtos[0].Sql, sqlProtos[0].Data, model)
 	}
 }
 func (this DB) First(vs interface{}) (interface{}, error) {
-	model, er := GetStructModel(vs)
-	if er != nil {
-		panic(er)
-	}
-	return this.Page(0, 1).Select(model)
+	return this.Page(0, 1).Select(vs)
 }
 func (thiz DB) Update(vs ...interface{}) (int64, error) {
 	thiz.cloneIfOriginRoutine()
-	return thiz.Execute(Update, vs...)
+	return thiz.Execute(structs.Update, vs...)
 }
 func (thiz DB) Insert(vs ...interface{}) (int64, error) {
 	thiz.cloneIfOriginRoutine()
-	return thiz.Execute(Insert, vs...)
+	return thiz.Execute(structs.Insert, vs...)
 }
 func (thiz DB) Delete(vs ...interface{}) (int64, error) {
 	thiz.cloneIfOriginRoutine()
-	return thiz.Execute(Delete, vs...)
+	return thiz.Execute(structs.Delete, vs...)
 }
-func (thiz DB) Execute(sqlType SqlType, vs ...interface{}) (int64, error) {
+func (thiz DB) Execute(sqlType structs.SqlType, vs ...interface{}) (int64, error) {
 	thiz.cloneIfOriginRoutine()
 	count, er := thiz.Transaction(func(this *DB) (int64, error) {
 		count := int64(0)
-		var vmap = SliceToMapSlice(vs)
+		var vmap = structs.SliceToMapSlice(vs)
 		for i, v := range vmap {
-			if debug {
+			if Debug {
 				fmt.Println("Model Type was:", i, "slice counts:", len(v))
 			}
 			c, er := this.subExecute(sqlType, vmap[i]...)
@@ -212,16 +160,16 @@ func (thiz DB) Execute(sqlType SqlType, vs ...interface{}) (int64, error) {
 	})
 	return count, er
 }
-func (this DB) subExecute(sqlType SqlType, vs ...interface{}) (int64, error) {
-	var models []TableModel
+func (this DB) subExecute(sqlType structs.SqlType, vs ...interface{}) (int64, error) {
+	var models []structs.TableModel
 	updateFunc := this.factory.GetSqlFunc(sqlType)
 	for _, v := range vs {
-		structModel, er := GetStructModel(v)
+		structModel, er := structs.GetStructModel(v)
 		if er != nil {
 			return 0, er
 		}
 		this.model = structModel
-		model := TableModel{this.getTableName(), this.getUpdateColumns(), this.model.StructToMap(), this.cnd, this.orderBys, this.page}
+		model := structs.TableModel{this.getTableName(), this.getUpdateColumns(), this.model.StructToMap(), this.cnd, this.orderBys, this.page}
 		models = append(models, model)
 	}
 	sqlProtos := updateFunc(models...)
@@ -270,7 +218,7 @@ func (this DB) getUpdateColumns() []string {
 	}
 	return dst
 }
-func (this DB) getInsertColumns(model StructModel) []string {
+func (this DB) getInsertColumns(model structs.StructModel) []string {
 	var cols []string
 	if len(this.cols) > 0 {
 		cols = this.cols
@@ -292,7 +240,7 @@ func (this DB) getInsertColumns(model StructModel) []string {
 	}
 }
 
-func (this DB) query(sql string, data []interface{}, model StructModel) (interface{}, error) {
+func (this DB) query(sql string, data []interface{}, model structs.StructModel) (interface{}, error) {
 	st, err := this.db.Prepare(sql)
 	defer st.Close()
 	if err != nil {
@@ -304,28 +252,22 @@ func (this DB) query(sql string, data []interface{}, model StructModel) (interfa
 	}
 	defer rows.Close()
 	columns, er := rows.Columns()
-	transfer := getDataTransfer(md5V(sql), columns, model)
+	transfer := structs.GetDataTransfer(structs.Md5Text(sql), columns, model)
 	if er != nil {
 		panic(er)
 	}
-	if transfer.model.Value.Kind() == reflect.Slice {
-		results := reflect.Indirect(transfer.model.Value)
+	if transfer.Model().Value.Kind() == reflect.Slice {
+		results := transfer.Model().Value
 
 		for rows.Next() {
-			val := transfer.getValueOfTableRow(rows)
+			val := transfer.GetValueOfTableRow(rows)
 			results.Set(reflect.Append(results, val))
 		}
 		return results.Interface(), nil
 	} else {
 		if rows.Next() {
-			val := transfer.getValueOfTableRow(rows)
-			var vt reflect.Value
-			if model.Type.Kind() == reflect.Ptr {
-				vt = model.Value.Elem()
-			} else {
-				vt = reflect.New(model.Type).Elem()
-
-			}
+			val := transfer.GetValueOfTableRow(rows)
+			vt := transfer.Model().Value
 			vt.Set(val)
 			return vt.Interface(), nil
 		} else {

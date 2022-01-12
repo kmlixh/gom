@@ -1,4 +1,4 @@
-package gom
+package structs
 
 import (
 	"crypto/md5"
@@ -44,7 +44,7 @@ func getType(v interface{}) (reflect.Type, bool, bool) {
 		tt = tt.Elem()
 		islice = true
 	}
-	if debug {
+	if Debug {
 		fmt.Println("Test getType, result:", tt, isPtr, islice)
 	}
 	return tt, isPtr, islice
@@ -62,12 +62,12 @@ func GetStructModel(v interface{}, choosedColumns ...string) (StructModel, error
 	mutex.Unlock()
 	tt, isPtr, isSlice := getType(v)
 	_, hasTable := reflect.New(tt).Interface().(Table)
-	tableName := camelToSnakeString(tt.Name())
+	tableName := CamelToSnakeString(tt.Name())
 	if hasTable {
 		tableName = reflect.New(tt).Interface().(Table).TableName()
 	}
 	if tt.Kind() != reflect.Struct || (tt.Kind() == reflect.Struct && tt.NumField() == 0) {
-		return StructModel{}, errors.New(tt.Name() + " is not a valid struct")
+		return StructModel{}, errors.New(tt.Name() + " is not a valid structs")
 	}
 
 	if v != nil && tt.Kind() != reflect.Interface {
@@ -76,7 +76,7 @@ func GetStructModel(v interface{}, choosedColumns ...string) (StructModel, error
 			dstValue = dstValue.Elem()
 		}
 
-		if debug {
+		if Debug {
 			fmt.Println("model info:", tt, isPtr, isSlice, dstValue)
 		}
 		var model StructModel
@@ -116,19 +116,19 @@ func getColumns(v reflect.Value) ([]string, map[string]Column, Column) {
 			}
 		}
 	}
-	if debug {
+	if Debug {
 		fmt.Println("columns is:", columns)
 	}
 	return columnNames, columns, primary
 }
-func md5V(str string) string {
+func Md5Text(str string) string {
 	h := md5.New()
 	h.Write([]byte(str))
 	return hex.EncodeToString(h.Sum(nil))
 }
 func getColumnFromField(filed reflect.StructField) (Column, int) {
 	colName, tps := getColumnNameAndTypeFromField(filed)
-	if debug {
+	if Debug {
 		fmt.Println("Tag is:", colName, "type is:", tps)
 	}
 	v := reflect.New(filed.Type)
@@ -145,7 +145,7 @@ func getColumnFromField(filed reflect.StructField) (Column, int) {
 func getColumnNameAndTypeFromField(field reflect.StructField) (string, int) {
 	tag, hasTag := field.Tag.Lookup("gom")
 	if !hasTag {
-		tag = camelToSnakeString(field.Name)
+		tag = CamelToSnakeString(field.Name)
 	}
 	if strings.EqualFold(tag, "-") {
 		return "", -1
@@ -157,7 +157,7 @@ func getColumnNameAndTypeFromField(field reflect.StructField) (string, int) {
 		if strings.EqualFold(tag, "!") {
 			tps = 1
 		}
-		return camelToSnakeString(field.Name), tps
+		return CamelToSnakeString(field.Name), tps
 	} else {
 		if strings.Contains(tag, ",") {
 			tags := strings.Split(tag, ",")
@@ -249,7 +249,7 @@ func MapToCondition(maps map[string]interface{}) Condition {
 	}
 	return cnd
 }
-func getValueOfType(c Column) IScanner {
+func GetValueOfType(c Column) IScanner {
 	vs := reflect.New(c.Type)
 	scanner, ojbk := vs.Interface().(IScanner)
 	if ojbk {
@@ -275,7 +275,7 @@ func getValueOfType(c Column) IScanner {
 	case bool:
 		return &ScannerImpl{false, BoolScan}
 	default:
-		return emptyScanner()
+		return EmptyScanner()
 	}
 }
 func UnZipSlice(vs interface{}) []interface{} {

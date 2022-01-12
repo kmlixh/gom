@@ -1,17 +1,17 @@
-package test
+package gom
 
 import (
 	"fmt"
-	"gitee.com/janyees/gom"
+	_ "gitee.com/janyees/gom/factory/mysql"
+	"gitee.com/janyees/gom/structs"
 	"testing"
 	"time"
 )
-import _ "gitee.com/janyees/gom/factory/mysql"
 
 var dsn = "remote:remote123@tcp(10.0.1.5)/test?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
 
-//var dsn = "root:123456@tcp(192.168.32.187)/fochan?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
-var db *gom.DB
+//var dsn = "root:123456@tcp(192.168.32.187)/dd_test?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
+var db *DB
 
 type UserInfo struct {
 	Id          int64     `json:"id" gom:"@"`
@@ -37,7 +37,7 @@ type TbRecord struct {
 
 func init() {
 	fmt.Println("init DB.............")
-	temp, er := gom.Open("mysql", dsn, false)
+	temp, er := Open("mysql", dsn, false)
 	if er != nil {
 		panic(er)
 	}
@@ -70,14 +70,14 @@ func (Log) TableName() string {
 
 func TestGetTableModel(t *testing.T) {
 	var log []Log
-	m1, err := gom.GetStructModel(&log)
+	m1, err := structs.GetStructModel(&log)
 	t.Log(m1, err)
 }
 func TestGetTableModelRepeat(t *testing.T) {
 	var log []Log
-	m1, err := gom.GetStructModel(&log)
+	m1, err := structs.GetStructModel(&log)
 	t.Log(m1, err)
-	m2, err := gom.GetStructModel(&log)
+	m2, err := structs.GetStructModel(&log)
 	t.Log(m2, err)
 }
 
@@ -96,12 +96,12 @@ func (UserInfo) TableName() string {
 }
 
 func TestRawSelect(t *testing.T) {
-	users := make([]UserInfo, 0)
+	var users []UserInfo
 	_, ser := db.Raw("select * from user_info limit ?,?", 0, 1000).Select(&users)
 	if ser != nil {
+		t.Error("counts :", len(users), db)
 		panic(ser)
 	}
-	fmt.Println(len(users))
 }
 func TestDefaultTableQuery(t *testing.T) {
 	users := make([]UserInfo, 0)
@@ -109,7 +109,6 @@ func TestDefaultTableQuery(t *testing.T) {
 	if ser != nil {
 		panic(ser)
 	}
-	fmt.Println(len(users))
 }
 func TestDefaultTableQueryLimit(t *testing.T) {
 	users := make([]UserInfo, 0)
@@ -118,6 +117,7 @@ func TestDefaultTableQueryLimit(t *testing.T) {
 		panic(ser)
 	}
 	if len(users) != 1000 {
+		t.Error("counts :", len(users), db)
 		t.Fail()
 	}
 }
@@ -128,9 +128,9 @@ func TestCustomTableName(t *testing.T) {
 		panic(ser)
 	}
 	if len(users) != 1000 {
+		t.Error("counts :", len(users), db)
 		t.Fail()
 	}
-	fmt.Println(len(users))
 }
 func TestOrderByDesc(t *testing.T) {
 	users := make([]UserInfo, 0)
@@ -139,9 +139,9 @@ func TestOrderByDesc(t *testing.T) {
 		panic(er)
 	}
 	if len(users) != 10 {
+		t.Error("counts :", len(users), db)
 		t.Fail()
 	}
-	fmt.Println(users)
 }
 func TestOrderByAsc(t *testing.T) {
 	users := make([]UserInfo, 0)
@@ -150,20 +150,20 @@ func TestOrderByAsc(t *testing.T) {
 		panic(er)
 	}
 	if len(users) != 10 {
+		t.Error("counts :", len(users), db)
 		t.Fail()
 	}
-	fmt.Println(users)
 }
 func TestMultiOrders(t *testing.T) {
 	users := make([]UserInfo, 0)
-	_, er := db.OrderByAsc("id").OrderBy("nick_name", gom.Desc).OrderByDesc("create_date").Page(0, 10).Select(&users)
+	_, er := db.OrderByAsc("id").OrderBy("nick_name", structs.Desc).OrderByDesc("create_date").Page(0, 10).Select(&users)
 	if er != nil {
 		panic(er)
 	}
 	if len(users) != 10 {
+		t.Error("counts :", len(users), db)
 		t.Fail()
 	}
-	fmt.Println(users)
 }
 func TestRawCondition(t *testing.T) {
 	users := make([]UserInfo, 0)
@@ -172,44 +172,44 @@ func TestRawCondition(t *testing.T) {
 		panic(er)
 	}
 	if len(users) == 0 {
+		t.Error("counts :", len(users), db)
 		t.Fail()
 	}
-	fmt.Println(users)
 }
 func TestCondition(t *testing.T) {
 	users := make([]UserInfo, 0)
-	_, er := db.Where(gom.Cnd("nick_name", gom.LikeIgnoreStart, "淑兰")).Page(0, 10).Select(&users)
+	_, er := db.Where(structs.Cnd("nick_name", structs.LikeIgnoreStart, "淑兰")).Page(0, 10).Select(&users)
 	if er != nil {
 		panic(er)
 	}
 	if len(users) == 0 {
+		t.Error("counts :", len(users), db)
 		t.Fail()
 	}
-	fmt.Println(users)
 }
 func TestMultiCondition(t *testing.T) {
 	users := make([]UserInfo, 0)
-	_, er := db.Where(gom.Cnd("nick_name", gom.LikeIgnoreStart, "淑兰").Or(gom.Cnd("phone_number", gom.Eq, "13663049871").Eq("nick_name", "吃素是福"))).Page(0, 10).Select(&users)
+	_, er := db.Where(structs.Cnd("nick_name", structs.LikeIgnoreStart, "淑兰").Or(structs.Cnd("phone_number", structs.Eq, "13663049871").Eq("nick_name", "吃素是福"))).Page(0, 10).Select(&users)
 	if er != nil {
 		panic(er)
 	}
 	if len(users) == 0 {
+		t.Error("counts :", len(users), db)
 		t.Fail()
 	}
-	fmt.Println(users)
 }
 
 func TestStructCondition(t *testing.T) {
 	user := UserInfo{PhoneNumber: "13663049871", NickName: "吃素是福"}
 	users := make([]UserInfo, 0)
-	_, er := db.Where(gom.StructToCondition(user)).Page(0, 10).Select(&users)
+	_, er := db.Where(structs.StructToCondition(user)).Page(0, 10).Select(&users)
 	if er != nil {
 		panic(er)
 	}
 	if len(users) == 0 {
+		t.Error("counts :", len(users), db)
 		t.Fail()
 	}
-	fmt.Println(users)
 }
 
 func TestDefaultStruct(t *testing.T) {
@@ -219,9 +219,9 @@ func TestDefaultStruct(t *testing.T) {
 		panic(er)
 	}
 	if len(logs) == 0 {
+		t.Error("counts :", len(logs), db)
 		t.Fail()
 	}
-	fmt.Println(logs)
 }
 
 func TestRawQueryWithGroupBy(t *testing.T) {
@@ -231,7 +231,29 @@ func TestRawQueryWithGroupBy(t *testing.T) {
 		panic(er)
 	}
 	if len(logs) == 0 {
+		t.Error("counts :", len(logs), db)
 		t.Fail()
 	}
-	fmt.Println(logs)
+}
+func TestCount(t *testing.T) {
+	cs := db.Table("tb_record").Count("id")
+	if cs.Error != nil {
+		t.Error("counts :", db)
+		t.Fail()
+	}
+}
+func TestSum(t *testing.T) {
+	cs := db.Table("tb_record").Sum("age")
+	if cs.Error != nil {
+		t.Error("counts :", db)
+		t.Fail()
+	}
+}
+func TestFirst(t *testing.T) {
+	var log TbRecord
+	_, er := db.First(&log)
+	if er != nil {
+		t.Error("log :", log, db)
+		t.Fail()
+	}
 }

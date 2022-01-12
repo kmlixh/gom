@@ -1,4 +1,4 @@
-package gom
+package structs
 
 import (
 	"encoding/binary"

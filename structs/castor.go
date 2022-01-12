@@ -1,8 +1,8 @@
-package gom
+package structs
 
 import "strings"
 
-func camelToSnakeString(s string) string {
+func CamelToSnakeString(s string) string {
 	data := make([]byte, 0, len(s)*2)
 	j := false
 	num := len(s)

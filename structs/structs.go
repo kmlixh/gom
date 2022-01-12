@@ -1,13 +1,17 @@
-package gom
+package structs
 
 import (
 	"reflect"
 	"strings"
 )
 
-type Table interface {
-	TableName() string
+var Debug bool
+
+type SqlProto struct {
+	Sql  string
+	Data []interface{}
 }
+
 type TableModel struct {
 	Table   string
 	Columns []string
@@ -15,6 +19,74 @@ type TableModel struct {
 	Condition
 	OrderBys []OrderBy
 	Page
+}
+type GenerateSQLFunc func(model ...TableModel) []SqlProto
+type SqlFactory interface {
+	GetSqlFunc(sqlType SqlType) GenerateSQLFunc
+	ConditionToSql(condition Condition) (string, []interface{})
+}
+
+type OrderType int
+
+type SqlType int
+
+const (
+	_ SqlType = iota
+	Query
+	Insert
+	Update
+	Delete
+)
+
+const (
+	_ OrderType = iota
+	Asc
+	Desc
+)
+
+type OrderBy interface {
+	Name() string
+	Type() OrderType
+}
+
+type OrderByImpl struct {
+	name      string
+	orderType OrderType
+}
+
+func MakeOrderBy(name string, orderType OrderType) OrderBy {
+	return OrderByImpl{name, orderType}
+}
+func (o OrderByImpl) Name() string {
+	return o.name
+}
+func (o OrderByImpl) Type() OrderType {
+	return o.orderType
+}
+
+type Page interface {
+	Page() (int, int)
+}
+
+type PageImpl struct {
+	index int
+	size  int
+}
+
+func MakePage(index int, size int) Page {
+	return PageImpl{index, size}
+}
+
+func (p PageImpl) Page() (int, int) {
+	return p.index, p.size
+}
+
+type CountResult struct {
+	Count int64
+	Error error
+}
+type Table interface {
+	TableName() string
 }
 
 type StructModel struct {
@@ -32,7 +104,7 @@ func (this StructModel) Clone(value reflect.Value, columnFilters ...string) Stru
 		for _, col := range columnFilters {
 			_, ok := this.Columns[col]
 			if !ok {
-				col = camelToSnakeString(col)
+				col = CamelToSnakeString(col)
 				_, ok = this.Columns[col]
 			}
 			if ok {
@@ -76,13 +148,12 @@ type Column struct {
 	reflect.Type
 	ColumnName string
 	FieldName  string
-	QueryField string
 	IsPrimary  bool
 	Auto       bool
 }
 
 func (this Column) Clone() Column {
-	return Column{this.Type, this.ColumnName, this.FieldName, this.QueryField, this.IsPrimary, this.Auto}
+	return Column{this.Type, this.ColumnName, this.FieldName, this.IsPrimary, this.Auto}
 }
 
 func (mo StructModel) InsertValues() []interface{} {

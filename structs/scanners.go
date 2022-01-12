@@ -1,4 +1,4 @@
-package gom
+package structs
 
 import (
 	"database/sql/driver"
@@ -30,7 +30,7 @@ func (scanner *ScannerImpl) Scan(src interface{}) error {
 func (scanner ScannerImpl) Value() (driver.Value, error) {
 	return scanner.Object, nil
 }
-func emptyScanner() IScanner {
+func EmptyScanner() IScanner {
 	return &ScannerImpl{0, func(src interface{}) (interface{}, error) {
 		return nil, nil
 	}}

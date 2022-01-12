@@ -1,4 +1,4 @@
-package gom
+package structs
 
 type Linker int
 

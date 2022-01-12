@@ -2,8 +2,10 @@ package mysql
 
 import (
 	"errors"
-	"gitee.com/janyees/gom"
+	"gitee.com/janyees/gom/register"
+	"gitee.com/janyees/gom/structs"
 	_ "github.com/go-sql-driver/mysql"
+	"strings"
 )
 
 type MyCndStruct struct {
@@ -12,123 +14,18 @@ type MyCndStruct struct {
 	Data       []interface{}
 }
 
-var funcMap map[gom.SqlType]gom.GenerateSQLFunc
-
-func init() {
-	m := Factory{}
-	gom.Register("mysql", &m)
-	funcMap = make(map[gom.SqlType]gom.GenerateSQLFunc)
-	funcMap[gom.Query] = func(models ...gom.TableModel) []gom.SqlProto {
-		model := models[0]
-		var datas []interface{}
-		sql := "SELECT "
-		counts := len(model.Columns)
-		if counts == 0 {
-			panic(errors.New("columns is null or empty"))
-		}
-		if counts > 1 {
-			for i := 0; i < len(model.Columns); i++ {
-				if i == 0 {
-					sql += "`" + model.Columns[i] + "` "
-				} else {
-					sql += ", " + "`" + model.Columns[i] + "` "
-				}
-			}
-		} else {
-			sql += " " + "`" + model.Columns[0] + "`"
-		}
-		sql += " FROM " + model.Table + " "
-		cnds, dds := m.ConditionToSql(model.Condition)
-		if len(cnds) > 0 {
-			sql += " WHERE " + cnds
-		}
-		datas = append(datas, dds...)
-		if model.OrderBys != nil && len(model.OrderBys) > 0 {
-			sql += " ORDER BY"
-			for i := 0; i < len(model.OrderBys); i++ {
-				if i > 0 {
-					sql += ","
-				}
-				t := ""
-				if model.OrderBys[i].Type() == gom.Asc {
-					t = " ASC"
-				} else {
-					t = " DESC"
-				}
-				sql += " `" + model.OrderBys[i].Name() + "`" + t
-			}
-		}
-		if model.Page != nil {
-			idx, size := model.Page.Page()
-			datas = append(datas, idx, size)
-			sql += " LIMIT ?,?"
-		}
-		sql += ";"
-		return []gom.SqlProto{{sql, datas}}
-	}
-	funcMap[gom.Update] = func(models ...gom.TableModel) []gom.SqlProto {
-		model := models[0]
-		var datas []interface{}
-		sql := "UPDATE　"
-		sql += " " + model.Table + " SET　"
-		for i := 0; i < len(model.Columns); i++ {
-			if i == 0 {
-				sql += model.Columns[i] + " = ? "
-			} else {
-				sql += ", " + model.Columns[i] + " = ? "
-			}
-			datas = append(datas, model.Data[model.Columns[i]])
-		}
-		cnds, dds := m.ConditionToSql(model.Condition)
-		if len(cnds) > 0 {
-			sql += " WHERE " + cnds + ";"
-		}
-		datas = append(datas, dds)
-		return []gom.SqlProto{{sql, datas}}
-	}
-	funcMap[gom.Insert] = func(models ...gom.TableModel) []gom.SqlProto {
-		model := models[0]
-		var datas []interface{}
-
-		sql := "INSERT　INTO " + model.Table + "("
-		valuesPattern := "VALUES("
-		for i, c := range model.Columns {
-			if i > 0 {
-				sql += ","
-				valuesPattern += ","
-			}
-			sql += c
-			valuesPattern += "?"
-			datas = append(datas, model.Data[c])
-		}
-		sql += ")"
-		valuesPattern += ");"
-		return []gom.SqlProto{{sql, datas}}
-	}
-	funcMap[gom.Delete] = func(models ...gom.TableModel) []gom.SqlProto {
-		model := models[0]
-		var datas []interface{}
-		sql := "DELETE　FROM　"
-		sql += " " + model.Table
-		cnds, dds := m.ConditionToSql(model.Condition)
-		if len(cnds) > 0 {
-			sql += " WHERE " + cnds + ";"
-		}
-		datas = append(datas, dds)
-		return []gom.SqlProto{{sql, datas}}
-	}
-}
+var funcMap map[structs.SqlType]structs.GenerateSQLFunc
 
 type Factory struct {
 }
 
-func (m Factory) GetSqlFunc(sqlType gom.SqlType) gom.GenerateSQLFunc {
+func (m Factory) GetSqlFunc(sqlType structs.SqlType) structs.GenerateSQLFunc {
 	return funcMap[sqlType]
 }
-func (m Factory) SupportPatch(sqlType gom.SqlType) bool {
+func (m Factory) SupportPatch(sqlType structs.SqlType) bool {
 	return false
 }
-func (m Factory) ConditionToSql(cnd gom.Condition) (string, []interface{}) {
+func (m Factory) ConditionToSql(cnd structs.Condition) (string, []interface{}) {
 	if cnd == nil {
 		return "", nil
 	}
@@ -163,56 +60,169 @@ func (m Factory) ConditionToSql(cnd gom.Condition) (string, []interface{}) {
 
 }
 
-func cndToMyCndStruct(cnd gom.Condition) MyCndStruct {
+func init() {
+	m := Factory{}
+	register.Register("mysql", &m)
+	funcMap = make(map[structs.SqlType]structs.GenerateSQLFunc)
+	funcMap[structs.Query] = func(models ...structs.TableModel) []structs.SqlProto {
+		model := models[0]
+		var datas []interface{}
+		sql := "SELECT "
+		counts := len(model.Columns)
+		if counts == 0 {
+			panic(errors.New("columns is null or empty"))
+		}
+		if counts > 1 {
+			for i := 0; i < len(model.Columns); i++ {
+				if i == 0 {
+					sql += wrapperName(model.Columns[i]) + " "
+				} else {
+					sql += ", " + wrapperName(model.Columns[i]) + " "
+				}
+			}
+		} else {
+			sql += " " + wrapperName(model.Columns[0])
+		}
+		sql += " FROM " + model.Table + " "
+		cnds, dds := m.ConditionToSql(model.Condition)
+		if len(cnds) > 0 {
+			sql += " WHERE " + cnds
+		}
+		datas = append(datas, dds...)
+		if model.OrderBys != nil && len(model.OrderBys) > 0 {
+			sql += " ORDER BY"
+			for i := 0; i < len(model.OrderBys); i++ {
+				if i > 0 {
+					sql += ","
+				}
+				t := ""
+				if model.OrderBys[i].Type() == structs.Asc {
+					t = " ASC"
+				} else {
+					t = " DESC"
+				}
+				sql += " " + wrapperName(model.OrderBys[i].Name()) + t
+			}
+		}
+		if model.Page != nil {
+			idx, size := model.Page.Page()
+			datas = append(datas, idx, size)
+			sql += " LIMIT ?,?"
+		}
+		sql += ";"
+		return []structs.SqlProto{{sql, datas}}
+	}
+	funcMap[structs.Update] = func(models ...structs.TableModel) []structs.SqlProto {
+		model := models[0]
+		var datas []interface{}
+		sql := "UPDATE　"
+		sql += " " + model.Table + " SET　"
+		for i := 0; i < len(model.Columns); i++ {
+			if i == 0 {
+				sql += wrapperName(model.Columns[i]) + " = ? "
+			} else {
+				sql += ", " + wrapperName(model.Columns[i]) + " = ? "
+			}
+			datas = append(datas, model.Data[wrapperName(model.Columns[i])])
+		}
+		cnds, dds := m.ConditionToSql(model.Condition)
+		if len(cnds) > 0 {
+			sql += " WHERE " + cnds + ";"
+		}
+		datas = append(datas, dds)
+		return []structs.SqlProto{{sql, datas}}
+	}
+	funcMap[structs.Insert] = func(models ...structs.TableModel) []structs.SqlProto {
+		model := models[0]
+		var datas []interface{}
+
+		sql := "INSERT　INTO " + model.Table + "("
+		valuesPattern := "VALUES("
+		for i, c := range model.Columns {
+			if i > 0 {
+				sql += ","
+				valuesPattern += ","
+			}
+			sql += c
+			valuesPattern += "?"
+			datas = append(datas, model.Data[c])
+		}
+		sql += ")"
+		valuesPattern += ");"
+		return []structs.SqlProto{{sql, datas}}
+	}
+	funcMap[structs.Delete] = func(models ...structs.TableModel) []structs.SqlProto {
+		model := models[0]
+		var datas []interface{}
+		sql := "DELETE　FROM　"
+		sql += " " + model.Table
+		cnds, dds := m.ConditionToSql(model.Condition)
+		if len(cnds) > 0 {
+			sql += " WHERE " + cnds + ";"
+		}
+		datas = append(datas, dds)
+		return []structs.SqlProto{{sql, datas}}
+	}
+}
+
+func wrapperName(name string) string {
+	if strings.Contains(name, " ") {
+		return name
+	} else {
+		return "`" + name + "`"
+	}
+}
+
+func cndToMyCndStruct(cnd structs.Condition) MyCndStruct {
 	if len(cnd.RawExpression()) > 0 {
 		return MyCndStruct{linkerToString(cnd), cnd.RawExpression(), cnd.Values()}
 	}
 	opers := cnd.Field()
 	switch cnd.Operation() {
-	case gom.Eq:
+	case structs.Eq:
 		opers += " = ? "
-	case gom.NotEq:
+	case structs.NotEq:
 		opers += " <> ? "
-	case gom.Ge:
+	case structs.Ge:
 		opers += " >= ? "
-	case gom.Gt:
+	case structs.Gt:
 		opers += " > ? "
-	case gom.Le:
+	case structs.Le:
 		opers += " <= ? "
-	case gom.Lt:
+	case structs.Lt:
 		opers += " < ? "
-	case gom.In:
+	case structs.In:
 		opers += " IN " + valueSpace(len(cnd.Values()))
-	case gom.NotIn:
+	case structs.NotIn:
 		opers += " NOT IN " + valueSpace(len(cnd.Values()))
-	case gom.Like:
+	case structs.Like:
 		opers += " LIKE ? "
 		vals := cnd.Values()
 		vals[0] = "%" + vals[0].(string) + "%"
 		cnd.SetValues(vals)
-	case gom.LikeIgnoreStart:
+	case structs.LikeIgnoreStart:
 		opers += " LIKE ? "
 		vals := cnd.Values()
 		vals[0] = "%" + vals[0].(string)
 		cnd.SetValues(vals)
-	case gom.LikeIgnoreEnd:
+	case structs.LikeIgnoreEnd:
 		opers += " LIKE ? "
 		vals := cnd.Values()
 		vals[0] = vals[0].(string) + "%"
 		cnd.SetValues(vals)
-	case gom.IsNull:
+	case structs.IsNull:
 		opers += " IS NULL "
-	case gom.IsNotNull:
+	case structs.IsNotNull:
 		opers += " IS NOT NULL "
 	}
 	return MyCndStruct{linkerToString(cnd), opers, cnd.Values()}
 }
 
-func linkerToString(cnd gom.Condition) string {
+func linkerToString(cnd structs.Condition) string {
 	switch cnd.Linker() {
-	case gom.And:
+	case structs.And:
 		return " AND "
-	case gom.Or:
+	case structs.Or:
 		return " OR "
 	default:
 		return " AND "
