@@ -79,26 +79,13 @@ func TestDB_Count(t *testing.T) {
 }
 
 func TestDB_Delete(t *testing.T) {
-	type fields struct {
-		id       int64
-		factory  structs.SqlFactory
-		db       *sql.DB
-		cnd      structs.Condition
-		table    string
-		rawSql   string
-		rawData  []interface{}
-		tx       *sql.Tx
-		orderBys []structs.OrderBy
-		cols     []string
-		page     structs.Page
-		model    structs.StructModel
-	}
+
 	type args struct {
 		vs []interface{}
 	}
 	tests := []struct {
 		name    string
-		fields  fields
+		db      *DB
 		args    args
 		want    int64
 		wantErr bool
