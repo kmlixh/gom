@@ -77,47 +77,29 @@ func TestDB_Count(t *testing.T) {
 		})
 	}
 }
-
-func TestDB_Delete(t *testing.T) {
-
-	type args struct {
-		vs []interface{}
-	}
+func Test_UnzipSlice(t *testing.T) {
 	tests := []struct {
-		name    string
-		db      *DB
-		args    args
-		want    int64
-		wantErr bool
+		name  string
+		args  []interface{}
+		wants []interface{}
 	}{
-		// TODO: Add test cases.
+		{"slice为空的情况", []interface{}{}, []interface{}{}},
+		{name: "测试单层是否会展开", args: []interface{}{"dsfadsf", 23, "sdfadsf", ""}, wants: []interface{}{"dsfadsf", 23, "sdfadsf", ""}},
+		{name: "测试头部第一层有嵌套", args: []interface{}{[]interface{}{"3w4", 23, "sdfsd"}, "name", "lest", "234", 123}, wants: []interface{}{"3w4", 23, "sdfsd", "name", "lest", "234", 123}},
+		{"存在多层嵌套的情况", []interface{}{[]interface{}{12, 2, 43, 324, "sdfa", []interface{}{"dfadsf", 234, []interface{}{4, "sdfasd", "34343", "sdfadsf"}, 34, 2}, 3, 343, "sdf"}, 12, 2, 43, 324, "sdfa"}, []interface{}{12, 2, 43, 324, "sdfa", "dfadsf", 234, 4, "sdfasd", "34343", "sdfadsf", 34, 2, 3, 343, "sdf", 12, 2, 43, 324, "sdfa"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			thiz := DB{
-				id:       tt.fields.id,
-				factory:  tt.fields.factory,
-				db:       tt.fields.db,
-				cnd:      tt.fields.cnd,
-				table:    tt.fields.table,
-				rawSql:   tt.fields.rawSql,
-				rawData:  tt.fields.rawData,
-				tx:       tt.fields.tx,
-				orderBys: tt.fields.orderBys,
-				cols:     tt.fields.cols,
-				page:     tt.fields.page,
-				model:    tt.fields.model,
-			}
-			got, err := thiz.Delete(tt.args.vs...)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Delete() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("Delete() got = %v, want %v", got, tt.want)
+			gots := structs.UnZipSlice(tt.args)
+			if !reflect.DeepEqual(gots, tt.wants) {
+				t.Errorf("Test_UnzipSlice resource was: = %v, want: %v", gots, tt.wants)
 			}
 		})
 	}
+}
+
+func TestDB_Delete(t *testing.T) {
+
 }
 
 func TestDB_Execute(t *testing.T) {
