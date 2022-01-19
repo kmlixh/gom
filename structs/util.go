@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"gitee.com/janyees/gom/err"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -183,42 +184,38 @@ func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, err
 	t, _, isSlice := getType(vs)
 	v := reflect.ValueOf(vs)
 	if isSlice {
-		return nil, errors.New("can't convert slice or array to map")
+		return nil, err.New("can't convert slice or array to map")
 	}
+
 	maps := make(map[string]interface{})
-	if t.Kind() == reflect.Struct {
+	if t.Kind() == reflect.Struct && t.Name() != reflect.TypeOf(time.Now()).Name() {
 		model, err := GetStructModel(vs, columns...)
 		if err != nil {
 			panic(err)
 		}
+		colsNull := len(columns) == 0
 		for _, col := range model.ColumnNames {
 			vv := v.FieldByName(model.Columns[col].FieldName)
-			switch vv.Type().Kind() {
-			case reflect.Int, reflect.Int32, reflect.Int64, reflect.Int8:
-				if vv.Int() > 0 {
-					maps[col] = vv.Int()
+			result := vv.Interface()
+			ignore := false
+			switch result.(type) {
+			case time.Time:
+				if colsNull && vv.Interface().(time.Time).IsZero() {
+					ignore = true
 				}
-			case reflect.Float64, reflect.Float32:
-				if vv.Float() > 0 {
-					maps[col] = vv.Float()
+			default:
+				if colsNull && vv.IsZero() {
+					ignore = true
 				}
-			case reflect.String:
-				if len(vv.String()) > 0 {
-					maps[col] = vv.String()
-
-				}
-			case reflect.Bool:
-				maps[col] = vv.Bool()
-			case reflect.TypeOf(time.Now()).Kind():
-				if !vv.Interface().(time.Time).IsZero() {
-					maps[col] = vv.Interface().(time.Time)
-				}
+			}
+			if !ignore {
+				maps[col] = result
 			}
 		}
 
 		return maps, nil
 	}
-	return nil, errors.New("can't convert slice or array to map")
+	return nil, err.New(fmt.Sprintf("can't convert %s to map", t.Name()))
 
 }
 func StructToCondition(vs interface{}, columns ...string) Condition {
@@ -304,7 +301,7 @@ func UnZipSlice(vs interface{}) []interface{} {
 	return result
 }
 func SliceToMapSlice(vs interface{}) map[string][]interface{} {
-	var result map[string][]interface{}
+	result := make(map[string][]interface{})
 	slice := UnZipSlice(vs)
 	for _, v := range slice {
 		t := reflect.TypeOf(v).Name()

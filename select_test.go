@@ -52,13 +52,12 @@ type Log struct {
 	Date  time.Time `gom:"#"`
 }
 type User struct {
-	Id        int       `json:"id" gom:"@,id"`
-	SessionId string    `json:"session_id" gom:"-"`
-	Pwd       string    `json:"pwd" gom:"pwd"`
-	Email     string    `json:"email" gom:"email"`
-	Valid     int       `json:"valid" gom:"valid"`
-	NickName  string    `json:"nicks" gom:"nick_name"`
-	RegDate   time.Time `json:"reg_date" gom:"reg_date"`
+	Id       int64     `json:"id" gom:"@,id"`
+	Pwd      string    `json:"pwd" gom:"pwd"`
+	Email    string    `json:"email" gom:"email"`
+	Valid    int       `json:"valid" gom:"valid"`
+	NickName string    `json:"nicks" gom:"nick_name"`
+	RegDate  time.Time `json:"reg_date" gom:"reg_date"`
 }
 
 func (User) TableName() string {

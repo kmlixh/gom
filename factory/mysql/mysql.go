@@ -22,9 +22,6 @@ type Factory struct {
 func (m Factory) GetSqlFunc(sqlType structs.SqlType) structs.GenerateSQLFunc {
 	return funcMap[sqlType]
 }
-func (m Factory) SupportPatch(sqlType structs.SqlType) bool {
-	return false
-}
 func (m Factory) ConditionToSql(cnd structs.Condition) (string, []interface{}) {
 	if cnd == nil {
 		return "", nil
@@ -136,7 +133,7 @@ func init() {
 		model := models[0]
 		var datas []interface{}
 
-		sql := "INSERT　INTO " + model.Table + "("
+		sql := "INSERT INTO " + model.Table + " ("
 		valuesPattern := "VALUES("
 		for i, c := range model.Columns {
 			if i > 0 {
@@ -149,6 +146,7 @@ func init() {
 		}
 		sql += ")"
 		valuesPattern += ");"
+		sql += valuesPattern
 		return []structs.SqlProto{{sql, datas}}
 	}
 	funcMap[structs.Delete] = func(models ...structs.TableModel) []structs.SqlProto {

@@ -134,15 +134,6 @@ func (model StructModel) ColumnsValues() []interface{} {
 	}
 	return datas
 }
-func (model StructModel) StructToMap() map[string]interface{} {
-	var maps map[string]interface{}
-	for _, name := range model.ColumnNames {
-		column := model.Columns[name]
-		value := model.Value.FieldByName(column.FieldName)
-		maps[name] = value.Interface()
-	}
-	return maps
-}
 
 type Column struct {
 	reflect.Type

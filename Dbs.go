@@ -28,71 +28,68 @@ func (this DB) RawDb() *sql.DB {
 	return this.db
 }
 func (this *DB) Table(table string) *DB {
-	this.cloneIfOriginRoutine()
+	this.CloneIfDifferentRoutine()
 	this.table = table
 	return this
 }
-func (this *DB) cloneIfOriginRoutine() {
+func (this *DB) CloneIfDifferentRoutine() {
 	if this.id != structs.GetGoid() {
-		*this = this.clone()
+		*this = this.Clone()
 	}
 }
 func (this *DB) Raw(sql string, datas ...interface{}) *DB {
-	this.cloneIfOriginRoutine()
+	this.CloneIfDifferentRoutine()
 	this.rawSql = sql
 	this.rawData = structs.UnZipSlice(datas)
 	return this
 }
 
 func (this *DB) Columns(cols ...string) *DB {
-	this.cloneIfOriginRoutine()
+	this.CloneIfDifferentRoutine()
 	this.cols = cols
 	return this
 }
 func (this *DB) OrderBy(field string, t structs.OrderType) *DB {
-	this.cloneIfOriginRoutine()
+	this.CloneIfDifferentRoutine()
 	this.orderBys = append(this.orderBys, structs.MakeOrderBy(field, t))
 	return this
 }
 func (this *DB) CleanOrders() *DB {
-	this.cloneIfOriginRoutine()
+	this.CloneIfDifferentRoutine()
 	this.orderBys = make([]structs.OrderBy, 0)
 	return this
 }
 func (this *DB) OrderByAsc(field string) *DB {
-	this.cloneIfOriginRoutine()
+	this.CloneIfDifferentRoutine()
 	this.orderBys = append(this.orderBys, structs.MakeOrderBy(field, structs.Asc))
 	return this
 }
 func (this *DB) OrderByDesc(field string) *DB {
-	this.cloneIfOriginRoutine()
+	this.CloneIfDifferentRoutine()
 	this.orderBys = append(this.orderBys, structs.MakeOrderBy(field, structs.Desc))
 	return this
 }
 
 func (this *DB) Where2(sql string, patches ...interface{}) *DB {
-	this.cloneIfOriginRoutine()
+	this.CloneIfDifferentRoutine()
 	return this.Where(structs.CndRaw(sql, patches...))
 }
 func (this *DB) Where(cnd structs.Condition) *DB {
-	this.cloneIfOriginRoutine()
+	this.CloneIfDifferentRoutine()
 	this.cnd = cnd
 	return this
 }
 func (this DB) Clone() DB {
-	return this.clone()
-}
-func (this DB) clone() DB {
 	return DB{id: structs.GetGoid(), factory: this.factory, db: this.db}
 }
 func (this *DB) Page(index int, pageSize int) *DB {
-	this.cloneIfOriginRoutine()
+	this.CloneIfDifferentRoutine()
 	this.page = structs.MakePage(index, pageSize)
 	return this
 }
 
 func (this DB) Count(columnName string) structs.CountResult {
-	this.cloneIfOriginRoutine()
+	this.CloneIfDifferentRoutine()
 	var countResult structs.CountResult
 	this.Columns("count(" + columnName + ") as count")
 	this.Select(&countResult)
@@ -100,7 +97,7 @@ func (this DB) Count(columnName string) structs.CountResult {
 }
 
 func (this DB) Sum(columnName string) structs.CountResult {
-	this.cloneIfOriginRoutine()
+	this.CloneIfDifferentRoutine()
 	var countResult structs.CountResult
 	this.Columns("SUM(" + columnName + ") as count")
 	this.Select(&countResult)
@@ -108,7 +105,7 @@ func (this DB) Sum(columnName string) structs.CountResult {
 }
 
 func (this DB) Select(vs interface{}) (interface{}, error) {
-	this.cloneIfOriginRoutine()
+	this.CloneIfDifferentRoutine()
 	model, er := structs.GetStructModel(vs)
 	if er != nil {
 		panic(er)
@@ -116,7 +113,7 @@ func (this DB) Select(vs interface{}) (interface{}, error) {
 	return this.SelectByModel(model)
 }
 func (this DB) SelectByModel(model structs.StructModel) (interface{}, error) {
-	this.cloneIfOriginRoutine()
+	this.CloneIfDifferentRoutine()
 	this.model = model
 	if len(this.rawSql) > 0 {
 		return this.query(this.rawSql, this.rawData, model)
@@ -130,19 +127,24 @@ func (this DB) First(vs interface{}) (interface{}, error) {
 	return this.Page(0, 1).Select(vs)
 }
 func (thiz DB) Update(vs ...interface{}) (int64, error) {
-	thiz.cloneIfOriginRoutine()
+	thiz.CloneIfDifferentRoutine()
 	return thiz.Execute(structs.Update, vs...)
 }
 func (thiz DB) Insert(vs ...interface{}) (int64, error) {
-	thiz.cloneIfOriginRoutine()
+	thiz.CloneIfDifferentRoutine()
 	return thiz.Execute(structs.Insert, vs...)
 }
+func (thiz DB) InsertSingle(vs interface{}) (int64, error) {
+	thiz.CloneIfDifferentRoutine()
+	return thiz.Execute(structs.Insert, vs)
+}
 func (thiz DB) Delete(vs ...interface{}) (int64, error) {
-	thiz.cloneIfOriginRoutine()
+	thiz.CloneIfDifferentRoutine()
 	return thiz.Execute(structs.Delete, vs...)
 }
 func (thiz DB) Execute(sqlType structs.SqlType, vs ...interface{}) (int64, error) {
-	thiz.cloneIfOriginRoutine()
+	thiz.CloneIfDifferentRoutine()
+	//此处应当判断是否已经在事物中，如果不在事务中才开启事物
 	count, er := thiz.Transaction(func(this *DB) (int64, error) {
 		count := int64(0)
 		var vmap = structs.SliceToMapSlice(vs)
@@ -150,7 +152,7 @@ func (thiz DB) Execute(sqlType structs.SqlType, vs ...interface{}) (int64, error
 			if Debug {
 				fmt.Println("Model Type was:", i, "slice counts:", len(v))
 			}
-			c, er := this.subExecute(sqlType, vmap[i]...)
+			c, er := this.SubExecute(sqlType, vmap[i]...)
 			if er != nil {
 				return 0, er
 			}
@@ -160,22 +162,29 @@ func (thiz DB) Execute(sqlType structs.SqlType, vs ...interface{}) (int64, error
 	})
 	return count, er
 }
-func (this DB) subExecute(sqlType structs.SqlType, vs ...interface{}) (int64, error) {
+func (this DB) SubExecute(sqlType structs.SqlType, vs ...interface{}) (int64, error) {
 	var models []structs.TableModel
-	updateFunc := this.factory.GetSqlFunc(sqlType)
+	genFunc := this.factory.GetSqlFunc(sqlType)
 	for _, v := range vs {
 		structModel, er := structs.GetStructModel(v)
 		if er != nil {
 			return 0, er
 		}
 		this.model = structModel
-		model := structs.TableModel{this.getTableName(), this.getUpdateColumns(), this.model.StructToMap(), this.cnd, this.orderBys, this.page}
+		maps, er := structs.StructToMap(v)
+		if er != nil {
+			panic(er)
+		}
+		model := structs.TableModel{this.getTableName(), this.getUpdateColumns(), maps, this.cnd, this.orderBys, this.page}
 		models = append(models, model)
 	}
-	sqlProtos := updateFunc(models...)
+	sqlProtos := genFunc(models...)
 	cc := int64(0)
 	for _, sqlProto := range sqlProtos {
-		rs, er := this.execute(sqlProto.Sql, sqlProto.Data)
+		if Debug {
+			fmt.Println(sqlProto)
+		}
+		rs, er := this.execute(sqlProto.Sql, sqlProto.Data...)
 		if er != nil {
 			return 0, er
 		}
@@ -277,12 +286,12 @@ func (this DB) query(sql string, data []interface{}, model structs.StructModel) 
 	}
 	return nil, nil
 }
-func (this DB) execute(sql string, data []interface{}) (sql.Result, error) {
+func (this DB) execute(sql string, data ...interface{}) (sql.Result, error) {
 	st, err := this.db.Prepare(sql)
 	if err != nil {
 		return nil, err
 	}
-	return st.Exec(data)
+	return st.Exec(data...)
 }
 
 func (this DB) Transaction(work TransactionWork) (int64, error) {
@@ -303,7 +312,7 @@ func (this DB) Transaction(work TransactionWork) (int64, error) {
 	}
 	err = tx.Commit()
 	if err != nil {
-		fmt.Println("transaction commit error:", err)
+		fmt.Println("transaction commit err:", err)
 	}
 	return result, err
 }
