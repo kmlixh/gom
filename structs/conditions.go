@@ -203,7 +203,7 @@ func (c *ConditionImpl) OrNotEq(field string, values interface{}) Condition {
 	return c
 }
 func (c *ConditionImpl) In(field string, values ...interface{}) Condition {
-	condition := Cnd(field, In, values)
+	condition := Cnd(field, In, UnZipSlice(values)...)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)

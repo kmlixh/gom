@@ -110,56 +110,66 @@ func init() {
 		return []structs.SqlProto{{sql, datas}}
 	}
 	funcMap[structs.Update] = func(models ...structs.TableModel) []structs.SqlProto {
-		model := models[0]
-		var datas []interface{}
-		sql := "UPDATE　"
-		sql += " " + model.Table + " SET　"
-		for i := 0; i < len(model.Columns); i++ {
-			if i == 0 {
-				sql += wrapperName(model.Columns[i]) + " = ? "
-			} else {
-				sql += ", " + wrapperName(model.Columns[i]) + " = ? "
+		var result []structs.SqlProto
+		for _, model := range models {
+			var datas []interface{}
+			sql := "UPDATE　"
+			sql += " " + model.Table + " SET　"
+			for i := 0; i < len(model.Columns); i++ {
+				if i == 0 {
+					sql += wrapperName(model.Columns[i]) + " = ? "
+				} else {
+					sql += ", " + wrapperName(model.Columns[i]) + " = ? "
+				}
+				datas = append(datas, model.Data[wrapperName(model.Columns[i])])
 			}
-			datas = append(datas, model.Data[wrapperName(model.Columns[i])])
+			cnds, dds := m.ConditionToSql(model.Condition)
+			if len(cnds) > 0 {
+				sql += " WHERE " + cnds + ";"
+			}
+			datas = append(datas, dds)
+			result = append(result, structs.SqlProto{sql, datas})
 		}
-		cnds, dds := m.ConditionToSql(model.Condition)
-		if len(cnds) > 0 {
-			sql += " WHERE " + cnds + ";"
-		}
-		datas = append(datas, dds)
-		return []structs.SqlProto{{sql, datas}}
+
+		return result
 	}
 	funcMap[structs.Insert] = func(models ...structs.TableModel) []structs.SqlProto {
-		model := models[0]
-		var datas []interface{}
+		var result []structs.SqlProto
+		for _, model := range models {
+			var datas []interface{}
 
-		sql := "INSERT INTO " + model.Table + " ("
-		valuesPattern := "VALUES("
-		for i, c := range model.Columns {
-			if i > 0 {
-				sql += ","
-				valuesPattern += ","
+			sql := "INSERT INTO " + model.Table + " ("
+			valuesPattern := "VALUES("
+			for i, c := range model.Columns {
+				if i > 0 {
+					sql += ","
+					valuesPattern += ","
+				}
+				sql += c
+				valuesPattern += "?"
+				datas = append(datas, model.Data[c])
 			}
-			sql += c
-			valuesPattern += "?"
-			datas = append(datas, model.Data[c])
+			sql += ")"
+			valuesPattern += ");"
+			sql += valuesPattern
+			result = append(result, structs.SqlProto{sql, datas})
 		}
-		sql += ")"
-		valuesPattern += ");"
-		sql += valuesPattern
-		return []structs.SqlProto{{sql, datas}}
+		return result
 	}
 	funcMap[structs.Delete] = func(models ...structs.TableModel) []structs.SqlProto {
-		model := models[0]
-		var datas []interface{}
-		sql := "DELETE　FROM　"
-		sql += " " + model.Table
-		cnds, dds := m.ConditionToSql(model.Condition)
-		if len(cnds) > 0 {
-			sql += " WHERE " + cnds + ";"
+		var result []structs.SqlProto
+		for _, model := range models {
+			var datas []interface{}
+			sql := "DELETE　FROM　"
+			sql += " " + model.Table
+			cnds, dds := m.ConditionToSql(model.Condition)
+			if len(cnds) > 0 {
+				sql += " WHERE " + cnds + ";"
+			}
+			datas = append(datas, dds)
+			result = append(result, structs.SqlProto{sql, datas})
 		}
-		datas = append(datas, dds)
-		return []structs.SqlProto{{sql, datas}}
+		return result
 	}
 }
 

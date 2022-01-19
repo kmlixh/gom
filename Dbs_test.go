@@ -5,6 +5,7 @@ import (
 	"gitee.com/janyees/gom/structs"
 	"github.com/google/uuid"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -210,6 +211,24 @@ func TestDB_Insert(t *testing.T) {
 			fmt.Println("插入的数据：", tmp)
 
 		}},
+		{
+			"批量插入操作", func(t *testing.T) {
+				var users []User
+				var ncks []string
+				for i := 0; i < 100; i++ {
+					nck := uuid.New().String()
+					ncks = append(ncks, nck)
+					user := User{NickName: nck, Pwd: "pwd" + strconv.Itoa(i), Email: nck + "@nck.com", Valid: 1, RegDate: time.Now()}
+					users = append(users, user)
+				}
+				c, er := db.Insert(users)
+				fmt.Println("插入结果：", c, er)
+				var tempUsers []User
+				db.Where(structs.CndRaw("valid=?", 1).In("nick_name", ncks)).Select(&tempUsers)
+				if len(tempUsers) != len(users) {
+					t.Error("批量插入失败")
+				}
+			}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

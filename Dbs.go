@@ -131,8 +131,9 @@ func (thiz DB) Update(vs ...interface{}) (int64, error) {
 	return thiz.Execute(structs.Update, vs...)
 }
 func (thiz DB) Insert(vs ...interface{}) (int64, error) {
+	vz := structs.UnZipSlice(vs)
 	thiz.CloneIfDifferentRoutine()
-	return thiz.Execute(structs.Insert, vs...)
+	return thiz.Execute(structs.Insert, vz...)
 }
 func (thiz DB) InsertSingle(vs interface{}) (int64, error) {
 	thiz.CloneIfDifferentRoutine()
