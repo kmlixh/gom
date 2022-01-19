@@ -11,6 +11,9 @@ type SqlProto struct {
 	Sql  string
 	Data []interface{}
 }
+type DefaultStruct struct {
+	Defaults string
+}
 
 type TableModel struct {
 	Table   string

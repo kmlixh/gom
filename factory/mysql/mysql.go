@@ -160,13 +160,13 @@ func init() {
 		var result []structs.SqlProto
 		for _, model := range models {
 			var datas []interface{}
-			sql := "DELETE　FROM　"
+			sql := "DELETE FROM "
 			sql += " " + model.Table
 			cnds, dds := m.ConditionToSql(model.Condition)
 			if len(cnds) > 0 {
 				sql += " WHERE " + cnds + ";"
 			}
-			datas = append(datas, dds)
+			datas = append(datas, dds...)
 			result = append(result, structs.SqlProto{sql, datas})
 		}
 		return result

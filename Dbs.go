@@ -140,28 +140,28 @@ func (thiz DB) InsertSingle(vs interface{}) (int64, error) {
 	return thiz.Execute(structs.Insert, vs)
 }
 func (thiz DB) Delete(vs ...interface{}) (int64, error) {
+	if len(vs) == 0 {
+		vs = append(vs, structs.DefaultStruct{})
+	}
 	thiz.CloneIfDifferentRoutine()
 	return thiz.Execute(structs.Delete, vs...)
 }
 func (thiz DB) Execute(sqlType structs.SqlType, vs ...interface{}) (int64, error) {
 	thiz.CloneIfDifferentRoutine()
 	//此处应当判断是否已经在事物中，如果不在事务中才开启事物
-	count, er := thiz.Transaction(func(this *DB) (int64, error) {
-		count := int64(0)
-		var vmap = structs.SliceToMapSlice(vs)
-		for i, v := range vmap {
-			if Debug {
-				fmt.Println("Model Type was:", i, "slice counts:", len(v))
-			}
-			c, er := this.SubExecute(sqlType, vmap[i]...)
-			if er != nil {
-				return 0, er
-			}
-			count += c
+	count := int64(0)
+	var vmap = structs.SliceToMapSlice(vs)
+	for i, v := range vmap {
+		if Debug {
+			fmt.Println("Model Type was:", i, "slice counts:", len(v))
 		}
-		return count, nil
-	})
-	return count, er
+		c, er := thiz.SubExecute(sqlType, vmap[i]...)
+		if er != nil {
+			return 0, er
+		}
+		count += c
+	}
+	return count, nil
 }
 func (this DB) SubExecute(sqlType structs.SqlType, vs ...interface{}) (int64, error) {
 	var models []structs.TableModel
@@ -306,7 +306,7 @@ func (this DB) Transaction(work TransactionWork) (int64, error) {
 		}
 	}
 
-	result, err := work(&DB{db: this.db, factory: this.factory})
+	result, err := work(&this)
 	if err != nil {
 		tx.Rollback()
 		return result, err
