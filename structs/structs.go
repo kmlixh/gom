@@ -166,8 +166,8 @@ func (mo StructModel) InsertValues() []interface{} {
 	}
 	return interfaces
 }
-func (m StructModel) GetPrimary() interface{} {
-	return m.Value.FieldByName(m.Primary.FieldName).Interface()
+func (m StructModel) GetPrimary() reflect.Value {
+	return m.Value.FieldByName(m.Primary.FieldName)
 }
 func (m StructModel) GetPrimaryCondition() Condition {
 	if m.Type.Kind() != reflect.Struct {
@@ -176,30 +176,7 @@ func (m StructModel) GetPrimaryCondition() Condition {
 	if IsEmpty(m.GetPrimary()) || m.Primary.IsPrimary == false {
 		return nil
 	} else {
-		t := m.Primary.Type
-		switch t.Kind() {
-		case reflect.Int64, reflect.Int32, reflect.Int, reflect.Int8, reflect.Int16:
-			if m.GetPrimary().(int64) == 0 {
-				return nil
-			}
-		}
-		switch t.Kind() {
-		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32:
-			if m.GetPrimary().(int64) == 0 {
-				return nil
-			}
-		}
-		switch t.Kind() {
-		case reflect.Float32, reflect.Float64:
-			if m.GetPrimary().(float64) == 0 {
-				return nil
-			}
-		}
-		if t.Kind() == reflect.String {
-			if len(m.GetPrimary().(string)) == 0 {
-				return nil
-			}
-		}
-		return &ConditionImpl{field: m.Primary.ColumnName}
+		v := m.GetPrimary()
+		return Cnd(m.Primary.ColumnName, Eq, v.Interface())
 	}
 }

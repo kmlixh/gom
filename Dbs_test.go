@@ -130,7 +130,7 @@ func Test_UnzipSliceToMapSlice(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gots := structs.SliceToMapSlice(tt.args)
+			gots := structs.SliceToGroupSlice(tt.args)
 			if !reflect.DeepEqual(gots, tt.wants) {
 				t.Errorf("Test_UnzipSlice resource was: = %v, want: %v", gots, tt.wants)
 			} else {
@@ -252,6 +252,67 @@ func TestDB_Delete(t *testing.T) {
 			c, er = db.Table("user").Where2("nick_name=?", nck).Delete()
 			if c != 1 {
 				t.Error("删除失败")
+			}
+			fmt.Println("单个删除结果：", c, er)
+		}},
+		{
+			"批量插入后操作删除", func(t *testing.T) {
+				var users []User
+				var ncks []string
+				for i := 0; i < 100; i++ {
+					nck := uuid.New().String()
+					ncks = append(ncks, nck)
+					user := User{NickName: nck, Pwd: "pwd" + strconv.Itoa(i), Email: nck + "@nck.com", Valid: 1, RegDate: time.Now()}
+					users = append(users, user)
+				}
+				c, er := db.Insert(users)
+				fmt.Println("插入结果：", c, er)
+				c, er = db.Table("user").Where(structs.CndRaw("valid=?", 1).In("nick_name", ncks)).Delete()
+				if c != 100 || er != nil {
+					t.Error("批量删除失败")
+				}
+				fmt.Println(c, er)
+			}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.t(t)
+		})
+	}
+}
+func TestDB_Update(t *testing.T) {
+	tests := []struct {
+		name string
+		t    func(t *testing.T)
+	}{
+		{"默认单个更新", func(t *testing.T) {
+			nck := uuid.New().String()
+			user := User{NickName: nck, Pwd: "1213", Email: nck + "@nck.com", Valid: 1, RegDate: time.Now()}
+			c, er := db.Insert(user)
+			if c != 1 && er != nil {
+				t.Error("插入异常：", er.Error())
+			}
+			var temp User
+			db.Where2("nick_name=?", nck).Select(&temp)
+			if temp.Id == 0 {
+				t.Error("插入失败")
+			}
+			c, er = db.Update(User{Id: temp.Id, Valid: 14})
+			if c != 1 {
+				t.Error("更新失败")
+			}
+			fmt.Println("单个删除结果：", c, er)
+		}},
+		{"指定表名更新", func(t *testing.T) {
+			nck := uuid.New().String()
+			user := User{NickName: nck, Pwd: "1213", Email: nck + "@nck.com", Valid: 1, RegDate: time.Now()}
+			c, er := db.Insert(user)
+			if c != 1 && er != nil {
+				t.Error("插入异常：", er.Error())
+			}
+			c, er = db.Table("user").Update(User{NickName: nck, Valid: 14})
+			if c != 1 {
+				t.Error("更新失败")
 			}
 			fmt.Println("单个删除结果：", c, er)
 		}},

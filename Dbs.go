@@ -2,6 +2,7 @@ package gom
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"gitee.com/janyees/gom/structs"
 	"reflect"
@@ -119,24 +120,35 @@ func (this DB) SelectByModel(model structs.StructModel) (interface{}, error) {
 		return this.query(this.rawSql, this.rawData, model)
 	} else {
 		selectFunc := this.factory.GetSqlFunc(structs.Query)
-		sqlProtos := selectFunc(structs.TableModel{this.getTableName(), this.getQueryColumns(), nil, this.cnd, this.orderBys, this.page})
+		sqlProtos := selectFunc(structs.TableModel{Table: this.getTableName(), Columns: this.getQueryColumns(), Condition: this.getCnd(), OrderBys: this.orderBys, Page: this.page})
 		return this.query(sqlProtos[0].Sql, sqlProtos[0].Data, model)
 	}
 }
 func (this DB) First(vs interface{}) (interface{}, error) {
 	return this.Page(0, 1).Select(vs)
 }
-func (thiz DB) Update(vs ...interface{}) (int64, error) {
+func (thiz DB) Update(vs interface{}, columns ...string) (int64, error) {
+	_, _, slice := structs.GetType(vs)
+	if slice && len(columns) > 0 {
+		panic(errors.New("can't update slice or array,please use UpdateMulti"))
+	}
 	thiz.CloneIfDifferentRoutine()
-	return thiz.Execute(structs.Update, vs...)
+
+	return thiz.Execute(structs.Update, []interface{}{vs}, columns...)
 }
-func (thiz DB) Insert(vs ...interface{}) (int64, error) {
-	vz := structs.UnZipSlice(vs)
-	thiz.CloneIfDifferentRoutine()
-	return thiz.Execute(structs.Insert, vz...)
+func (thiz DB) UpdateMulti(vs ...interface{}) (int64, error) {
+	return thiz.Execute(structs.Update, vs)
 }
-func (thiz DB) InsertSingle(vs interface{}) (int64, error) {
+func (thiz DB) Insert(vs interface{}, columns ...string) (int64, error) {
+	_, _, slice := structs.GetType(vs)
+	if slice && len(columns) > 0 {
+		panic(errors.New("can't Insert slice or array,please use UpdateMulti"))
+	}
 	thiz.CloneIfDifferentRoutine()
+	return thiz.Execute(structs.Insert, []interface{}{vs}, columns...)
+}
+
+func (thiz DB) InsertMulti(vs ...interface{}) (int64, error) {
 	return thiz.Execute(structs.Insert, vs)
 }
 func (thiz DB) Delete(vs ...interface{}) (int64, error) {
@@ -144,58 +156,59 @@ func (thiz DB) Delete(vs ...interface{}) (int64, error) {
 		vs = append(vs, structs.DefaultStruct{})
 	}
 	thiz.CloneIfDifferentRoutine()
-	return thiz.Execute(structs.Delete, vs...)
+	return thiz.Execute(structs.Delete, vs)
 }
-func (thiz DB) Execute(sqlType structs.SqlType, vs ...interface{}) (int64, error) {
+func (thiz DB) Execute(sqlType structs.SqlType, vs []interface{}, columns ...string) (int64, error) {
 	thiz.CloneIfDifferentRoutine()
+	genFunc := thiz.factory.GetSqlFunc(sqlType)
 	//此处应当判断是否已经在事物中，如果不在事务中才开启事物
 	count := int64(0)
-	var vmap = structs.SliceToMapSlice(vs)
+	var vmap = structs.SliceToGroupSlice(vs)
 	for i, v := range vmap {
 		if Debug {
 			fmt.Println("Model Type was:", i, "slice counts:", len(v))
 		}
-		c, er := thiz.SubExecute(sqlType, vmap[i]...)
-		if er != nil {
-			return 0, er
+		var models []structs.TableModel
+		for _, v := range vmap[i] {
+			structModel, er := structs.GetStructModel(v, columns...)
+			if er != nil {
+				return 0, er
+			}
+			thiz.model = structModel
+			maps, er := structs.StructToMap(v, columns...)
+			if er != nil {
+				panic(er)
+			}
+			model := structs.TableModel{thiz.getTableName(), thiz.getUpdateColumns(), maps, thiz.getCnd(), thiz.orderBys, thiz.page}
+			models = append(models, model)
 		}
-		count += c
+		sqlProtos := genFunc(models...)
+		cc := int64(0)
+		for _, sqlProto := range sqlProtos {
+			if Debug {
+				fmt.Println(sqlProto)
+			}
+			rs, er := thiz.execute(sqlProto.Sql, sqlProto.Data...)
+			if er != nil {
+				return 0, er
+			}
+			cs, err := rs.RowsAffected()
+			if err != nil {
+				return cs, err
+			}
+			cc += cs
+		}
+
+		count += cc
 	}
 	return count, nil
 }
-func (this DB) SubExecute(sqlType structs.SqlType, vs ...interface{}) (int64, error) {
-	var models []structs.TableModel
-	genFunc := this.factory.GetSqlFunc(sqlType)
-	for _, v := range vs {
-		structModel, er := structs.GetStructModel(v)
-		if er != nil {
-			return 0, er
-		}
-		this.model = structModel
-		maps, er := structs.StructToMap(v)
-		if er != nil {
-			panic(er)
-		}
-		model := structs.TableModel{this.getTableName(), this.getUpdateColumns(), maps, this.cnd, this.orderBys, this.page}
-		models = append(models, model)
+func (this DB) execute(sql string, data ...interface{}) (sql.Result, error) {
+	st, err := this.db.Prepare(sql)
+	if err != nil {
+		return nil, err
 	}
-	sqlProtos := genFunc(models...)
-	cc := int64(0)
-	for _, sqlProto := range sqlProtos {
-		if Debug {
-			fmt.Println(sqlProto)
-		}
-		rs, er := this.execute(sqlProto.Sql, sqlProto.Data...)
-		if er != nil {
-			return 0, er
-		}
-		cs, err := rs.RowsAffected()
-		if err != nil {
-			return cs, err
-		}
-		cc += cs
-	}
-	return cc, nil
+	return st.Exec(data...)
 }
 
 func (this DB) getTableName() string {
@@ -227,6 +240,12 @@ func (this DB) getUpdateColumns() []string {
 		}
 	}
 	return dst
+}
+func (this DB) getCnd() structs.Condition {
+	if this.cnd != nil {
+		return this.cnd
+	}
+	return this.model.GetPrimaryCondition()
 }
 func (this DB) getInsertColumns(model structs.StructModel) []string {
 	var cols []string
@@ -286,13 +305,6 @@ func (this DB) query(sql string, data []interface{}, model structs.StructModel) 
 
 	}
 	return nil, nil
-}
-func (this DB) execute(sql string, data ...interface{}) (sql.Result, error) {
-	st, err := this.db.Prepare(sql)
-	if err != nil {
-		return nil, err
-	}
-	return st.Exec(data...)
 }
 
 func (this DB) Transaction(work TransactionWork) (int64, error) {

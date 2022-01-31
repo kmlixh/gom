@@ -113,8 +113,8 @@ func init() {
 		var result []structs.SqlProto
 		for _, model := range models {
 			var datas []interface{}
-			sql := "UPDATE　"
-			sql += " " + model.Table + " SET　"
+			sql := "UPDATE "
+			sql += " " + model.Table + " SET "
 			for i := 0; i < len(model.Columns); i++ {
 				if i == 0 {
 					sql += wrapperName(model.Columns[i]) + " = ? "

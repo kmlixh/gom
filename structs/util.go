@@ -33,7 +33,7 @@ func IsEmpty(v interface{}) bool {
 	}
 	return false
 }
-func getType(v interface{}) (reflect.Type, bool, bool) {
+func GetType(v interface{}) (reflect.Type, bool, bool) {
 	tt := reflect.TypeOf(v)
 	isPtr := false
 	islice := false
@@ -46,7 +46,7 @@ func getType(v interface{}) (reflect.Type, bool, bool) {
 		islice = true
 	}
 	if Debug {
-		fmt.Println("Test getType, result:", tt, isPtr, islice)
+		fmt.Println("Test GetType, result:", tt, isPtr, islice)
 	}
 	return tt, isPtr, islice
 }
@@ -61,7 +61,7 @@ func GetStructModel(v interface{}, choosedColumns ...string) (StructModel, error
 		tableModelCache = make(map[string]StructModel)
 	}
 	mutex.Unlock()
-	tt, isPtr, isSlice := getType(v)
+	tt, isPtr, isSlice := GetType(v)
 	_, hasTable := reflect.New(tt).Interface().(Table)
 	tableName := CamelToSnakeString(tt.Name())
 	if hasTable {
@@ -181,7 +181,7 @@ func getColumnNameAndTypeFromField(field reflect.StructField) (string, int) {
 	}
 }
 func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, error) {
-	t, _, isSlice := getType(vs)
+	t, _, isSlice := GetType(vs)
 	v := reflect.ValueOf(vs)
 	if isSlice {
 		return nil, err.New("can't convert slice or array to map")
@@ -300,7 +300,7 @@ func UnZipSlice(vs interface{}) []interface{} {
 	}
 	return result
 }
-func SliceToMapSlice(vs interface{}) map[string][]interface{} {
+func SliceToGroupSlice(vs interface{}) map[string][]interface{} {
 	result := make(map[string][]interface{})
 	slice := UnZipSlice(vs)
 	for _, v := range slice {
