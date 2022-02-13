@@ -188,7 +188,7 @@ func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, err
 	}
 
 	maps := make(map[string]interface{})
-	if t.Kind() == reflect.Struct && t.Name() != reflect.TypeOf(time.Now()).Name() {
+	if t.Kind() == reflect.Struct {
 		model, err := GetStructModel(vs, columns...)
 		if err != nil {
 			panic(err)

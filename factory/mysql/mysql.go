@@ -5,6 +5,7 @@ import (
 	"gitee.com/janyees/gom/register"
 	"gitee.com/janyees/gom/structs"
 	_ "github.com/go-sql-driver/mysql"
+	"reflect"
 	"strings"
 )
 
@@ -81,11 +82,11 @@ func init() {
 			sql += " " + wrapperName(model.Columns[0])
 		}
 		sql += " FROM " + model.Table + " "
-		cnds, dds := m.ConditionToSql(model.Condition)
+		cnds, cndData := m.ConditionToSql(model.Condition)
 		if len(cnds) > 0 {
 			sql += " WHERE " + cnds
 		}
-		datas = append(datas, dds...)
+		datas = append(datas, cndData...)
 		if model.OrderBys != nil && len(model.OrderBys) > 0 {
 			sql += " ORDER BY"
 			for i := 0; i < len(model.OrderBys); i++ {
@@ -107,21 +108,31 @@ func init() {
 			sql += " LIMIT ?,?"
 		}
 		sql += ";"
-		return []structs.SqlProto{{sql, datas}}
+		var result []structs.SqlProto
+		result = append(result, structs.SqlProto{Sql: sql, Data: datas})
+		return result
 	}
 	funcMap[structs.Update] = func(models ...structs.TableModel) []structs.SqlProto {
+		if models == nil || len(models) == 0 {
+			panic(errors.New("model was nil or empty"))
+		}
 		var result []structs.SqlProto
 		for _, model := range models {
+			if model.Data == nil || reflect.ValueOf(model.Data).IsZero() {
+				panic(errors.New("nothing to update"))
+			}
 			var datas []interface{}
 			sql := "UPDATE "
 			sql += " " + model.Table + " SET "
-			for i := 0; i < len(model.Columns); i++ {
+			i := 0
+			for k, v := range model.Data {
 				if i == 0 {
-					sql += wrapperName(model.Columns[i]) + " = ? "
+					sql += wrapperName(k) + " = ? "
 				} else {
-					sql += ", " + wrapperName(model.Columns[i]) + " = ? "
+					sql += ", " + wrapperName(k) + " = ? "
 				}
-				datas = append(datas, model.Data[wrapperName(model.Columns[i])])
+				datas = append(datas, v)
+				i++
 			}
 			cnds, dds := m.ConditionToSql(model.Condition)
 			if len(cnds) > 0 {

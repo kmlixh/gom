@@ -10,7 +10,8 @@ import (
 
 var dsn = "remote:remote123@tcp(10.0.1.5)/test?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
 
-//var dsn = "root:123456@tcp(192.168.32.187)/dd_test?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
+//var dsn = "remote:Remote171Yzy@tcp(13.236.1.51:3306)/user_centre?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
+
 var db *DB
 
 type UserInfo struct {
@@ -103,7 +104,7 @@ func TestRawSelect(t *testing.T) {
 	}
 }
 func TestDefaultTableQuery(t *testing.T) {
-	users := make([]UserInfo, 0)
+	var users []User
 	_, ser := db.Select(&users)
 	if ser != nil {
 		panic(ser)
@@ -235,7 +236,7 @@ func TestRawQueryWithGroupBy(t *testing.T) {
 	}
 }
 func TestCount(t *testing.T) {
-	cs := db.Table("tb_record").Count("id")
+	cs := db.Table("user_info").Count("id")
 	if cs.Error != nil {
 		t.Error("counts :", db)
 		t.Fail()

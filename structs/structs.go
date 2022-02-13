@@ -170,7 +170,7 @@ func (m StructModel) GetPrimary() reflect.Value {
 	return m.Value.FieldByName(m.Primary.FieldName)
 }
 func (m StructModel) GetPrimaryCondition() Condition {
-	if m.Type.Kind() != reflect.Struct {
+	if m.Value.Kind() != reflect.Struct {
 		return nil
 	}
 	if IsEmpty(m.GetPrimary()) || m.Primary.IsPrimary == false {
