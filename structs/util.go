@@ -15,23 +15,8 @@ import (
 )
 
 func IsEmpty(v interface{}) bool {
-	times := time.Time{}
-	if times == v {
-		return true
-	}
-	if v == "" {
-		return true
-	}
-	if v == 0 {
-		return true
-	}
-	if v == 0.0 {
-		return true
-	}
-	if v == nil {
-		return true
-	}
-	return false
+	vv := reflect.ValueOf(v)
+	return vv.IsZero()
 }
 func GetType(v interface{}) (reflect.Type, bool, bool) {
 	tt := reflect.TypeOf(v)
