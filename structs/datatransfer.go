@@ -25,7 +25,7 @@ func (dd DataTransfer) GetValueOfTableRow(rows *sql.Rows) reflect.Value {
 	vv := reflect.New(model.Type).Elem()
 	isStruct := model.Type.Kind() == reflect.Struct && model.Type != reflect.TypeOf(time.Time{})
 	for _, idx := range dd.dataIdx {
-		c := model.Columns[dd.columns[idx]]
+		c := model.ColumnMap[dd.columns[idx]]
 
 		scanner := dd.scanners[idx].(IScanner)
 		result, _ := scanner.Value()
@@ -54,7 +54,7 @@ func GetDataTransfer(key string, columns []string, model StructModel) DataTransf
 		var dataIdx []int
 		for i, col := range columns {
 			var scanner IScanner
-			cc, ok := model.Columns[col]
+			cc, ok := model.ColumnMap[col]
 			if ok {
 				dataIdx = append(dataIdx, i)
 				scanner = GetValueOfType(cc)

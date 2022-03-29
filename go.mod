@@ -1,4 +1,4 @@
-module gitee.com/janyees/gom
+module gom
 
 go 1.13
 

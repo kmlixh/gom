@@ -2,8 +2,8 @@ package gom
 
 import (
 	"fmt"
-	_ "gitee.com/janyees/gom/factory/mysql"
-	"gitee.com/janyees/gom/structs"
+	_ "gom/factory/mysql"
+	"gom/structs"
 	"testing"
 	"time"
 )
@@ -38,7 +38,7 @@ type TbRecord struct {
 
 func init() {
 	fmt.Println("init DB.............")
-	temp, er := Open("mysql", dsn, false)
+	temp, er := Open("mysql", dsn, true)
 	if er != nil {
 		panic(er)
 	}
@@ -132,28 +132,7 @@ func TestCustomTableName(t *testing.T) {
 		t.Fail()
 	}
 }
-func TestOrderByDesc(t *testing.T) {
-	users := make([]UserInfo, 0)
-	_, er := db.OrderByDesc("id").Page(0, 10).Select(&users)
-	if er != nil {
-		panic(er)
-	}
-	if len(users) != 10 {
-		t.Error("counts :", len(users), db)
-		t.Fail()
-	}
-}
-func TestOrderByAsc(t *testing.T) {
-	users := make([]UserInfo, 0)
-	_, er := db.OrderByAsc("id").Page(0, 10).Select(&users)
-	if er != nil {
-		panic(er)
-	}
-	if len(users) != 10 {
-		t.Error("counts :", len(users), db)
-		t.Fail()
-	}
-}
+
 func TestMultiOrders(t *testing.T) {
 	users := make([]UserInfo, 0)
 	_, er := db.OrderByAsc("id").OrderBy("nick_name", structs.Desc).OrderByDesc("create_date").Page(0, 10).Select(&users)

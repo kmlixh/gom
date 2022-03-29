@@ -2,8 +2,8 @@ package gom
 
 import (
 	"fmt"
-	"gitee.com/janyees/gom/structs"
 	"github.com/google/uuid"
+	"gom/structs"
 	"reflect"
 	"strconv"
 	"testing"
@@ -19,38 +19,17 @@ func TestDB_CleanOrders(t *testing.T) {
 	tests := []struct {
 		name string
 		raw  DB
-		want []structs.OrderBy
+		want *[]structs.OrderBy
 	}{
-		{"empty orders clean", db1, []structs.OrderBy{}},
-		{"有一个时除去", db2, []structs.OrderBy{}},
-		{"有多个时清空", db3, []structs.OrderBy{}},
+		{"empty orders clean", db1, &[]structs.OrderBy{}},
+		{"有一个时除去", db2, &[]structs.OrderBy{}},
+		{"有多个时清空", db3, &[]structs.OrderBy{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			this := tt.raw
 			if got := this.CleanOrders().orderBys; !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("CleanOrders() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestDB_Columns(t *testing.T) {
-
-	type args struct {
-		cols []string
-	}
-	tests := []struct {
-		name string
-		args []string
-	}{
-		{"set columns", []string{"name", "age", "test"}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			this := &DB{}
-			if got := this.Columns(tt.args...); !reflect.DeepEqual(got.cols, tt.args) {
-				t.Errorf("Columns() = %v, want %v", got, tt.args)
 			}
 		})
 	}
@@ -74,7 +53,7 @@ func TestDB_Count(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			this := tt.db
-			if got := this.Table(tt.args.tableName).Count(tt.args.columnName); !reflect.DeepEqual(got.Count, tt.want) {
+			if got := this.Table(tt.args.tableName).Count(tt.args.columnName); got.Count < tt.want {
 				t.Errorf("Count() = %v, want %v", got, tt.want)
 			}
 		})
@@ -167,11 +146,11 @@ func Test_StructToMap(t *testing.T) {
 			args:  "sdfasdf",
 			wants: Results{make(map[string]interface{}), true},
 		},
-		{
-			name:  "测试基础类型time是否会报错",
-			args:  time.Now(),
-			wants: Results{make(map[string]interface{}), true},
-		},
+		//{
+		//	name:  "测试基础类型time是否会报错",
+		//	args:  time.Now(),
+		//	wants: Results{make(map[string]interface{}), true},
+		//},
 		{
 			name:  "测试Slice是否会报错",
 			args:  []interface{}{1, 2, 3, 4},
@@ -180,7 +159,7 @@ func Test_StructToMap(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gots, er := structs.StructToMap(tt.args)
+			gots, _, er := structs.StructToMap(tt.args)
 			if !reflect.DeepEqual(gots, tt.wants.result) && tt.wants.err && er == nil {
 				t.Errorf("Test_StructToMap Fail, resource was: = %v, want: %v,er result:%v,er wants:%v", gots, tt.wants.result, er.Error(), tt.wants.err)
 			}
@@ -197,7 +176,7 @@ func TestDB_Insert(t *testing.T) {
 		{"测试单个插入", func(t *testing.T) {
 			nck := uuid.New().String()
 			user := User{NickName: nck, Email: nck + "@nck.com", RegDate: time.Now()}
-			c, er := db.Insert(user)
+			c, _, er := db.Insert(user)
 			if c != 1 && er != nil {
 				t.Error("插入异常：", er.Error())
 			}
@@ -219,7 +198,7 @@ func TestDB_Insert(t *testing.T) {
 					user := User{NickName: nck, Pwd: "pwd" + strconv.Itoa(i), Email: nck + "@nck.com", RegDate: time.Now()}
 					users = append(users, user)
 				}
-				c, er := db.Insert(users)
+				c, _, er := db.Insert(users)
 				fmt.Println("插入结果：", c, er)
 				var tempUsers []User
 				_, err := db.Where(structs.CndRaw("id > ?", 0).In("nick_name", ncks)).Select(&tempUsers)
@@ -246,11 +225,11 @@ func TestDB_Delete(t *testing.T) {
 		{"测试单个插入后删除", func(t *testing.T) {
 			nck := uuid.New().String()
 			user := User{NickName: nck, Pwd: "1213", Email: nck + "@nck.com", RegDate: time.Now()}
-			c, er := db.Insert(user)
+			c, _, er := db.Insert(user)
 			if c != 1 && er != nil {
 				t.Error("插入异常：", er.Error())
 			}
-			c, er = db.Table("user").Where2("nick_name=?", nck).Delete()
+			c, _, er = db.Table("user").Where2("nick_name=?", nck).Delete()
 			if c != 1 {
 				t.Error("删除失败")
 			}
@@ -263,14 +242,14 @@ func TestDB_Delete(t *testing.T) {
 				for i := 0; i < 100; i++ {
 					nck := uuid.New().String()
 					ncks = append(ncks, nck)
-					user := User{NickName: nck, Pwd: "pwd" + strconv.Itoa(i), Email: nck + "@nck.com", RegDate: time.Now()}
+					user := User{NickName: nck, Pwd: "pwd" + strconv.Itoa(i), Email: nck + "@nck.com", Valid: 1, RegDate: time.Now()}
 					users = append(users, user)
 				}
-				c, er := db.Insert(users)
+				c, _, er := db.Insert(users)
 				fmt.Println("插入结果：", c, er)
-				c, er = db.Table("user").Where(structs.CndRaw("valid=?", 1).In("nick_name", ncks)).Delete()
+				c, _, er = db.Table("user").Where(structs.CndRaw("valid=?", 1).In("nick_name", ncks)).Delete()
 				if c != 100 || er != nil {
-					t.Error("批量删除失败")
+					t.Error("批量删除失败", c, er)
 				}
 				fmt.Println(c, er)
 			}},
@@ -288,34 +267,46 @@ func TestDB_Update(t *testing.T) {
 	}{
 		{"默认单个更新", func(t *testing.T) {
 			nck := uuid.New().String()
-			user := User{NickName: nck, Pwd: "1213", Email: nck + "@nck.com", RegDate: time.Now()}
-			c, er := db.Insert(user)
+			user := User{NickName: nck, Pwd: "1213", Valid: 1, Email: nck + "@nck.com", RegDate: time.Now()}
+			c, id, er := db.Insert(user)
 			if c != 1 && er != nil {
 				t.Error("插入异常：", er.Error())
 			}
 			var temp User
-			db.Where2("nick_name=?", nck).Select(&temp)
+			_, err := db.Where(structs.CndRaw("id=?", id)).Select(&temp)
+			if err != nil {
+				t.Error("插入后查询失败：", err)
+			}
 			if temp.Id == 0 {
 				t.Error("插入失败")
 			}
-			c, er = db.Update(User{Id: temp.Id, RegDate: time.Now()})
+			temp.Email = "changed@cc.cc"
+			c, _, er = db.Update(temp, "email")
 			if c != 1 {
-				t.Error("更新失败")
+				t.Error("更新失败", c, er)
 			}
-			fmt.Println("单个删除结果：", c, er)
+			fmt.Println("单个更新结果：", c, er)
 		}},
 		{"指定表名更新", func(t *testing.T) {
 			nck := uuid.New().String()
 			user := User{NickName: nck, Pwd: "1213", Email: nck + "@nck.com", RegDate: time.Now()}
-			c, er := db.Insert(user)
+			c, _, er := db.Insert(user)
 			if c != 1 && er != nil {
 				t.Error("插入异常：", er.Error())
+				return
 			}
-			c, er = db.Table("user").Update(User{NickName: nck, RegDate: time.Now()})
+			fmt.Println(user.TableName(), c, er)
+			//var temp User
+			//_, err := db.Where2("nick_name=?", nck).Select(&temp)
+			//if err != nil {
+			//	t.Error("查询异常：", err)
+			//}
+			c, _, er = db.Table("user").Where2("nick_name=?", nck).Update(User{RegDate: time.Now().Add(10 * time.Minute)})
 			if c != 1 {
-				t.Error("更新失败")
+				t.Error("更新失败", c, er)
+				return
 			}
-			fmt.Println("单个删除结果：", c, er)
+			fmt.Println("单个更新结果：", c, er)
 		}},
 		{
 			"批量插入后操作删除", func(t *testing.T) {
@@ -324,12 +315,12 @@ func TestDB_Update(t *testing.T) {
 				for i := 0; i < 100; i++ {
 					nck := uuid.New().String()
 					ncks = append(ncks, nck)
-					user := User{NickName: nck, Pwd: "pwd" + strconv.Itoa(i), Email: nck + "@nck.com", RegDate: time.Now()}
+					user := User{NickName: nck, Pwd: "pwd" + strconv.Itoa(i), Valid: 1, Email: nck + "@nck.com", RegDate: time.Now()}
 					users = append(users, user)
 				}
-				c, er := db.Insert(users)
+				c, _, er := db.Insert(users)
 				fmt.Println("插入结果：", c, er)
-				c, er = db.Table("user").Where(structs.CndRaw("valid=?", 1).In("nick_name", ncks)).Delete()
+				c, _, er = db.Table("user").Where(structs.CndRaw("valid=?", 1).In("nick_name", ncks)).Delete()
 				if c != 100 || er != nil {
 					t.Error("批量删除失败")
 				}

@@ -1,0 +1,2225 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>gom: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">gom/Dbs.go (79.6%)</option>
+				
+				<option value="file1">gom/err/error.go (50.0%)</option>
+				
+				<option value="file2">gom/factory/mysql/mysql.go (84.5%)</option>
+				
+				<option value="file3">gom/gom.go (81.0%)</option>
+				
+				<option value="file4">gom/register/register.go (77.8%)</option>
+				
+				<option value="file5">gom/structs/castor.go (39.3%)</option>
+				
+				<option value="file6">gom/structs/conditions.go (19.8%)</option>
+				
+				<option value="file7">gom/structs/datatransfer.go (93.3%)</option>
+				
+				<option value="file8">gom/structs/parser.go (21.2%)</option>
+				
+				<option value="file9">gom/structs/scanners.go (39.7%)</option>
+				
+				<option value="file10">gom/structs/structs.go (44.7%)</option>
+				
+				<option value="file11">gom/structs/util.go (89.0%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package gom
+
+import (
+        "database/sql"
+        "errors"
+        "fmt"
+        "gom/structs"
+        "reflect"
+)
+
+type DB struct {
+        id       int64
+        factory  structs.SqlFactory
+        db       *sql.DB
+        cnd      *structs.Condition
+        table    *string
+        rawSql   *string
+        rawData  *[]interface{}
+        tx       *sql.Tx
+        orderBys *[]structs.OrderBy
+        page     *structs.Page
+}
+type TransactionWork func(databaseTx *DB) (int64, error)
+
+func (db DB) RawDb() *sql.DB <span class="cov0" title="0">{
+        return db.db
+}</span>
+func (db DB) Table(table string) DB <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        db.table = &amp;table
+        return db
+}</span>
+func (db *DB) CloneIfDifferentRoutine() <span class="cov8" title="1">{
+        if db.id != structs.GetGoid() </span><span class="cov8" title="1">{
+                *db = db.Clone()
+        }</span>
+}
+func (db DB) Raw(sql string, datas ...interface{}) DB <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        db.rawSql = &amp;sql
+        var temp = structs.UnZipSlice(datas)
+        db.rawData = &amp;temp
+        return db
+}</span>
+
+func (db DB) OrderBy(field string, t structs.OrderType) DB <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        var temp []structs.OrderBy
+        temp = append(temp, structs.MakeOrderBy(field, t))
+        db.orderBys = &amp;temp
+        return db
+}</span>
+func (db DB) CleanOrders() DB <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        temp := make([]structs.OrderBy, 0)
+        db.orderBys = &amp;temp
+        return db
+}</span>
+func (db DB) OrderByAsc(field string) DB <span class="cov8" title="1">{
+        db.OrderBy(field, structs.Asc)
+        return db
+}</span>
+func (db DB) OrderByDesc(field string) DB <span class="cov8" title="1">{
+        db.OrderBy(field, structs.Desc)
+        return db
+}</span>
+
+func (db DB) Where2(sql string, patches ...interface{}) DB <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        return db.Where(structs.CndRaw(sql, patches...))
+}</span>
+func (db DB) Where(cnd structs.Condition) DB <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        db.cnd = &amp;cnd
+        return db
+}</span>
+func (db DB) Clone() DB <span class="cov8" title="1">{
+        return DB{id: structs.GetGoid(), factory: db.factory, db: db.db}
+}</span>
+
+func (db DB) Page(index int, pageSize int) DB <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        page := structs.MakePage(index, pageSize)
+        db.page = &amp;page
+        return db
+}</span>
+
+func (db DB) Count(columnName string) structs.CountResult <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        var countResult structs.CountResult
+        colName := fmt.Sprintf("COUNT(%s) as count", columnName)
+        m := structs.StructModel{
+                Type:        reflect.TypeOf(countResult),
+                Value:       reflect.ValueOf(&amp;countResult).Elem(),
+                TableName:   "",
+                ColumnNames: []string{colName},
+                ColumnMap: map[string]structs.Column{"count": {
+                        Type:       reflect.TypeOf(int64(0)),
+                        ColumnName: "count",
+                        FieldName:  "Count",
+                        IsPrimary:  false,
+                        Auto:       false,
+                }},
+                Primary:         structs.Column{},
+                HasColumnFilter: false,
+                DataMap:         nil,
+        } //Select(&amp;countResult, "SUM("+columnName+") as count")
+        db.SelectByModel(m)
+        return countResult
+}</span>
+
+func (db DB) Sum(columnName string) structs.CountResult <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        var countResult structs.CountResult
+        colName := fmt.Sprintf("SUM(%s) as count", columnName)
+        m := structs.StructModel{
+                Type:        reflect.TypeOf(countResult),
+                Value:       reflect.ValueOf(&amp;countResult).Elem(),
+                TableName:   "",
+                ColumnNames: []string{colName},
+                ColumnMap: map[string]structs.Column{"count": {
+                        Type:       reflect.TypeOf(int64(0)),
+                        ColumnName: "count",
+                        FieldName:  "Count",
+                        IsPrimary:  false,
+                        Auto:       false,
+                }},
+                Primary:         structs.Column{},
+                HasColumnFilter: false,
+                DataMap:         nil,
+        } //Select(&amp;countResult, "SUM("+columnName+") as count")
+        db.SelectByModel(m)
+        return countResult
+}</span>
+
+func (db DB) Select(vs interface{}, columns ...string) (interface{}, error) <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        model, er := structs.GetStructModel(vs, columns...)
+        if er != nil </span><span class="cov0" title="0">{
+                panic(er)</span>
+        }
+        <span class="cov8" title="1">return db.SelectByModel(model)</span>
+}
+func (db DB) SelectByModel(model structs.StructModel) (interface{}, error) <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        if db.rawSql != nil &amp;&amp; len(*db.rawSql) &gt; 0 </span><span class="cov8" title="1">{
+                return db.query(*db.rawSql, *db.rawData, model)
+        }</span> else<span class="cov8" title="1"> {
+                selectFunc := db.factory.GetSqlFunc(structs.Query)
+                sqlProtos := selectFunc(structs.TableModel{Table: db.getTableName(model), Columns: getQueryColumns(model), Condition: db.getCnd(), OrderBys: db.getOrderBys(), Page: db.getPage()})
+                return db.query(sqlProtos[0].Sql, sqlProtos[0].Data, model)
+        }</span>
+}
+func (db DB) First(vs interface{}) (interface{}, error) <span class="cov8" title="1">{
+        return db.Page(0, 1).Select(vs)
+}</span>
+func (db DB) Update(vs interface{}, columns ...string) (int64, int64, error) <span class="cov8" title="1">{
+        _, _, slice := structs.GetType(vs)
+        if slice &amp;&amp; len(columns) &gt; 0 </span><span class="cov0" title="0">{
+                return -1, -1, errors.New("can't update slice or array,please use UpdateMulti")
+        }</span>
+        <span class="cov8" title="1">db.CloneIfDifferentRoutine()
+        return db.Execute(structs.Update, []interface{}{vs}, columns...)</span>
+}
+func (db DB) UpdateMulti(vs ...interface{}) (int64, int64, error) <span class="cov0" title="0">{
+        return db.Execute(structs.Update, vs)
+}</span>
+func (db DB) Insert(vs interface{}, columns ...string) (int64, int64, error) <span class="cov8" title="1">{
+        _, _, slice := structs.GetType(vs)
+        if slice &amp;&amp; len(columns) &gt; 0 </span><span class="cov0" title="0">{
+                return -1, -1, errors.New("can't Insert slice or array,please use UpdateMulti")
+        }</span>
+        <span class="cov8" title="1">db.CloneIfDifferentRoutine()
+        return db.Execute(structs.Insert, []interface{}{vs}, columns...)</span>
+}
+
+func (db DB) InsertMulti(vs ...interface{}) (int64, int64, error) <span class="cov0" title="0">{
+        return db.Execute(structs.Insert, vs)
+}</span>
+func (db DB) Delete(vs ...interface{}) (int64, int64, error) <span class="cov8" title="1">{
+        if len(vs) == 0 </span><span class="cov8" title="1">{
+                vs = append(vs, structs.DefaultStruct{})
+        }</span>
+        <span class="cov8" title="1">db.CloneIfDifferentRoutine()
+        return db.Execute(structs.Delete, vs)</span>
+}
+func (db DB) Execute(sqlType structs.SqlType, vs []interface{}, columns ...string) (int64, int64, error) <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        var lastInsertId = int64(0)
+        genFunc := db.factory.GetSqlFunc(sqlType)
+        //此处应当判断是否已经在事物中，如果不在事务中才开启事物
+        count := int64(0)
+        var vmap = structs.SliceToGroupSlice(vs)
+        for i, v := range vmap </span><span class="cov8" title="1">{
+                if Debug </span><span class="cov8" title="1">{
+                        fmt.Println("Model Type was:", i, "slice counts:", len(v))
+                }</span>
+                <span class="cov8" title="1">var models []structs.TableModel
+                for _, vv := range vmap[i] </span><span class="cov8" title="1">{
+                        structModel, er := structs.GetStructModel(vv, columns...)
+                        if er != nil </span><span class="cov0" title="0">{
+                                return 0, 0, er
+                        }</span>
+                        <span class="cov8" title="1">models = append(models, db.genTableModel(sqlType, structModel))</span>
+                }
+                <span class="cov8" title="1">sqlProtos := genFunc(models...)
+                cc := int64(0)
+                for _, sqlProto := range sqlProtos </span><span class="cov8" title="1">{
+                        if Debug </span><span class="cov8" title="1">{
+                                fmt.Println(sqlProto)
+                        }</span>
+                        <span class="cov8" title="1">rs, er := db.execute(sqlProto.Sql, sqlProto.Data...)
+                        if er != nil </span><span class="cov0" title="0">{
+                                return 0, 0, er
+                        }</span>
+                        <span class="cov8" title="1">cs, err := rs.RowsAffected()
+                        if cs == 1 &amp;&amp; len(sqlProtos) == len(models) &amp;&amp; sqlType == structs.Insert </span><span class="cov8" title="1">{
+                                //
+                                id, er := rs.LastInsertId()
+                                if er == nil </span><span class="cov8" title="1">{
+                                        lastInsertId = id
+                                }</span>
+                        }
+                        <span class="cov8" title="1">if err != nil </span><span class="cov0" title="0">{
+                                return cs, 0, err
+                        }</span>
+                        <span class="cov8" title="1">cc += cs</span>
+                }
+
+                <span class="cov8" title="1">count += cc</span>
+        }
+        <span class="cov8" title="1">return count, lastInsertId, nil</span>
+}
+func (db DB) lastInsertId() int64 <span class="cov0" title="0">{
+        result := int64(0)
+
+        return result
+}</span>
+
+func (db DB) genTableModel(sqlType structs.SqlType, sm structs.StructModel) structs.TableModel <span class="cov8" title="1">{
+
+        //TODO 此处应当根据sql的类型生成对应类型的TableModel，如插入是所有，搜索是全部实体，而更新则需要将主键做条件，其他列作为更新值
+        var cols []string
+        switch sqlType </span>{
+        case structs.Query:<span class="cov0" title="0">
+                cols = getQueryColumns(sm)</span>
+        case structs.Update:<span class="cov8" title="1">
+                cols = getUpdateColumns(sm)</span>
+        case structs.Insert:<span class="cov8" title="1">
+                cols = getInsertColumns(sm)</span>
+        case structs.Delete:<span class="cov8" title="1">
+                cols = getDeleteColumns(sm)</span>
+        }
+        <span class="cov8" title="1">maps, _, er := structs.ModelToMap(sm)
+        if er != nil </span><span class="cov0" title="0">{
+                panic(er)</span>
+        }
+        <span class="cov8" title="1">cnd := db.getCnd()
+        if cnd == nil </span><span class="cov8" title="1">{
+                cnd = sm.GetPrimaryCondition()
+                if cnd == nil </span><span class="cov0" title="0">{
+                        panic("primary key was nil")</span>
+                }
+        }
+        <span class="cov8" title="1">m := structs.TableModel{Table: db.getTableName(sm), Columns: cols, Data: maps, Condition: cnd, OrderBys: db.getOrderBys(), Page: db.getPage()}
+        return m</span>
+}
+
+func getDeleteColumns(model structs.StructModel, columns ...string) []string <span class="cov8" title="1">{
+
+        if columns != nil &amp;&amp; len(columns) &gt; 0 </span><span class="cov0" title="0">{
+                nn := structs.Intersect(model.ColumnNames, columns)
+                nn = structs.Difference(nn, []string{model.Primary.ColumnName})
+                return nn
+        }</span>
+        <span class="cov8" title="1">return model.ColumnNames</span>
+}
+
+func (db DB) execute(sql string, data ...interface{}) (sql.Result, error) <span class="cov8" title="1">{
+        st, err := db.db.Prepare(sql)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+        <span class="cov8" title="1">return st.Exec(data...)</span>
+}
+
+func (db DB) getTableName(model structs.StructModel) string <span class="cov8" title="1">{
+        if db.table == nil || len(*db.table) == 0 </span><span class="cov8" title="1">{
+                return model.TableName
+        }</span>
+        <span class="cov8" title="1">return *db.table</span>
+}
+func getQueryColumns(model structs.StructModel, columns ...string) []string <span class="cov8" title="1">{
+
+        if columns != nil &amp;&amp; len(columns) &gt; 0 </span><span class="cov0" title="0">{
+                return structs.Intersect(model.ColumnNames, columns)
+        }</span>
+        <span class="cov8" title="1">return model.ColumnNames</span>
+}
+
+func getUpdateColumns(model structs.StructModel, columns ...string) []string <span class="cov8" title="1">{
+        nn := model.ColumnNames
+        if columns != nil &amp;&amp; len(columns) &gt; 0 </span><span class="cov0" title="0">{
+                nn = structs.Intersect(nn, columns)
+        }</span>
+        <span class="cov8" title="1">nn = structs.Difference(nn, []string{model.Primary.ColumnName})
+        return nn</span>
+}
+func (db DB) getCnd() structs.Condition <span class="cov8" title="1">{
+        if db.cnd != nil &amp;&amp; *db.cnd != nil </span><span class="cov8" title="1">{
+                return *db.cnd
+        }</span>
+        <span class="cov8" title="1">return nil</span>
+}
+func getInsertColumns(model structs.StructModel, columns ...string) []string <span class="cov8" title="1">{
+        var cols = model.ColumnNames
+        if columns != nil &amp;&amp; len(columns) &gt; 0 </span><span class="cov0" title="0">{
+                cols = structs.Intersect(cols, columns)
+        }</span>
+        <span class="cov8" title="1">if model.Primary.Auto </span><span class="cov8" title="1">{
+                //del primary key
+                cols = structs.Difference(cols, []string{model.Primary.ColumnName})
+        }</span>
+        <span class="cov8" title="1">return cols</span>
+}
+
+func (db DB) query(sql string, data []interface{}, model structs.StructModel) (interface{}, error) <span class="cov8" title="1">{
+        if Debug </span><span class="cov8" title="1">{
+                fmt.Println("Execute query,Sql:", sql, "data was:", data)
+        }</span>
+        <span class="cov8" title="1">st, err := db.db.Prepare(sql)
+        defer st.Close()
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+        <span class="cov8" title="1">rows, errs := st.Query(data...)
+        if errs != nil </span><span class="cov0" title="0">{
+                return nil, errs
+        }</span>
+        <span class="cov8" title="1">defer rows.Close()
+        columns, er := rows.Columns()
+        transfer := structs.GetDataTransfer(structs.Md5Text(sql), columns, model)
+        if er != nil </span><span class="cov0" title="0">{
+                return nil, er
+        }</span>
+        <span class="cov8" title="1">if transfer.Model().Value.Kind() == reflect.Slice </span><span class="cov8" title="1">{
+                results := transfer.Model().Value
+
+                for rows.Next() </span><span class="cov8" title="1">{
+                        val := transfer.GetValueOfTableRow(rows)
+                        results.Set(reflect.Append(results, val))
+                }</span>
+                <span class="cov8" title="1">return results.Interface(), nil</span>
+        } else<span class="cov8" title="1"> {
+                if rows.Next() </span><span class="cov8" title="1">{
+                        val := transfer.GetValueOfTableRow(rows)
+                        vt := transfer.Model().Value
+                        vt.Set(val)
+                        return vt.Interface(), nil
+                }</span> else<span class="cov0" title="0"> {
+                        return nil, nil
+                }</span>
+
+        }
+        <span class="cov0" title="0">return nil, nil</span>
+}
+
+func (db DB) Transaction(work TransactionWork) (int64, error) <span class="cov0" title="0">{
+        result := int64(0)
+        tx := db.tx
+        if tx == nil </span><span class="cov0" title="0">{ //if transaction is nil create it
+                var err error
+                tx, err = db.db.Begin()
+                if err != nil </span><span class="cov0" title="0">{
+                        return result, err
+                }</span>
+        }
+
+        <span class="cov0" title="0">result, err := work(&amp;db)
+        if err != nil </span><span class="cov0" title="0">{
+                tx.Rollback()
+                return result, err
+        }</span>
+        <span class="cov0" title="0">err = tx.Commit()
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Println("transaction commit err:", err)
+        }</span>
+        <span class="cov0" title="0">return result, err</span>
+}
+
+func (db DB) getOrderBys() []structs.OrderBy <span class="cov8" title="1">{
+        if db.orderBys != nil &amp;&amp; *db.orderBys != nil </span><span class="cov8" title="1">{
+                return *db.orderBys
+        }</span>
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (db DB) getPage() structs.Page <span class="cov8" title="1">{
+        if db.page != nil &amp;&amp; *db.page != nil </span><span class="cov8" title="1">{
+                return *db.page
+        }</span>
+        <span class="cov8" title="1">return nil</span>
+}
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package err
+
+func Error(msg string) error <span class="cov8" title="1">{
+        return Err{msg: msg}
+}</span>
+
+type Err struct {
+        msg string
+}
+
+func (er Err) Error() string <span class="cov0" title="0">{
+        return er.msg
+}</span>
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">package mysql
+
+import (
+        "errors"
+        _ "github.com/go-sql-driver/mysql"
+        "gom/register"
+        "gom/structs"
+        "reflect"
+        "strings"
+)
+
+type MyCndStruct struct {
+        Linker     string
+        Expression string
+        Data       []interface{}
+}
+
+var funcMap map[structs.SqlType]structs.GenerateSQLFunc
+
+type Factory struct {
+}
+
+func (m Factory) GetSqlFunc(sqlType structs.SqlType) structs.GenerateSQLFunc <span class="cov8" title="1">{
+        return funcMap[sqlType]
+}</span>
+func (m Factory) ConditionToSql(cnd structs.Condition) (string, []interface{}) <span class="cov8" title="1">{
+        if cnd == nil </span><span class="cov8" title="1">{
+                return "", nil
+        }</span>
+        <span class="cov8" title="1">if !cnd.IsEnalbe() </span><span class="cov0" title="0">{
+                return "", nil
+        }</span>
+        <span class="cov8" title="1">myCnd := cndToMyCndStruct(cnd)
+        var data []interface{}
+        data = append(data, cnd.Values()...)
+        var sql string
+        if cnd.Depth() &gt; 0 </span><span class="cov8" title="1">{
+                sql += myCnd.Linker
+        }</span>
+
+        <span class="cov8" title="1">if cnd.HasSubConditions() &amp;&amp; cnd.Depth() &gt; 0 </span><span class="cov8" title="1">{
+                sql += " ("
+        }</span>
+        <span class="cov8" title="1">sql += myCnd.Expression
+        if cnd.HasSubConditions() </span><span class="cov8" title="1">{
+                for _, v := range cnd.Items() </span><span class="cov8" title="1">{
+                        s, dd := m.ConditionToSql(v)
+                        sql += s
+                        data = append(data, dd...)
+                }</span>
+        }
+
+        <span class="cov8" title="1">if cnd.HasSubConditions() &amp;&amp; cnd.Depth() &gt; 0 </span><span class="cov8" title="1">{
+                sql += ")"
+        }</span>
+
+        <span class="cov8" title="1">return sql, data</span>
+
+}
+
+func init() <span class="cov8" title="1">{
+        m := Factory{}
+        register.Register("mysql", &amp;m)
+        funcMap = make(map[structs.SqlType]structs.GenerateSQLFunc)
+        funcMap[structs.Query] = func(models ...structs.TableModel) []structs.SqlProto </span><span class="cov8" title="1">{
+                model := models[0]
+                var datas []interface{}
+                sql := "SELECT "
+                counts := len(model.Columns)
+                if counts == 0 </span><span class="cov0" title="0">{
+                        panic(errors.New("columns is null or empty"))</span>
+                }
+                <span class="cov8" title="1">if counts &gt; 1 </span><span class="cov8" title="1">{
+                        for i := 0; i &lt; len(model.Columns); i++ </span><span class="cov8" title="1">{
+                                if i == 0 </span><span class="cov8" title="1">{
+                                        sql += wrapperName(model.Columns[i]) + " "
+                                }</span> else<span class="cov8" title="1"> {
+                                        sql += ", " + wrapperName(model.Columns[i]) + " "
+                                }</span>
+                        }
+                } else<span class="cov8" title="1"> {
+                        sql += " " + wrapperName(model.Columns[0])
+                }</span>
+                <span class="cov8" title="1">sql += " FROM " + model.Table + " "
+                cnds, cndData := m.ConditionToSql(model.Condition)
+                if len(cnds) &gt; 0 </span><span class="cov8" title="1">{
+                        sql += " WHERE " + cnds
+                }</span>
+                <span class="cov8" title="1">datas = append(datas, cndData...)
+                if model.OrderBys != nil &amp;&amp; len(model.OrderBys) &gt; 0 </span><span class="cov8" title="1">{
+                        sql += " ORDER BY"
+                        for i := 0; i &lt; len(model.OrderBys); i++ </span><span class="cov8" title="1">{
+                                if i &gt; 0 </span><span class="cov0" title="0">{
+                                        sql += ","
+                                }</span>
+                                <span class="cov8" title="1">t := ""
+                                if model.OrderBys[i].Type() == structs.Asc </span><span class="cov0" title="0">{
+                                        t = " ASC"
+                                }</span> else<span class="cov8" title="1"> {
+                                        t = " DESC"
+                                }</span>
+                                <span class="cov8" title="1">sql += " " + wrapperName(model.OrderBys[i].Name()) + t</span>
+                        }
+                }
+                <span class="cov8" title="1">if model.Page != nil </span><span class="cov8" title="1">{
+                        idx, size := model.Page.Page()
+                        datas = append(datas, idx, size)
+                        sql += " LIMIT ?,?"
+                }</span>
+                <span class="cov8" title="1">sql += ";"
+                var result []structs.SqlProto
+                result = append(result, structs.SqlProto{Sql: sql, Data: datas})
+                return result</span>
+        }
+        <span class="cov8" title="1">funcMap[structs.Update] = func(models ...structs.TableModel) []structs.SqlProto </span><span class="cov8" title="1">{
+                if models == nil || len(models) == 0 </span><span class="cov0" title="0">{
+                        panic(errors.New("model was nil or empty"))</span>
+                }
+                <span class="cov8" title="1">var result []structs.SqlProto
+                for _, model := range models </span><span class="cov8" title="1">{
+                        if model.Data == nil || reflect.ValueOf(model.Data).IsZero() </span><span class="cov0" title="0">{
+                                panic(errors.New("nothing to update"))</span>
+                        }
+                        <span class="cov8" title="1">var datas []interface{}
+                        sql := "UPDATE "
+                        sql += " " + model.Table + " SET "
+                        i := 0
+                        for _, k := range model.Columns </span><span class="cov8" title="1">{
+                                if i == 0 </span><span class="cov8" title="1">{
+                                        sql += wrapperName(k) + " = ? "
+                                }</span> else<span class="cov8" title="1"> {
+                                        sql += ", " + wrapperName(k) + " = ? "
+                                }</span>
+                                <span class="cov8" title="1">datas = append(datas, model.Data[k])
+                                i++</span>
+                        }
+                        <span class="cov8" title="1">cnds, dds := m.ConditionToSql(model.Condition)
+                        if len(cnds) &gt; 0 </span><span class="cov8" title="1">{
+                                sql += " WHERE " + cnds + ";"
+                        }</span>
+                        <span class="cov8" title="1">datas = append(datas, dds...)
+                        result = append(result, structs.SqlProto{sql, datas})</span>
+                }
+
+                <span class="cov8" title="1">return result</span>
+        }
+        <span class="cov8" title="1">funcMap[structs.Insert] = func(models ...structs.TableModel) []structs.SqlProto </span><span class="cov8" title="1">{
+                var result []structs.SqlProto
+                for _, model := range models </span><span class="cov8" title="1">{
+                        var datas []interface{}
+
+                        sql := "INSERT INTO " + model.Table + " ("
+                        valuesPattern := "VALUES("
+                        for i, c := range model.Columns </span><span class="cov8" title="1">{
+                                if i &gt; 0 </span><span class="cov8" title="1">{
+                                        sql += ","
+                                        valuesPattern += ","
+                                }</span>
+                                <span class="cov8" title="1">sql += c
+                                valuesPattern += "?"
+                                datas = append(datas, model.Data[c])</span>
+                        }
+                        <span class="cov8" title="1">sql += ")"
+                        valuesPattern += ");"
+                        sql += valuesPattern
+                        result = append(result, structs.SqlProto{sql, datas})</span>
+                }
+                <span class="cov8" title="1">return result</span>
+        }
+        <span class="cov8" title="1">funcMap[structs.Delete] = func(models ...structs.TableModel) []structs.SqlProto </span><span class="cov8" title="1">{
+                var result []structs.SqlProto
+                for _, model := range models </span><span class="cov8" title="1">{
+                        var datas []interface{}
+                        sql := "DELETE FROM "
+                        sql += " " + model.Table
+                        cnds, dds := m.ConditionToSql(model.Condition)
+                        if len(cnds) &gt; 0 </span><span class="cov8" title="1">{
+                                sql += " WHERE " + cnds + ";"
+                        }</span>
+                        <span class="cov8" title="1">datas = append(datas, dds...)
+                        result = append(result, structs.SqlProto{sql, datas})</span>
+                }
+                <span class="cov8" title="1">return result</span>
+        }
+}
+
+func wrapperName(name string) string <span class="cov8" title="1">{
+        if strings.Contains(name, " ") </span><span class="cov8" title="1">{
+                return name
+        }</span> else<span class="cov8" title="1"> {
+                return "`" + name + "`"
+        }</span>
+}
+
+func cndToMyCndStruct(cnd structs.Condition) MyCndStruct <span class="cov8" title="1">{
+        if len(cnd.RawExpression()) &gt; 0 </span><span class="cov8" title="1">{
+                return MyCndStruct{linkerToString(cnd), cnd.RawExpression(), cnd.Values()}
+        }</span>
+        <span class="cov8" title="1">opers := cnd.Field()
+        switch cnd.Operation() </span>{
+        case structs.Eq:<span class="cov8" title="1">
+                opers += " = ? "</span>
+        case structs.NotEq:<span class="cov0" title="0">
+                opers += " &lt;&gt; ? "</span>
+        case structs.Ge:<span class="cov0" title="0">
+                opers += " &gt;= ? "</span>
+        case structs.Gt:<span class="cov0" title="0">
+                opers += " &gt; ? "</span>
+        case structs.Le:<span class="cov0" title="0">
+                opers += " &lt;= ? "</span>
+        case structs.Lt:<span class="cov0" title="0">
+                opers += " &lt; ? "</span>
+        case structs.In:<span class="cov8" title="1">
+                opers += " IN " + valueSpace(len(cnd.Values()))</span>
+        case structs.NotIn:<span class="cov0" title="0">
+                opers += " NOT IN " + valueSpace(len(cnd.Values()))</span>
+        case structs.Like:<span class="cov0" title="0">
+                opers += " LIKE ? "
+                vals := cnd.Values()
+                vals[0] = "%" + vals[0].(string) + "%"
+                cnd.SetValues(vals)</span>
+        case structs.LikeIgnoreStart:<span class="cov8" title="1">
+                opers += " LIKE ? "
+                vals := cnd.Values()
+                vals[0] = "%" + vals[0].(string)
+                cnd.SetValues(vals)</span>
+        case structs.LikeIgnoreEnd:<span class="cov0" title="0">
+                opers += " LIKE ? "
+                vals := cnd.Values()
+                vals[0] = vals[0].(string) + "%"
+                cnd.SetValues(vals)</span>
+        case structs.IsNull:<span class="cov0" title="0">
+                opers += " IS NULL "</span>
+        case structs.IsNotNull:<span class="cov0" title="0">
+                opers += " IS NOT NULL "</span>
+        }
+        <span class="cov8" title="1">return MyCndStruct{linkerToString(cnd), opers, cnd.Values()}</span>
+}
+
+func linkerToString(cnd structs.Condition) string <span class="cov8" title="1">{
+        switch cnd.Linker() </span>{
+        case structs.And:<span class="cov8" title="1">
+                return " AND "</span>
+        case structs.Or:<span class="cov8" title="1">
+                return " OR "</span>
+        default:<span class="cov0" title="0">
+                return " AND "</span>
+        }
+}
+
+func valueSpace(count int) string <span class="cov8" title="1">{
+        if count == 1 </span><span class="cov0" title="0">{
+                return " ? "
+        }</span> else<span class="cov8" title="1"> {
+                str := "("
+                for i := 0; i &lt; count-1; i++ </span><span class="cov8" title="1">{
+                        str += "?,"
+                }</span>
+                <span class="cov8" title="1">str += "?)"
+                return str</span>
+        }
+}
+</pre>
+		
+		<pre class="file" id="file3" style="display: none">package gom
+
+import (
+        "database/sql"
+        "errors"
+        "fmt"
+        "gom/register"
+        "gom/structs"
+        "time"
+)
+
+var Debug bool
+
+const defaultDBId = -1000
+
+func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int, debugs bool) (*DB, error) <span class="cov8" title="1">{
+        Debug = debugs
+        structs.Debug = debugs
+        db, err := sql.Open(driverName, dsn)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span> else<span class="cov8" title="1"> {
+                db.SetMaxOpenConns(maxOpen)
+                db.SetMaxIdleConns(maxIdle)
+                factory, ok := register.Get(driverName)
+                if !ok </span><span class="cov0" title="0">{
+                        panic(errors.New(fmt.Sprintf("can't find '%s' SqlFactory", driverName)))</span>
+                }
+                <span class="cov8" title="1">return &amp;DB{id: defaultDBId, db: db, factory: factory}, nil</span>
+        }
+}
+
+func Open(driverName string, dsn string, debugs bool) (*DB, error) <span class="cov8" title="1">{
+        Debug = debugs
+        structs.Debug = debugs
+        db, err := sql.Open(driverName, dsn)
+        db.SetConnMaxLifetime(time.Minute * 1)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span> else<span class="cov8" title="1"> {
+                factory, ok := register.Get(driverName)
+                if !ok </span><span class="cov0" title="0">{
+                        panic(errors.New(fmt.Sprintf("can't find '%s' SqlFactory", driverName)))</span>
+                }
+                <span class="cov8" title="1">return &amp;DB{id: defaultDBId, db: db, factory: factory}, nil</span>
+        }
+}
+</pre>
+		
+		<pre class="file" id="file4" style="display: none">package register
+
+import (
+        "gom/structs"
+        "sync"
+)
+
+var (
+        factorysMux sync.RWMutex
+        factorys    = make(map[string]structs.SqlFactory)
+)
+
+func Register(name string, inter structs.SqlFactory) <span class="cov8" title="1">{
+        factorysMux.Lock()
+        defer factorysMux.Unlock()
+        if inter == nil </span><span class="cov0" title="0">{
+                panic("Sql: Register driver is nil")</span>
+        }
+        <span class="cov8" title="1">if _, dup := factorys[name]; dup </span><span class="cov0" title="0">{
+                panic("Sql: Register called twice for factory " + name)</span>
+        }
+        <span class="cov8" title="1">factorys[name] = inter</span>
+}
+func Get(name string) (structs.SqlFactory, bool) <span class="cov8" title="1">{
+        data, ok := factorys[name]
+        return data, ok
+}</span>
+</pre>
+		
+		<pre class="file" id="file5" style="display: none">package structs
+
+import "strings"
+
+func CamelToSnakeString(s string) string <span class="cov8" title="1">{
+        data := make([]byte, 0, len(s)*2)
+        j := false
+        num := len(s)
+        for i := 0; i &lt; num; i++ </span><span class="cov8" title="1">{
+                d := s[i]
+                // or通过ASCII码进行大小写的转化
+                // 65-90（A-Z），97-122（a-z）
+                //判断如果字母为大写的A-Z就在前面拼接一个_
+                if i &gt; 0 &amp;&amp; d &gt;= 'A' &amp;&amp; d &lt;= 'Z' &amp;&amp; j </span><span class="cov8" title="1">{
+                        data = append(data, '_')
+                }</span>
+                <span class="cov8" title="1">if d != '_' </span><span class="cov8" title="1">{
+                        j = true
+                }</span>
+                <span class="cov8" title="1">data = append(data, d)</span>
+        }
+        //ToLower把大写字母统一转小写
+        <span class="cov8" title="1">return strings.ToLower(string(data[:]))</span>
+}
+
+/**
+ * 蛇形转驼峰
+ * @description xx_yy to XxYx  xx_y_y to XxYY
+ * @date 2020/7/30
+ * @param s要转换的字符串
+ * @return string
+ **/
+func snakeToCamelString(s string) string <span class="cov0" title="0">{
+        data := make([]byte, 0, len(s))
+        j := false
+        k := false
+        num := len(s) - 1
+        for i := 0; i &lt;= num; i++ </span><span class="cov0" title="0">{
+                d := s[i]
+                if k == false &amp;&amp; d &gt;= 'A' &amp;&amp; d &lt;= 'Z' </span><span class="cov0" title="0">{
+                        k = true
+                }</span>
+                <span class="cov0" title="0">if d &gt;= 'a' &amp;&amp; d &lt;= 'z' &amp;&amp; (j || k == false) </span><span class="cov0" title="0">{
+                        d = d - 32
+                        j = false
+                        k = true
+                }</span>
+                <span class="cov0" title="0">if k &amp;&amp; d == '_' &amp;&amp; num &gt; i &amp;&amp; s[i+1] &gt;= 'a' &amp;&amp; s[i+1] &lt;= 'z' </span><span class="cov0" title="0">{
+                        j = true
+                        continue</span>
+                }
+                <span class="cov0" title="0">data = append(data, d)</span>
+        }
+        <span class="cov0" title="0">return string(data[:])</span>
+}
+</pre>
+		
+		<pre class="file" id="file6" style="display: none">package structs
+
+type Linker int
+
+const (
+        _ Linker = iota
+        And
+        Or
+)
+
+type Operation int
+
+const (
+        _ Operation = iota
+        Eq
+        NotEq
+        Ge
+        Gt
+        Le
+        Lt
+        Like
+        LikeIgnoreStart
+        LikeIgnoreEnd
+        In
+        NotIn
+        IsNull
+        IsNotNull
+        OperationCustom1
+        OperationCustom2
+        OperationCustom3
+        OperationCustom4
+        OperationCustom5
+        OperationCustom6
+        OperationCustom7
+)
+
+type Condition interface {
+        Depth() int64
+        Linker() Linker
+        Field() string
+        Operation() Operation
+        Values() []interface{}
+        SetValues([]interface{})
+        Items() []Condition
+        HasSubConditions() bool
+        RawExpression() string
+        IsEnalbe() bool
+        Eq(field string, values interface{}) Condition
+        OrEq(field string, values interface{}) Condition
+        Ge(field string, values interface{}) Condition
+        OrGe(field string, values interface{}) Condition
+        Gt(field string, values interface{}) Condition
+        OrGt(field string, values interface{}) Condition
+        Le(field string, values interface{}) Condition
+        OrLe(field string, values interface{}) Condition
+        Lt(field string, values interface{}) Condition
+        OrLt(field string, values interface{}) Condition
+        NotEq(field string, values interface{}) Condition
+        OrNotEq(field string, values interface{}) Condition
+        In(field string, values ...interface{}) Condition
+        OrIn(field string, values ...interface{}) Condition
+        NotIn(field string, values ...interface{}) Condition
+        OrNotIn(field string, values ...interface{}) Condition
+        Like(field string, values interface{}) Condition
+        OrLike(field string, values interface{}) Condition
+        LikeIgnoreStart(field string, values interface{}) Condition
+        OrLikeIgnoreStart(field string, values interface{}) Condition
+        LikeIgnoreEnd(field string, values interface{}) Condition
+        OrLikeIgnoreEnd(field string, values interface{}) Condition
+        IsNull(filed string) Condition
+        IsNotNull(field string) Condition
+        And(field string, operation Operation, value ...interface{}) Condition
+        And1(condition Condition) Condition
+        Or(condition Condition) Condition
+        And2(rawExpresssion string, values ...interface{}) Condition
+        Or2(rawExpresssion string, values ...interface{}) Condition
+}
+type ConditionImpl struct {
+        depth         int64
+        linker        Linker
+        field         string
+        operation     Operation
+        values        []interface{}
+        items         []Condition
+        rawExpression string
+        enable        bool
+}
+
+func (c *ConditionImpl) Depth() int64 <span class="cov8" title="1">{
+        return c.depth
+}</span>
+
+func (c *ConditionImpl) Linker() Linker <span class="cov8" title="1">{
+        return c.linker
+}</span>
+func (c *ConditionImpl) Field() string <span class="cov8" title="1">{
+        return c.field
+}</span>
+func (c *ConditionImpl) Operation() Operation <span class="cov8" title="1">{
+        return c.operation
+}</span>
+func (c *ConditionImpl) Values() []interface{} <span class="cov8" title="1">{
+        return c.values
+}</span>
+func (c *ConditionImpl) SetValues(values []interface{}) <span class="cov8" title="1">{
+        c.values = values
+}</span>
+func (c *ConditionImpl) Items() []Condition <span class="cov8" title="1">{
+        return c.items
+}</span>
+func (c *ConditionImpl) HasSubConditions() bool <span class="cov8" title="1">{
+        return len(c.items) &gt; 0
+}</span>
+func (c *ConditionImpl) RawExpression() string <span class="cov8" title="1">{
+        return c.rawExpression
+}</span>
+func (c *ConditionImpl) IsEnalbe() bool <span class="cov8" title="1">{
+        return c.enable
+}</span>
+
+func (c *ConditionImpl) Eq(field string, values interface{}) Condition <span class="cov8" title="1">{
+        condition := Cnd(field, Eq, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) OrEq(field string, values interface{}) Condition <span class="cov0" title="0">{
+        condition := CndFull(Or, field, Eq, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) Ge(field string, values interface{}) Condition <span class="cov0" title="0">{
+        condition := Cnd(field, Ge, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) OrGe(field string, values interface{}) Condition <span class="cov0" title="0">{
+        condition := CndFull(Or, field, Ge, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) Gt(field string, values interface{}) Condition <span class="cov0" title="0">{
+        condition := Cnd(field, Eq, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) OrGt(field string, values interface{}) Condition <span class="cov0" title="0">{
+        condition := CndFull(Or, field, Gt, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) Le(field string, values interface{}) Condition <span class="cov0" title="0">{
+        condition := Cnd(field, Le, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) OrLe(field string, values interface{}) Condition <span class="cov0" title="0">{
+        condition := CndFull(Or, field, Le, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) Lt(field string, values interface{}) Condition <span class="cov0" title="0">{
+        condition := Cnd(field, Lt, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) OrLt(field string, values interface{}) Condition <span class="cov0" title="0">{
+        condition := CndFull(Or, field, Lt, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) NotEq(field string, values interface{}) Condition <span class="cov0" title="0">{
+        condition := Cnd(field, NotEq, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) OrNotEq(field string, values interface{}) Condition <span class="cov0" title="0">{
+        condition := CndFull(Or, field, NotEq, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) In(field string, values ...interface{}) Condition <span class="cov8" title="1">{
+        condition := Cnd(field, In, UnZipSlice(values)...)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) OrIn(field string, values ...interface{}) Condition <span class="cov0" title="0">{
+        condition := CndFull(Or, field, NotEq, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) NotIn(field string, values ...interface{}) Condition <span class="cov0" title="0">{
+        condition := Cnd(field, NotIn, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) OrNotIn(field string, values ...interface{}) Condition <span class="cov0" title="0">{
+        condition := CndFull(Or, field, NotIn, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) Like(field string, values interface{}) Condition <span class="cov0" title="0">{
+        condition := Cnd(field, Like, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) OrLike(field string, values interface{}) Condition <span class="cov0" title="0">{
+        condition := CndFull(Or, field, Like, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) LikeIgnoreStart(field string, values interface{}) Condition <span class="cov0" title="0">{
+        condition := Cnd(field, LikeIgnoreStart, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) OrLikeIgnoreStart(field string, values interface{}) Condition <span class="cov0" title="0">{
+        condition := CndFull(Or, field, LikeIgnoreStart, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) LikeIgnoreEnd(field string, values interface{}) Condition <span class="cov0" title="0">{
+        condition := Cnd(field, Like, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) IsNull(filed string) Condition <span class="cov0" title="0">{
+        condition := Cnd(filed, IsNull, nil)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) IsNotNull(filed string) Condition <span class="cov0" title="0">{
+        condition := Cnd(filed, IsNotNull, nil)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) OrLikeIgnoreEnd(field string, values interface{}) Condition <span class="cov0" title="0">{
+        condition := CndFull(Or, field, LikeIgnoreEnd, values)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) And1(condition Condition) Condition <span class="cov0" title="0">{
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        cc.linker = And
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) And(field string, operation Operation, values ...interface{}) Condition <span class="cov8" title="1">{
+        cc := Cnd(field, operation, values...).(*ConditionImpl)
+        cc.depth = c.depth + 1
+        cc.linker = And
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) And2(rawExpresssion string, values ...interface{}) Condition <span class="cov0" title="0">{
+        condition := CndRaw(rawExpresssion, values...)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        cc.linker = Or
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) Or(condition Condition) Condition <span class="cov8" title="1">{
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        cc.linker = Or
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *ConditionImpl) Or2(rawExpresssion string, values ...interface{}) Condition <span class="cov0" title="0">{
+        condition := CndRaw(rawExpresssion, values...)
+        cc := condition.(*ConditionImpl)
+        cc.depth = c.depth + 1
+        cc.linker = Or
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func CndEq(field string, values interface{}) Condition <span class="cov0" title="0">{
+        return &amp;ConditionImpl{
+                0,
+                And,
+                field,
+                Eq,
+                []interface{}{values},
+                nil,
+                "",
+                true,
+        }
+}</span>
+func CndNotEq(field string, values interface{}) Condition <span class="cov0" title="0">{
+        return &amp;ConditionImpl{
+                0,
+                And,
+                field,
+                NotEq,
+                []interface{}{values},
+                nil,
+                "",
+                true,
+        }
+}</span>
+
+func Cnd(field string, operation Operation, values ...interface{}) Condition <span class="cov8" title="1">{
+        return &amp;ConditionImpl{
+                0,
+                And,
+                field,
+                operation,
+                values,
+                nil,
+                "",
+                true,
+        }
+}</span>
+func CndRaw(rawExpresssion string, values ...interface{}) Condition <span class="cov8" title="1">{
+        return &amp;ConditionImpl{depth: 0, linker: And, rawExpression: rawExpresssion, values: values, operation: OperationCustom1, enable: true}
+}</span>
+func CndFull(linker Linker, field string, operation Operation, values ...interface{}) Condition <span class="cov0" title="0">{
+        return &amp;ConditionImpl{
+                0,
+                linker,
+                field,
+                operation,
+                values,
+                nil,
+                "",
+                true,
+        }
+}</span>
+</pre>
+		
+		<pre class="file" id="file7" style="display: none">package structs
+
+import (
+        "database/sql"
+        "reflect"
+        "time"
+)
+
+var dataTransferCache = make(map[string]DataTransfer)
+
+type DataTransfer struct {
+        scanners []interface{}
+        columns  []string
+        dataIdx  []int
+        model    StructModel
+}
+
+func (dd DataTransfer) Model() StructModel <span class="cov8" title="1">{
+        return dd.model
+}</span>
+
+func (dd DataTransfer) GetValueOfTableRow(rows *sql.Rows) reflect.Value <span class="cov8" title="1">{
+        model := dd.model
+        rows.Scan(dd.scanners...)
+        vv := reflect.New(model.Type).Elem()
+        isStruct := model.Type.Kind() == reflect.Struct &amp;&amp; model.Type != reflect.TypeOf(time.Time{})
+        for _, idx := range dd.dataIdx </span><span class="cov8" title="1">{
+                c := model.ColumnMap[dd.columns[idx]]
+
+                scanner := dd.scanners[idx].(IScanner)
+                result, _ := scanner.Value()
+                if isStruct </span><span class="cov8" title="1">{
+                        if reflect.Indirect(reflect.ValueOf(scanner)).Type() == c.Type </span><span class="cov0" title="0">{
+                                //如果列本身就是IScanner的话，那么直接赋值
+                                vv.FieldByName(c.FieldName).Set(reflect.Indirect(reflect.ValueOf(scanner)))
+                        }</span> else<span class="cov8" title="1"> {
+                                vv.FieldByName(c.FieldName).Set(reflect.Indirect(reflect.ValueOf(result)))
+                        }</span>
+                } else<span class="cov0" title="0"> {
+                        //如果对象本身就是一个基础类型，那么直接赋值
+                        vv.Set(reflect.Indirect(reflect.ValueOf(result)))
+                }</span>
+        }
+        <span class="cov8" title="1">return vv</span>
+}
+
+//key是查询类sql自动生成的md5校验值,即相同的sql就会有相同的key值,key+tableModel指定唯一一个datatransfer
+func GetDataTransfer(key string, columns []string, model StructModel) DataTransfer <span class="cov8" title="1">{
+        //将结果集的列和model的列做拟合的时候,必然会存在表列和columns不一致的情况.这个时候需要我们创造一个DataTransfer,Data,并且将datatransfer缓存到静态map中,后续直接从map中取用,无需再次优化
+        dd, ok := dataTransferCache[key+"_"+model.Type.Name()]
+        if !ok </span><span class="cov8" title="1">{
+                //手工初始化
+                var scanners []interface{}
+                var dataIdx []int
+                for i, col := range columns </span><span class="cov8" title="1">{
+                        var scanner IScanner
+                        cc, ok := model.ColumnMap[col]
+                        if ok </span><span class="cov8" title="1">{
+                                dataIdx = append(dataIdx, i)
+                                scanner = GetValueOfType(cc)
+                        }</span> else<span class="cov8" title="1"> {
+                                scanner = EmptyScanner()
+                        }</span>
+                        <span class="cov8" title="1">scanners = append(scanners, scanner)</span>
+                }
+                <span class="cov8" title="1">dd = DataTransfer{scanners: scanners, columns: columns, model: model, dataIdx: dataIdx}
+                dataTransferCache[key+"_"+model.Type.Name()] = dd</span>
+        }
+        <span class="cov8" title="1">return dd</span>
+}
+</pre>
+		
+		<pre class="file" id="file8" style="display: none">package structs
+
+import (
+        "encoding/binary"
+        "math"
+        "strconv"
+        "time"
+)
+
+func Stringfrombytes(data []byte) string <span class="cov0" title="0">{
+        return string(data)
+}</span>
+func Float32fromString(data string) (float32, error) <span class="cov0" title="0">{
+        var f float64
+        f, err := strconv.ParseFloat(data, 32)
+        return float32(f), err
+}</span>
+func Float64fromString(data string) (float64, error) <span class="cov0" title="0">{
+        var f float64
+        f, err := strconv.ParseFloat(data, 64)
+        return f, err
+}</span>
+func IntfromString(data string) (int, error) <span class="cov0" title="0">{
+        return strconv.Atoi(data)
+}</span>
+
+func Int8fromString(data string) (int8, error) <span class="cov0" title="0">{
+        result, err := IntfromString(data)
+        return int8(result), err
+}</span>
+func Int16fromString(data string) (int16, error) <span class="cov0" title="0">{
+        result, err := IntfromString(data)
+        return int16(result), err
+}</span>
+func Int32fromString(data string) (int32, error) <span class="cov8" title="1">{
+        i, er := strconv.ParseInt(data, 10, 32)
+        if er != nil </span><span class="cov0" title="0">{
+                return 0, er
+        }</span>
+        <span class="cov8" title="1">return int32(i), nil</span>
+
+}
+func Int64fromString(data string) (int64, error) <span class="cov8" title="1">{
+        return strconv.ParseInt(data, 10, 64)
+}</span>
+func UInt8fromString(data string) (uint8, error) <span class="cov0" title="0">{
+        result, err := IntfromString(data)
+        return uint8(result), err
+}</span>
+func UInt16fromString(data string) (uint16, error) <span class="cov0" title="0">{
+        result, err := IntfromString(data)
+        return uint16(result), err
+}</span>
+func UInt32fromString(data string) (uint32, error) <span class="cov0" title="0">{
+        result, err := IntfromString(data)
+        return uint32(result), err
+}</span>
+func UIntfromString(data string) (uint, error) <span class="cov0" title="0">{
+        result, err := IntfromString(data)
+        return uint(result), err
+}</span>
+func UInt64fromString(data string) (uint64, error) <span class="cov0" title="0">{
+        result, err := IntfromString(data)
+        return uint64(result), err
+}</span>
+func TimeFromString(data string) (time.Time, error) <span class="cov0" title="0">{
+        TimeFormat := "2006-01-02 03:04:05"
+        return time.ParseInLocation(TimeFormat, data, time.Local)
+}</span>
+
+func Float64fromBytes(bytes []byte) float64 <span class="cov0" title="0">{
+        float, _ := strconv.ParseFloat(string(bytes), 64)
+        return float
+}</span>
+
+func Float64ToBytes(float float64) []byte <span class="cov0" title="0">{
+        bits := math.Float64bits(float)
+        bytes := make([]byte, 8)
+        binary.LittleEndian.PutUint64(bytes, bits)
+        return bytes
+}</span>
+func Float32fromBytes(bytes []byte) float32 <span class="cov0" title="0">{
+        float, _ := strconv.ParseFloat(string(bytes), 32)
+        return float32(float)
+}</span>
+func Float32ToBytes(float float32) []byte <span class="cov0" title="0">{
+        bits := math.Float32bits(float)
+        bytes := make([]byte, 8)
+        binary.LittleEndian.PutUint32(bytes, bits)
+        return bytes
+}</span>
+func Int64ToBytes(i int64) []byte <span class="cov0" title="0">{
+        var buf = make([]byte, 8)
+        binary.BigEndian.PutUint64(buf, uint64(i))
+        return buf
+}</span>
+
+func Int64FromBytes(buf []byte) int64 <span class="cov8" title="1">{
+        if len(buf) == 8 </span><span class="cov0" title="0">{
+                return int64(binary.BigEndian.Uint64(buf))
+        }</span>
+        <span class="cov8" title="1">r, _ := Int64fromString(string(buf))
+        return r</span>
+}
+func Int32FromBytes(buf []byte) int32 <span class="cov8" title="1">{
+        if len(buf) == 4 </span><span class="cov8" title="1">{
+                return int32(binary.BigEndian.Uint32(buf))
+        }</span>
+        <span class="cov8" title="1">r, _ := Int32fromString(string(buf))
+        return r</span>
+}
+</pre>
+		
+		<pre class="file" id="file9" style="display: none">package structs
+
+import (
+        "database/sql/driver"
+        "errors"
+        "strconv"
+        "time"
+)
+
+type ScanFunc func(src interface{}) (interface{}, error)
+
+type IScanner interface {
+        Value() (driver.Value, error)
+        Scan(src interface{}) error
+}
+
+type ScannerImpl struct {
+        Object driver.Value
+        ScanFunc
+}
+
+func (scanner *ScannerImpl) Scan(src interface{}) error <span class="cov8" title="1">{
+        result, error := scanner.ScanFunc(src)
+        if error != nil </span><span class="cov0" title="0">{
+                return error
+        }</span>
+        <span class="cov8" title="1">scanner.Object = result
+        return nil</span>
+}
+func (scanner ScannerImpl) Value() (driver.Value, error) <span class="cov8" title="1">{
+        return scanner.Object, nil
+}</span>
+func EmptyScanner() IScanner <span class="cov8" title="1">{
+        return &amp;ScannerImpl{0, func(src interface{}) (interface{}, error) </span><span class="cov8" title="1">{
+                return nil, nil
+        }</span>}
+}
+
+func StringScan(src interface{}) (interface{}, error) <span class="cov8" title="1">{
+        var result = ""
+        var err error
+        switch src.(type) </span>{
+        case string:<span class="cov0" title="0">
+                result = src.(string)</span>
+        case []byte:<span class="cov8" title="1">
+                result = string(src.([]byte))</span>
+        case time.Time:<span class="cov0" title="0">
+                result = src.(time.Time).String()</span>
+        }
+        <span class="cov8" title="1">return result, err</span>
+}
+func Int64Scan(src interface{}) (interface{}, error) <span class="cov8" title="1">{
+        var result int64 = 0
+        var err error
+        switch src.(type) </span>{
+        case int, int32, int64:<span class="cov8" title="1">
+                result = src.(int64)</span>
+        case string:<span class="cov0" title="0">
+                result, _ = Int64fromString(src.(string))</span>
+        case []uint8:<span class="cov8" title="1">
+                result = Int64FromBytes(src.([]byte))</span>
+        case time.Time:<span class="cov0" title="0">
+                result = src.(time.Time).Unix()</span>
+        }
+        <span class="cov8" title="1">return result, err</span>
+
+}
+func Int32Scan(src interface{}) (interface{}, error) <span class="cov8" title="1">{
+        var result int = 0
+        switch src.(type) </span>{
+        case string:<span class="cov0" title="0">
+                result, _ = IntfromString(src.(string))</span>
+        case int, int32:<span class="cov0" title="0">
+                result = src.(int)</span>
+        case int64:<span class="cov8" title="1">
+                result = int(src.(int64))</span>
+        case []byte:<span class="cov8" title="1">
+                result = int(Int32FromBytes(src.([]byte)))</span>
+        case time.Time:<span class="cov0" title="0">
+                result = int(src.(time.Time).Unix())</span>
+        }
+        <span class="cov8" title="1">return result, nil</span>
+}
+func Float32Scan(src interface{}) (interface{}, error) <span class="cov0" title="0">{
+        var result float32 = 0
+        var err error
+        switch src.(type) </span>{
+        case string:<span class="cov0" title="0">
+                result, _ = Float32fromString(src.(string))</span>
+        case []byte:<span class="cov0" title="0">
+                result = Float32fromBytes(src.([]byte))</span>
+        case time.Time:<span class="cov0" title="0">
+                err = errors.New("can't parse time.Time to float32")</span>
+        case float64:<span class="cov0" title="0">
+                result = float32(src.(float64))</span>
+        case float32:<span class="cov0" title="0">
+                result = src.(float32)</span>
+        }
+        <span class="cov0" title="0">return result, err</span>
+
+}
+func Float64Scan(src interface{}) (interface{}, error) <span class="cov0" title="0">{
+        var result float64 = 0
+        switch src.(type) </span>{
+        case string:<span class="cov0" title="0">
+                result, _ = Float64fromString(src.(string))</span>
+        case []byte:<span class="cov0" title="0">
+                result = Float64fromBytes(src.([]byte))</span>
+        case time.Time:<span class="cov0" title="0">
+                result = float64(src.(time.Time).Unix())</span>
+        case float32:<span class="cov0" title="0">
+                result = float64(src.(float32))</span>
+        case float64:<span class="cov0" title="0">
+                result = src.(float64)</span>
+        }
+        <span class="cov0" title="0">return result, nil</span>
+
+}
+func ByteArrayScan(src interface{}) (interface{}, error) <span class="cov0" title="0">{
+        var result = []byte{}
+        switch src.(type) </span>{
+        case string:<span class="cov0" title="0">
+                result = []byte(src.(string))</span>
+        case []byte:<span class="cov0" title="0">
+                result = src.([]byte)</span>
+        case time.Time:<span class="cov0" title="0">
+                result = Int64ToBytes(src.(time.Time).Unix())</span>
+        }
+        <span class="cov0" title="0">return result, nil</span>
+
+}
+func TimeScan(src interface{}) (interface{}, error) <span class="cov8" title="1">{
+        var result = time.Time{}
+        switch src.(type) </span>{
+        case string:<span class="cov0" title="0">
+                result, _ = TimeFromString(src.(string))</span>
+        case []byte:<span class="cov0" title="0">
+                result = time.Unix(Int64FromBytes(src.([]byte)), 0)</span>
+        case time.Time:<span class="cov8" title="1">
+                result = src.(time.Time)</span>
+        }
+        <span class="cov8" title="1">return result, nil</span>
+
+}
+func BoolScan(src interface{}) (interface{}, error) <span class="cov0" title="0">{
+        var result = false
+        var err error
+        switch src.(type) </span>{
+        case string:<span class="cov0" title="0">
+                result, _ = strconv.ParseBool(src.(string))</span>
+        case []byte:<span class="cov0" title="0">
+                temp := Int64FromBytes(src.([]byte))
+                result = temp &gt; 0</span>
+        case time.Time:<span class="cov0" title="0">
+                err = errors.New("can't parse time.Time to Boolean")</span>
+        }
+        <span class="cov0" title="0">return result, err</span>
+
+}
+</pre>
+		
+		<pre class="file" id="file10" style="display: none">package structs
+
+import (
+        "reflect"
+        "strings"
+)
+
+var Debug bool
+
+type SqlProto struct {
+        Sql  string
+        Data []interface{}
+}
+type DefaultStruct struct {
+        Defaults string
+}
+
+type TableModel struct {
+        Table   string
+        Columns []string
+        Data    map[string]interface{}
+        Condition
+        OrderBys []OrderBy
+        Page
+}
+
+type GenerateSQLFunc func(model ...TableModel) []SqlProto
+type SqlFactory interface {
+        GetSqlFunc(sqlType SqlType) GenerateSQLFunc
+        ConditionToSql(condition Condition) (string, []interface{})
+}
+
+type OrderType int
+
+type SqlType int
+
+const (
+        _ SqlType = iota
+        Query
+        Insert
+        Update
+        Delete
+)
+
+const (
+        _ OrderType = iota
+        Asc
+        Desc
+)
+
+type OrderBy interface {
+        Name() string
+        Type() OrderType
+}
+
+type OrderByImpl struct {
+        name      string
+        orderType OrderType
+}
+
+func MakeOrderBy(name string, orderType OrderType) OrderBy <span class="cov8" title="1">{
+        return OrderByImpl{name, orderType}
+}</span>
+func (o OrderByImpl) Name() string <span class="cov8" title="1">{
+        return o.name
+}</span>
+func (o OrderByImpl) Type() OrderType <span class="cov8" title="1">{
+        return o.orderType
+}</span>
+
+type Page interface {
+        Page() (int, int)
+}
+
+type PageImpl struct {
+        index int
+        size  int
+}
+
+func MakePage(index int, size int) Page <span class="cov8" title="1">{
+        return PageImpl{index, size}
+}</span>
+
+func (p PageImpl) Page() (int, int) <span class="cov8" title="1">{
+        return p.index, p.size
+}</span>
+
+type CountResult struct {
+        Count int64
+        Error error
+}
+type Table interface {
+        TableName() string
+}
+
+type StructModel struct {
+        Type            reflect.Type
+        Value           reflect.Value
+        TableName       string
+        ColumnNames     []string
+        ColumnMap       map[string]Column
+        Primary         Column
+        HasColumnFilter bool
+        DataMap         map[string]interface{}
+}
+
+func (this StructModel) Clone(value reflect.Value, columnFilters ...string) StructModel <span class="cov8" title="1">{
+        var names []string
+        var hasColumnFilter = false
+        if len(columnFilters) &gt; 0 </span><span class="cov8" title="1">{
+                hasColumnFilter = true
+                for _, col := range columnFilters </span><span class="cov8" title="1">{
+                        _, ok := this.ColumnMap[col]
+                        if !ok </span><span class="cov0" title="0">{
+                                col = CamelToSnakeString(col)
+                                _, ok = this.ColumnMap[col]
+                        }</span>
+                        <span class="cov8" title="1">if ok </span><span class="cov8" title="1">{
+                                names = append(names, col)
+                        }</span>
+                }
+        } else<span class="cov8" title="1"> {
+                names = this.ColumnNames
+        }</span>
+        <span class="cov8" title="1">return StructModel{this.Type, value, this.TableName, names, this.ColumnMap, this.Primary, hasColumnFilter, nil}</span>
+}
+func (model StructModel) ColumnsValues() []interface{} <span class="cov0" title="0">{
+        var datas []interface{}
+        for _, name := range model.ColumnNames </span><span class="cov0" title="0">{
+                column := model.ColumnMap[name]
+                var data interface{}
+                value := model.Value.FieldByName(column.FieldName)
+                if !column.Auto </span><span class="cov0" title="0">{
+                        scanner, ok := value.Interface().(IScanner)
+                        if ok </span><span class="cov0" title="0">{
+                                data, _ = scanner.Value()
+                        }</span> else<span class="cov0" title="0"> {
+                                data = value.Interface()
+                        }</span>
+                        <span class="cov0" title="0">datas = append(datas, data)</span>
+                }
+        }
+        <span class="cov0" title="0">return datas</span>
+}
+
+type Column struct {
+        reflect.Type
+        ColumnName string
+        FieldName  string
+        IsPrimary  bool
+        Auto       bool
+}
+
+func (this Column) Clone() Column <span class="cov0" title="0">{
+        return Column{this.Type, this.ColumnName, this.FieldName, this.IsPrimary, this.Auto}
+}</span>
+
+func (mo StructModel) InsertValues() []interface{} <span class="cov0" title="0">{
+        var interfaces []interface{}
+        results := reflect.Indirect(reflect.ValueOf(&amp;interfaces))
+        for _, name := range mo.ColumnNames </span><span class="cov0" title="0">{
+                if !mo.Primary.Auto || !strings.EqualFold(mo.Primary.ColumnName, name) </span><span class="cov0" title="0">{
+                        vars := reflect.ValueOf(mo.Value.FieldByName(mo.ColumnMap[name].FieldName).Interface())
+                        if results.Kind() == reflect.Ptr </span><span class="cov0" title="0">{
+                                results.Set(reflect.Append(results, vars.Addr()))
+                        }</span> else<span class="cov0" title="0"> {
+                                results.Set(reflect.Append(results, vars))
+                        }</span>
+                }
+
+        }
+        <span class="cov0" title="0">return interfaces</span>
+}
+func (m StructModel) GetPrimary() reflect.Value <span class="cov8" title="1">{
+        return m.Value.FieldByName(m.Primary.FieldName)
+}</span>
+func (m StructModel) GetPrimaryCondition() Condition <span class="cov8" title="1">{
+        if m.Value.Kind() != reflect.Struct </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">if IsEmpty(m.GetPrimary()) || m.Primary.IsPrimary == false </span><span class="cov0" title="0">{
+                return nil
+        }</span> else<span class="cov8" title="1"> {
+                v := m.GetPrimary()
+                return Cnd(m.Primary.ColumnName, Eq, v.Interface())
+        }</span>
+}
+</pre>
+		
+		<pre class="file" id="file11" style="display: none">package structs
+
+import (
+        "crypto/md5"
+        "encoding/hex"
+        "errors"
+        "fmt"
+        "gom/err"
+        "reflect"
+        "runtime"
+        "strconv"
+        "strings"
+        "sync"
+        "time"
+)
+
+func IsEmpty(v interface{}) bool <span class="cov8" title="1">{
+        times := time.Time{}
+        if times == v </span><span class="cov0" title="0">{
+                return true
+        }</span>
+        <span class="cov8" title="1">if v == "" </span><span class="cov0" title="0">{
+                return true
+        }</span>
+        <span class="cov8" title="1">if v == 0 </span><span class="cov0" title="0">{
+                return true
+        }</span>
+        <span class="cov8" title="1">if v == 0.0 </span><span class="cov0" title="0">{
+                return true
+        }</span>
+        <span class="cov8" title="1">if v == nil </span><span class="cov0" title="0">{
+                return true
+        }</span>
+        <span class="cov8" title="1">return false</span>
+}
+func GetType(v interface{}) (reflect.Type, bool, bool) <span class="cov8" title="1">{
+        tt := reflect.TypeOf(v)
+        isPtr := false
+        islice := false
+        if tt.Kind() == reflect.Ptr </span><span class="cov8" title="1">{
+                tt = tt.Elem()
+                isPtr = true
+        }</span>
+        <span class="cov8" title="1">if tt.Kind() == reflect.Slice || tt.Kind() == reflect.Array </span><span class="cov8" title="1">{
+                tt = tt.Elem()
+                islice = true
+        }</span>
+        <span class="cov8" title="1">if Debug </span><span class="cov8" title="1">{
+                fmt.Println("Test GetType, result:", tt, isPtr, islice)
+        }</span>
+        <span class="cov8" title="1">return tt, isPtr, islice</span>
+}
+
+var mutex sync.Mutex
+var tableModelCache map[string]StructModel
+
+func GetStructModel(v interface{}, choosedColumns ...string) (StructModel, error) <span class="cov8" title="1">{
+        //防止重复创建map，需要对map创建过程加锁
+        mutex.Lock()
+        if tableModelCache == nil </span><span class="cov8" title="1">{
+                tableModelCache = make(map[string]StructModel)
+        }</span>
+        <span class="cov8" title="1">mutex.Unlock()
+        tt, isPtr, isSlice := GetType(v)
+        _, hasTable := reflect.New(tt).Interface().(Table)
+        tableName := CamelToSnakeString(tt.Name())
+        if hasTable </span><span class="cov8" title="1">{
+                tableName = reflect.New(tt).Interface().(Table).TableName()
+        }</span>
+        <span class="cov8" title="1">if tt.Kind() != reflect.Struct || (tt.Kind() == reflect.Struct &amp;&amp; tt.NumField() == 0) </span><span class="cov0" title="0">{
+                return StructModel{}, errors.New(tt.Name() + " is not a valid structs")
+        }</span>
+
+        <span class="cov8" title="1">if v != nil &amp;&amp; tt.Kind() != reflect.Interface </span><span class="cov8" title="1">{
+                dstValue := reflect.ValueOf(v)
+                if isPtr </span><span class="cov8" title="1">{
+                        dstValue = dstValue.Elem()
+                }</span>
+
+                <span class="cov8" title="1">if Debug </span><span class="cov8" title="1">{
+                        fmt.Println("model info:", tt, isPtr, isSlice, dstValue)
+                }</span>
+                <span class="cov8" title="1">var model StructModel
+                cachedModel, ok := tableModelCache[tt.String()]
+                if ok </span><span class="cov8" title="1">{
+                        model = cachedModel.Clone(dstValue, choosedColumns...)
+                }</span> else<span class="cov8" title="1"> {
+                        tempVal := dstValue
+                        if isSlice </span><span class="cov8" title="1">{
+                                tempVal = reflect.Indirect(reflect.New(tt))
+                        }</span>
+                        <span class="cov8" title="1">columnNames, columnMap, primary := getColumns(tempVal)
+                        temp := StructModel{Type: tt, Value: tempVal, ColumnNames: columnNames, ColumnMap: columnMap, TableName: tableName, Primary: primary}
+                        tableModelCache[tt.String()] = temp
+                        model = temp.Clone(dstValue, choosedColumns...)</span>
+                }
+                <span class="cov8" title="1">return model, nil</span>
+
+        } else<span class="cov0" title="0"> {
+                return StructModel{}, errors.New("can't use interface")
+        }</span>
+}
+
+func getColumns(v reflect.Value) ([]string, map[string]Column, Column) <span class="cov8" title="1">{
+        var columnNames []string
+        columnMap := make(map[string]Column)
+        var primary Column
+        oo := v.Type()
+        for i := 0; i &lt; oo.NumField(); i++ </span><span class="cov8" title="1">{
+                field := oo.Field(i)
+                col, tps := getColumnFromField(field)
+                if tps != -1 </span><span class="cov8" title="1">{
+                        columnMap[col.ColumnName] = col
+                        columnNames = append(columnNames, col.ColumnName)
+                        if tps == 1 || tps == 2 </span><span class="cov8" title="1">{
+                                primary = col
+                        }</span>
+                }
+        }
+        <span class="cov8" title="1">if Debug </span><span class="cov8" title="1">{
+                fmt.Println("columnMap is:", columnMap)
+        }</span>
+        <span class="cov8" title="1">return columnNames, columnMap, primary</span>
+}
+func Md5Text(str string) string <span class="cov8" title="1">{
+        h := md5.New()
+        h.Write([]byte(str))
+        return hex.EncodeToString(h.Sum(nil))
+}</span>
+func getColumnFromField(filed reflect.StructField) (Column, int) <span class="cov8" title="1">{
+        colName, tps := getColumnNameAndTypeFromField(filed)
+        if Debug </span><span class="cov8" title="1">{
+                fmt.Println("Tag is:", colName, "type is:", tps)
+        }</span>
+        <span class="cov8" title="1">v := reflect.New(filed.Type)
+        if v.Kind() == reflect.Ptr </span><span class="cov8" title="1">{
+                v = v.Elem()
+        }</span>
+        <span class="cov8" title="1">if tps != -1 </span><span class="cov8" title="1">{
+                return Column{Type: v.Type(), ColumnName: colName, FieldName: filed.Name, Auto: tps == 2, IsPrimary: tps == 1 || tps == 2}, tps
+        }</span> else<span class="cov8" title="1"> {
+                return Column{}, -1
+        }</span>
+
+}
+func getColumnNameAndTypeFromField(field reflect.StructField) (string, int) <span class="cov8" title="1">{
+        tag, hasTag := field.Tag.Lookup("gom")
+        if !hasTag </span><span class="cov8" title="1">{
+                tag = CamelToSnakeString(field.Name)
+        }</span>
+        <span class="cov8" title="1">if strings.EqualFold(tag, "-") </span><span class="cov8" title="1">{
+                return "", -1
+        }</span> else<span class="cov8" title="1"> if len(tag) == 1 </span><span class="cov8" title="1">{
+                tps := 0
+                if strings.EqualFold(tag, "@") </span><span class="cov8" title="1">{
+                        tps = 2
+                }</span>
+                <span class="cov8" title="1">if strings.EqualFold(tag, "!") </span><span class="cov8" title="1">{
+                        tps = 1
+                }</span>
+                <span class="cov8" title="1">return CamelToSnakeString(field.Name), tps</span>
+        } else<span class="cov8" title="1"> {
+                if strings.Contains(tag, ",") </span><span class="cov8" title="1">{
+                        tags := strings.Split(tag, ",")
+                        if len(tags) == 2 </span><span class="cov8" title="1">{
+                                if strings.EqualFold(tags[0], "!") || strings.EqualFold(tags[0], "primary") </span><span class="cov0" title="0">{
+                                        return tags[1], 1
+                                }</span> else<span class="cov8" title="1"> if strings.EqualFold(tags[0], "@") || strings.EqualFold(tags[0], "auto") </span><span class="cov8" title="1">{
+                                        return tags[1], 2
+                                }</span> else<span class="cov8" title="1"> if strings.EqualFold(tags[0], "#") || strings.EqualFold(tags[0], "column") </span><span class="cov8" title="1">{
+                                        return tags[1], 0
+                                }</span> else<span class="cov0" title="0"> {
+                                        return "", -1
+                                }</span>
+                        } else<span class="cov0" title="0"> {
+                                return "", -1
+                        }</span>
+                } else<span class="cov8" title="1"> {
+                        return tag, 0
+                }</span>
+        }
+}
+func ModelToMap(model StructModel) (map[string]interface{}, []string, error) <span class="cov8" title="1">{
+        maps := make(map[string]interface{})
+        var keys []string
+
+        for _, col := range model.ColumnNames </span><span class="cov8" title="1">{
+                vv := model.Value.FieldByName(model.ColumnMap[col].FieldName)
+                result := vv.Interface()
+                ignore := false
+                switch result.(type) </span>{
+                case time.Time:<span class="cov8" title="1">
+                        if !model.HasColumnFilter &amp;&amp; vv.Interface().(time.Time).IsZero() </span><span class="cov8" title="1">{
+                                ignore = true
+                        }</span>
+                default:<span class="cov8" title="1">
+                        if !model.HasColumnFilter &amp;&amp; vv.IsZero() </span><span class="cov8" title="1">{
+                                ignore = true
+                        }</span>
+                }
+                <span class="cov8" title="1">if !ignore </span><span class="cov8" title="1">{
+                        keys = append(keys, col)
+                        maps[col] = result
+                }</span>
+        }
+
+        <span class="cov8" title="1">return maps, keys, nil</span>
+}
+func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, []string, error) <span class="cov8" title="1">{
+        t, _, isSlice := GetType(vs)
+        if isSlice </span><span class="cov8" title="1">{
+                return nil, nil, err.Error("can't convert slice or array to map")
+        }</span>
+
+        <span class="cov8" title="1">if t.Kind() == reflect.Struct </span><span class="cov8" title="1">{
+                model, err := GetStructModel(vs, columns...)
+                if err != nil </span><span class="cov0" title="0">{
+                        panic(err)</span>
+                }
+                <span class="cov8" title="1">return ModelToMap(model)</span>
+        }
+        <span class="cov8" title="1">return nil, nil, err.Error(fmt.Sprintf("can't convert %s to map", t.Name()))</span>
+
+}
+func StructToCondition(vs interface{}, columns ...string) Condition <span class="cov8" title="1">{
+        maps, _, err := StructToMap(vs, columns...)
+        if err != nil </span><span class="cov0" title="0">{
+                panic(err)</span>
+        }
+        <span class="cov8" title="1">return MapToCondition(maps)</span>
+}
+func MapToCondition(maps map[string]interface{}) Condition <span class="cov8" title="1">{
+        var cnd Condition
+        for k, v := range maps </span><span class="cov8" title="1">{
+                t := reflect.TypeOf(v)
+                if t.Kind() == reflect.Ptr </span><span class="cov0" title="0">{
+                        t = t.Elem()
+                }</span>
+                <span class="cov8" title="1">if (t.Kind() != reflect.Struct &amp;&amp; t.Kind() != reflect.Slice) || t.Kind() == reflect.TypeOf(time.Now()).Kind() </span><span class="cov8" title="1">{
+                        value := v
+                        //if t.Kind() == reflect.TypeOf(time.Now()).Kind() {
+                        //        value = v.(time.Time).Format("2006-01-02 15:04:05")
+                        //}
+                        if cnd == nil </span><span class="cov8" title="1">{
+                                cnd = Cnd(k, Eq, value)
+                        }</span> else<span class="cov8" title="1"> {
+                                cnd.And(k, Eq, value)
+                        }</span>
+                }
+        }
+        <span class="cov8" title="1">return cnd</span>
+}
+func GetValueOfType(c Column) IScanner <span class="cov8" title="1">{
+        vs := reflect.New(c.Type)
+        scanner, ojbk := vs.Interface().(IScanner)
+        if ojbk </span><span class="cov0" title="0">{
+                return scanner
+        }</span>
+        <span class="cov8" title="1">vi := reflect.Indirect(vs)
+
+        switch vi.Interface().(type) </span>{
+        case int, int32:<span class="cov8" title="1">
+                return &amp;ScannerImpl{0, Int32Scan}</span>
+        case int64:<span class="cov8" title="1">
+                return &amp;ScannerImpl{int64(0), Int64Scan}</span>
+        case float32:<span class="cov0" title="0">
+                return &amp;ScannerImpl{float32(0), Float32Scan}</span>
+        case float64:<span class="cov0" title="0">
+                return &amp;ScannerImpl{float64(0), Float64Scan}</span>
+        case string:<span class="cov8" title="1">
+                return &amp;ScannerImpl{"", StringScan}</span>
+        case []byte:<span class="cov0" title="0">
+                return &amp;ScannerImpl{[]byte{}, ByteArrayScan}</span>
+        case time.Time:<span class="cov8" title="1">
+                return &amp;ScannerImpl{time.Time{}, TimeScan}</span>
+        case bool:<span class="cov0" title="0">
+                return &amp;ScannerImpl{false, BoolScan}</span>
+        default:<span class="cov0" title="0">
+                return EmptyScanner()</span>
+        }
+}
+func UnZipSlice(vs interface{}) []interface{} <span class="cov8" title="1">{
+        var result = make([]interface{}, 0)
+        t := reflect.TypeOf(vs)
+        isPtr := false
+        if t.Kind() == reflect.Ptr </span><span class="cov0" title="0">{
+                t = t.Elem()
+                isPtr = true
+        }</span>
+        <span class="cov8" title="1">if t.Kind() == reflect.Slice </span><span class="cov8" title="1">{
+                v := reflect.ValueOf(vs)
+                if isPtr </span><span class="cov0" title="0">{
+                        v = v.Elem()
+                }</span>
+                <span class="cov8" title="1">if v.Len() &gt; 0 </span><span class="cov8" title="1">{
+                        for i := 0; i &lt; v.Len(); i++ </span><span class="cov8" title="1">{ //m为上述切片
+                                item := v.Index(i)
+                                result = append(result, UnZipSlice(item.Interface())...)
+                        }</span>
+
+                }
+        } else<span class="cov8" title="1"> {
+                result = append(result, vs)
+        }</span>
+        <span class="cov8" title="1">return result</span>
+}
+func SliceToGroupSlice(vs interface{}) map[string][]interface{} <span class="cov8" title="1">{
+        result := make(map[string][]interface{})
+        slice := UnZipSlice(vs)
+        for _, v := range slice </span><span class="cov8" title="1">{
+                t := reflect.TypeOf(v).Name()
+                lst, ok := result[t]
+                if !ok </span><span class="cov8" title="1">{
+                        lst = make([]interface{}, 0)
+                }</span>
+                <span class="cov8" title="1">lst = append(lst, v)
+                result[t] = lst</span>
+        }
+        <span class="cov8" title="1">return result</span>
+}
+
+func GetGoid() int64 <span class="cov8" title="1">{
+        var (
+                buf [64]byte
+                n   = runtime.Stack(buf[:], false)
+                stk = strings.TrimPrefix(string(buf[:n]), "goroutine ")
+        )
+
+        idField := strings.Fields(stk)[0]
+        id, err := strconv.Atoi(idField)
+        if err != nil </span><span class="cov0" title="0">{
+                panic(fmt.Errorf("can not get goroutine id: %v", err))</span>
+        }
+
+        <span class="cov8" title="1">return int64(id)</span>
+}
+func Intersect(slice1, slice2 []string) []string <span class="cov8" title="1">{
+        m := make(map[string]int)
+        nn := make([]string, 0)
+        for _, v := range slice1 </span><span class="cov8" title="1">{
+                m[v]++
+        }</span>
+
+        <span class="cov8" title="1">for _, v := range slice2 </span><span class="cov8" title="1">{
+                times, _ := m[v]
+                if times == 1 </span><span class="cov8" title="1">{
+                        nn = append(nn, v)
+                }</span>
+        }
+        <span class="cov8" title="1">return nn</span>
+}
+func Difference(slice1, slice2 []string) []string <span class="cov8" title="1">{
+        m := make(map[string]int)
+        nn := make([]string, 0)
+        inter := Intersect(slice1, slice2)
+        for _, v := range inter </span><span class="cov8" title="1">{
+                m[v]++
+        }</span>
+
+        <span class="cov8" title="1">for _, value := range slice1 </span><span class="cov8" title="1">{
+                times, _ := m[value]
+                if times == 0 </span><span class="cov8" title="1">{
+                        nn = append(nn, value)
+                }</span>
+        }
+        <span class="cov8" title="1">return nn</span>
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>

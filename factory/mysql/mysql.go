@@ -2,9 +2,9 @@ package mysql
 
 import (
 	"errors"
-	"gitee.com/janyees/gom/register"
-	"gitee.com/janyees/gom/structs"
 	_ "github.com/go-sql-driver/mysql"
+	"gom/register"
+	"gom/structs"
 	"reflect"
 	"strings"
 )
@@ -125,20 +125,20 @@ func init() {
 			sql := "UPDATE "
 			sql += " " + model.Table + " SET "
 			i := 0
-			for k, v := range model.Data {
+			for _, k := range model.Columns {
 				if i == 0 {
 					sql += wrapperName(k) + " = ? "
 				} else {
 					sql += ", " + wrapperName(k) + " = ? "
 				}
-				datas = append(datas, v)
+				datas = append(datas, model.Data[k])
 				i++
 			}
 			cnds, dds := m.ConditionToSql(model.Condition)
 			if len(cnds) > 0 {
 				sql += " WHERE " + cnds + ";"
 			}
-			datas = append(datas, dds)
+			datas = append(datas, dds...)
 			result = append(result, structs.SqlProto{sql, datas})
 		}
 

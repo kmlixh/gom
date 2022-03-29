@@ -1,7 +1,7 @@
 package register
 
 import (
-	"gitee.com/janyees/gom/structs"
+	"gom/structs"
 	"sync"
 )
 

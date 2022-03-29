@@ -23,6 +23,7 @@ type TableModel struct {
 	OrderBys []OrderBy
 	Page
 }
+
 type GenerateSQLFunc func(model ...TableModel) []SqlProto
 type SqlFactory interface {
 	GetSqlFunc(sqlType SqlType) GenerateSQLFunc
@@ -93,22 +94,26 @@ type Table interface {
 }
 
 type StructModel struct {
-	Type        reflect.Type
-	Value       reflect.Value
-	TableName   string
-	ColumnNames []string
-	Columns     map[string]Column
-	Primary     Column
+	Type            reflect.Type
+	Value           reflect.Value
+	TableName       string
+	ColumnNames     []string
+	ColumnMap       map[string]Column
+	Primary         Column
+	HasColumnFilter bool
+	DataMap         map[string]interface{}
 }
 
 func (this StructModel) Clone(value reflect.Value, columnFilters ...string) StructModel {
 	var names []string
+	var hasColumnFilter = false
 	if len(columnFilters) > 0 {
+		hasColumnFilter = true
 		for _, col := range columnFilters {
-			_, ok := this.Columns[col]
+			_, ok := this.ColumnMap[col]
 			if !ok {
 				col = CamelToSnakeString(col)
-				_, ok = this.Columns[col]
+				_, ok = this.ColumnMap[col]
 			}
 			if ok {
 				names = append(names, col)
@@ -117,12 +122,12 @@ func (this StructModel) Clone(value reflect.Value, columnFilters ...string) Stru
 	} else {
 		names = this.ColumnNames
 	}
-	return StructModel{this.Type, value, this.TableName, names, this.Columns, this.Primary}
+	return StructModel{this.Type, value, this.TableName, names, this.ColumnMap, this.Primary, hasColumnFilter, nil}
 }
 func (model StructModel) ColumnsValues() []interface{} {
 	var datas []interface{}
 	for _, name := range model.ColumnNames {
-		column := model.Columns[name]
+		column := model.ColumnMap[name]
 		var data interface{}
 		value := model.Value.FieldByName(column.FieldName)
 		if !column.Auto {
@@ -155,7 +160,7 @@ func (mo StructModel) InsertValues() []interface{} {
 	results := reflect.Indirect(reflect.ValueOf(&interfaces))
 	for _, name := range mo.ColumnNames {
 		if !mo.Primary.Auto || !strings.EqualFold(mo.Primary.ColumnName, name) {
-			vars := reflect.ValueOf(mo.Value.FieldByName(mo.Columns[name].FieldName).Interface())
+			vars := reflect.ValueOf(mo.Value.FieldByName(mo.ColumnMap[name].FieldName).Interface())
 			if results.Kind() == reflect.Ptr {
 				results.Set(reflect.Append(results, vars.Addr()))
 			} else {

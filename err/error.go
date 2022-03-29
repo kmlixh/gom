@@ -1,6 +1,6 @@
 package err
 
-func New(msg string) error {
+func Error(msg string) error {
 	return Err{msg: msg}
 }
 

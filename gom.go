@@ -4,8 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"gitee.com/janyees/gom/register"
-	"gitee.com/janyees/gom/structs"
+	"gom/register"
+	"gom/structs"
 	"time"
 )
 

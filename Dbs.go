@@ -4,9 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"gitee.com/janyees/gom/structs"
+	"gom/structs"
 	"reflect"
-	"strings"
 )
 
 type DB struct {
@@ -20,7 +19,6 @@ type DB struct {
 	tx       *sql.Tx
 	orderBys *[]structs.OrderBy
 	page     *structs.Page
-	model    structs.StructModel
 }
 type TransactionWork func(databaseTx *DB) (int64, error)
 
@@ -90,20 +88,54 @@ func (db DB) Page(index int, pageSize int) DB {
 func (db DB) Count(columnName string) structs.CountResult {
 	db.CloneIfDifferentRoutine()
 	var countResult structs.CountResult
-	db.Select(&countResult, "count("+columnName+") as count")
+	colName := fmt.Sprintf("COUNT(%s) as count", columnName)
+	m := structs.StructModel{
+		Type:        reflect.TypeOf(countResult),
+		Value:       reflect.ValueOf(&countResult).Elem(),
+		TableName:   "",
+		ColumnNames: []string{colName},
+		ColumnMap: map[string]structs.Column{"count": {
+			Type:       reflect.TypeOf(int64(0)),
+			ColumnName: "count",
+			FieldName:  "Count",
+			IsPrimary:  false,
+			Auto:       false,
+		}},
+		Primary:         structs.Column{},
+		HasColumnFilter: false,
+		DataMap:         nil,
+	} //Select(&countResult, "SUM("+columnName+") as count")
+	db.SelectByModel(m)
 	return countResult
 }
 
 func (db DB) Sum(columnName string) structs.CountResult {
 	db.CloneIfDifferentRoutine()
 	var countResult structs.CountResult
-	db.Select(&countResult, "SUM("+columnName+") as count")
+	colName := fmt.Sprintf("SUM(%s) as count", columnName)
+	m := structs.StructModel{
+		Type:        reflect.TypeOf(countResult),
+		Value:       reflect.ValueOf(&countResult).Elem(),
+		TableName:   "",
+		ColumnNames: []string{colName},
+		ColumnMap: map[string]structs.Column{"count": {
+			Type:       reflect.TypeOf(int64(0)),
+			ColumnName: "count",
+			FieldName:  "Count",
+			IsPrimary:  false,
+			Auto:       false,
+		}},
+		Primary:         structs.Column{},
+		HasColumnFilter: false,
+		DataMap:         nil,
+	} //Select(&countResult, "SUM("+columnName+") as count")
+	db.SelectByModel(m)
 	return countResult
 }
 
 func (db DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 	db.CloneIfDifferentRoutine()
-	model, er := structs.GetStructModel(vs)
+	model, er := structs.GetStructModel(vs, columns...)
 	if er != nil {
 		panic(er)
 	}
@@ -111,50 +143,50 @@ func (db DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 }
 func (db DB) SelectByModel(model structs.StructModel) (interface{}, error) {
 	db.CloneIfDifferentRoutine()
-	db.model = model
 	if db.rawSql != nil && len(*db.rawSql) > 0 {
 		return db.query(*db.rawSql, *db.rawData, model)
 	} else {
 		selectFunc := db.factory.GetSqlFunc(structs.Query)
-		sqlProtos := selectFunc(structs.TableModel{Table: db.getTableName(), Columns: db.getQueryColumns(), Condition: db.getCnd(), OrderBys: db.getOrderBys(), Page: db.getPage()})
+		sqlProtos := selectFunc(structs.TableModel{Table: db.getTableName(model), Columns: getQueryColumns(model), Condition: db.getCnd(), OrderBys: db.getOrderBys(), Page: db.getPage()})
 		return db.query(sqlProtos[0].Sql, sqlProtos[0].Data, model)
 	}
 }
 func (db DB) First(vs interface{}) (interface{}, error) {
 	return db.Page(0, 1).Select(vs)
 }
-func (db DB) Update(vs interface{}, columns ...string) (int64, error) {
+func (db DB) Update(vs interface{}, columns ...string) (int64, int64, error) {
 	_, _, slice := structs.GetType(vs)
 	if slice && len(columns) > 0 {
-		panic(errors.New("can't update slice or array,please use UpdateMulti"))
+		return -1, -1, errors.New("can't update slice or array,please use UpdateMulti")
 	}
 	db.CloneIfDifferentRoutine()
 	return db.Execute(structs.Update, []interface{}{vs}, columns...)
 }
-func (db DB) UpdateMulti(vs ...interface{}) (int64, error) {
+func (db DB) UpdateMulti(vs ...interface{}) (int64, int64, error) {
 	return db.Execute(structs.Update, vs)
 }
-func (db DB) Insert(vs interface{}, columns ...string) (int64, error) {
+func (db DB) Insert(vs interface{}, columns ...string) (int64, int64, error) {
 	_, _, slice := structs.GetType(vs)
 	if slice && len(columns) > 0 {
-		panic(errors.New("can't Insert slice or array,please use UpdateMulti"))
+		return -1, -1, errors.New("can't Insert slice or array,please use UpdateMulti")
 	}
 	db.CloneIfDifferentRoutine()
 	return db.Execute(structs.Insert, []interface{}{vs}, columns...)
 }
 
-func (db DB) InsertMulti(vs ...interface{}) (int64, error) {
+func (db DB) InsertMulti(vs ...interface{}) (int64, int64, error) {
 	return db.Execute(structs.Insert, vs)
 }
-func (db DB) Delete(vs ...interface{}) (int64, error) {
+func (db DB) Delete(vs ...interface{}) (int64, int64, error) {
 	if len(vs) == 0 {
 		vs = append(vs, structs.DefaultStruct{})
 	}
 	db.CloneIfDifferentRoutine()
 	return db.Execute(structs.Delete, vs)
 }
-func (db DB) Execute(sqlType structs.SqlType, vs []interface{}, columns ...string) (int64, error) {
+func (db DB) Execute(sqlType structs.SqlType, vs []interface{}, columns ...string) (int64, int64, error) {
 	db.CloneIfDifferentRoutine()
+	var lastInsertId = int64(0)
 	genFunc := db.factory.GetSqlFunc(sqlType)
 	//此处应当判断是否已经在事物中，如果不在事务中才开启事物
 	count := int64(0)
@@ -164,13 +196,12 @@ func (db DB) Execute(sqlType structs.SqlType, vs []interface{}, columns ...strin
 			fmt.Println("Model Type was:", i, "slice counts:", len(v))
 		}
 		var models []structs.TableModel
-		for _, v := range vmap[i] {
-			structModel, er := structs.GetStructModel(v, columns...)
+		for _, vv := range vmap[i] {
+			structModel, er := structs.GetStructModel(vv, columns...)
 			if er != nil {
-				return 0, er
+				return 0, 0, er
 			}
-			db.model = structModel
-			models = append(models, db.genTableModel(sqlType, v, columns...))
+			models = append(models, db.genTableModel(sqlType, structModel))
 		}
 		sqlProtos := genFunc(models...)
 		cc := int64(0)
@@ -180,37 +211,69 @@ func (db DB) Execute(sqlType structs.SqlType, vs []interface{}, columns ...strin
 			}
 			rs, er := db.execute(sqlProto.Sql, sqlProto.Data...)
 			if er != nil {
-				return 0, er
+				return 0, 0, er
 			}
 			cs, err := rs.RowsAffected()
+			if cs == 1 && len(sqlProtos) == len(models) && sqlType == structs.Insert {
+				//
+				id, er := rs.LastInsertId()
+				if er == nil {
+					lastInsertId = id
+				}
+			}
 			if err != nil {
-				return cs, err
+				return cs, 0, err
 			}
 			cc += cs
 		}
 
 		count += cc
 	}
-	return count, nil
+	return count, lastInsertId, nil
+}
+func (db DB) lastInsertId() int64 {
+	result := int64(0)
+
+	return result
 }
 
-func (db DB) genTableModel(sqlType structs.SqlType, v interface{}, columns ...string) structs.TableModel {
+func (db DB) genTableModel(sqlType structs.SqlType, sm structs.StructModel) structs.TableModel {
 
 	//TODO 此处应当根据sql的类型生成对应类型的TableModel，如插入是所有，搜索是全部实体，而更新则需要将主键做条件，其他列作为更新值
-	if len(columns) == 0 {
-		switch sqlType {
-		case structs.Update:
-			columns = db.getUpdateColumns(columns...)
-		case structs.Insert:
-			columns = db.getInsertColumns(columns...)
-		}
+	var cols []string
+	switch sqlType {
+	case structs.Query:
+		cols = getQueryColumns(sm)
+	case structs.Update:
+		cols = getUpdateColumns(sm)
+	case structs.Insert:
+		cols = getInsertColumns(sm)
+	case structs.Delete:
+		cols = getDeleteColumns(sm)
 	}
-	maps, er := structs.StructToMap(v, columns...)
+	maps, _, er := structs.ModelToMap(sm)
 	if er != nil {
 		panic(er)
 	}
-	model := structs.TableModel{Table: db.getTableName(), Columns: columns, Data: maps, Condition: db.getCnd(), OrderBys: db.getOrderBys(), Page: db.getPage()}
-	return model
+	cnd := db.getCnd()
+	if cnd == nil {
+		cnd = sm.GetPrimaryCondition()
+		if cnd == nil {
+			panic("primary key was nil")
+		}
+	}
+	m := structs.TableModel{Table: db.getTableName(sm), Columns: cols, Data: maps, Condition: cnd, OrderBys: db.getOrderBys(), Page: db.getPage()}
+	return m
+}
+
+func getDeleteColumns(model structs.StructModel, columns ...string) []string {
+
+	if columns != nil && len(columns) > 0 {
+		nn := structs.Intersect(model.ColumnNames, columns)
+		nn = structs.Difference(nn, []string{model.Primary.ColumnName})
+		return nn
+	}
+	return model.ColumnNames
 }
 
 func (db DB) execute(sql string, data ...interface{}) (sql.Result, error) {
@@ -221,72 +284,50 @@ func (db DB) execute(sql string, data ...interface{}) (sql.Result, error) {
 	return st.Exec(data...)
 }
 
-func (db DB) getTableName() string {
+func (db DB) getTableName(model structs.StructModel) string {
 	if db.table == nil || len(*db.table) == 0 {
-		return db.model.TableName
+		return model.TableName
 	}
 	return *db.table
 }
-func (db DB) getQueryColumns() []string {
-	if db.cols != nil && len(*db.cols) > 0 {
-		return *db.cols
+func getQueryColumns(model structs.StructModel, columns ...string) []string {
+
+	if columns != nil && len(columns) > 0 {
+		return structs.Intersect(model.ColumnNames, columns)
 	}
-	return db.model.ColumnNames
+	return model.ColumnNames
 }
 
-func (db DB) getUpdateColumns(v interface{}, columns ...string) []string {
-	model, er := structs.GetStructModel(v, columns...)
-	if er != nil {
-		panic("get table model failed")
-	}
+func getUpdateColumns(model structs.StructModel, columns ...string) []string {
+	nn := model.ColumnNames
 	if columns != nil && len(columns) > 0 {
-		return columns
+		nn = structs.Intersect(nn, columns)
 	}
-	var cols []string
-	if db.cols != nil && len(*db.cols) > 0 {
-		cols = *db.cols
-	} else {
-		cols = db.model.ColumnNames
-	}
-	//del primary key
-	primary := db.model.Primary.ColumnName
-	var dst []string
-	for _, k := range cols {
-		if !strings.EqualFold(k, primary) {
-			dst = append(dst, k)
-		}
-	}
-	return dst
+	nn = structs.Difference(nn, []string{model.Primary.ColumnName})
+	return nn
 }
 func (db DB) getCnd() structs.Condition {
 	if db.cnd != nil && *db.cnd != nil {
 		return *db.cnd
 	}
-	return db.model.GetPrimaryCondition()
+	return nil
 }
-func (db DB) getInsertColumns(model structs.StructModel) []string {
-	var cols []string
-	if db.cols != nil && len(*db.cols) > 0 {
-		cols = *db.cols
-	} else {
-		cols = model.ColumnNames
+func getInsertColumns(model structs.StructModel, columns ...string) []string {
+	var cols = model.ColumnNames
+	if columns != nil && len(columns) > 0 {
+		cols = structs.Intersect(cols, columns)
 	}
 	if model.Primary.Auto {
-		return cols
-	} else {
 		//del primary key
-		primary := model.Primary.ColumnName
-		var dst []string
-		for _, k := range cols {
-			if !strings.EqualFold(k, primary) {
-				dst = append(dst, k)
-			}
-		}
-		return dst
+		cols = structs.Difference(cols, []string{model.Primary.ColumnName})
 	}
+	return cols
 }
 
 func (db DB) query(sql string, data []interface{}, model structs.StructModel) (interface{}, error) {
+	if Debug {
+		fmt.Println("Execute query,Sql:", sql, "data was:", data)
+	}
 	st, err := db.db.Prepare(sql)
 	defer st.Close()
 	if err != nil {
@@ -300,7 +341,7 @@ func (db DB) query(sql string, data []interface{}, model structs.StructModel) (i
 	columns, er := rows.Columns()
 	transfer := structs.GetDataTransfer(structs.Md5Text(sql), columns, model)
 	if er != nil {
-		panic(er)
+		return nil, er
 	}
 	if transfer.Model().Value.Kind() == reflect.Slice {
 		results := transfer.Model().Value

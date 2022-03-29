@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"gitee.com/janyees/gom/err"
+	"gom/err"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -90,7 +90,7 @@ func GetStructModel(v interface{}, choosedColumns ...string) (StructModel, error
 				tempVal = reflect.Indirect(reflect.New(tt))
 			}
 			columnNames, columnMap, primary := getColumns(tempVal)
-			temp := StructModel{Type: tt, Value: tempVal, ColumnNames: columnNames, Columns: columnMap, TableName: tableName, Primary: primary}
+			temp := StructModel{Type: tt, Value: tempVal, ColumnNames: columnNames, ColumnMap: columnMap, TableName: tableName, Primary: primary}
 			tableModelCache[tt.String()] = temp
 			model = temp.Clone(dstValue, choosedColumns...)
 		}
@@ -103,14 +103,14 @@ func GetStructModel(v interface{}, choosedColumns ...string) (StructModel, error
 
 func getColumns(v reflect.Value) ([]string, map[string]Column, Column) {
 	var columnNames []string
-	columns := make(map[string]Column)
+	columnMap := make(map[string]Column)
 	var primary Column
 	oo := v.Type()
 	for i := 0; i < oo.NumField(); i++ {
 		field := oo.Field(i)
 		col, tps := getColumnFromField(field)
 		if tps != -1 {
-			columns[col.ColumnName] = col
+			columnMap[col.ColumnName] = col
 			columnNames = append(columnNames, col.ColumnName)
 			if tps == 1 || tps == 2 {
 				primary = col
@@ -118,9 +118,9 @@ func getColumns(v reflect.Value) ([]string, map[string]Column, Column) {
 		}
 	}
 	if Debug {
-		fmt.Println("columns is:", columns)
+		fmt.Println("columnMap is:", columnMap)
 	}
-	return columnNames, columns, primary
+	return columnNames, columnMap, primary
 }
 func Md5Text(str string) string {
 	h := md5.New()
@@ -180,46 +180,50 @@ func getColumnNameAndTypeFromField(field reflect.StructField) (string, int) {
 		}
 	}
 }
-func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, error) {
-	t, _, isSlice := GetType(vs)
-	v := reflect.ValueOf(vs)
-	if isSlice {
-		return nil, err.New("can't convert slice or array to map")
+func ModelToMap(model StructModel) (map[string]interface{}, []string, error) {
+	maps := make(map[string]interface{})
+	var keys []string
+
+	for _, col := range model.ColumnNames {
+		vv := model.Value.FieldByName(model.ColumnMap[col].FieldName)
+		result := vv.Interface()
+		ignore := false
+		switch result.(type) {
+		case time.Time:
+			if !model.HasColumnFilter && vv.Interface().(time.Time).IsZero() {
+				ignore = true
+			}
+		default:
+			if !model.HasColumnFilter && vv.IsZero() {
+				ignore = true
+			}
+		}
+		if !ignore {
+			keys = append(keys, col)
+			maps[col] = result
+		}
 	}
 
-	maps := make(map[string]interface{})
+	return maps, keys, nil
+}
+func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, []string, error) {
+	t, _, isSlice := GetType(vs)
+	if isSlice {
+		return nil, nil, err.Error("can't convert slice or array to map")
+	}
+
 	if t.Kind() == reflect.Struct {
 		model, err := GetStructModel(vs, columns...)
 		if err != nil {
 			panic(err)
 		}
-		colsNull := len(columns) == 0
-		for _, col := range model.ColumnNames {
-			vv := v.FieldByName(model.Columns[col].FieldName)
-			result := vv.Interface()
-			ignore := false
-			switch result.(type) {
-			case time.Time:
-				if colsNull && vv.Interface().(time.Time).IsZero() {
-					ignore = true
-				}
-			default:
-				if colsNull && vv.IsZero() {
-					ignore = true
-				}
-			}
-			if !ignore {
-				maps[col] = result
-			}
-		}
-
-		return maps, nil
+		return ModelToMap(model)
 	}
-	return nil, err.New(fmt.Sprintf("can't convert %s to map", t.Name()))
+	return nil, nil, err.Error(fmt.Sprintf("can't convert %s to map", t.Name()))
 
 }
 func StructToCondition(vs interface{}, columns ...string) Condition {
-	maps, err := StructToMap(vs, columns...)
+	maps, _, err := StructToMap(vs, columns...)
 	if err != nil {
 		panic(err)
 	}
@@ -329,4 +333,35 @@ func GetGoid() int64 {
 	}
 
 	return int64(id)
+}
+func Intersect(slice1, slice2 []string) []string {
+	m := make(map[string]int)
+	nn := make([]string, 0)
+	for _, v := range slice1 {
+		m[v]++
+	}
+
+	for _, v := range slice2 {
+		times, _ := m[v]
+		if times == 1 {
+			nn = append(nn, v)
+		}
+	}
+	return nn
+}
+func Difference(slice1, slice2 []string) []string {
+	m := make(map[string]int)
+	nn := make([]string, 0)
+	inter := Intersect(slice1, slice2)
+	for _, v := range inter {
+		m[v]++
+	}
+
+	for _, value := range slice1 {
+		times, _ := m[value]
+		if times == 0 {
+			nn = append(nn, value)
+		}
+	}
+	return nn
 }
