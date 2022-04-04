@@ -139,17 +139,18 @@ func (db DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 	if er != nil {
 		panic(er)
 	}
-	return db.SelectByModel(model)
-}
-func (db DB) SelectByModel(model structs.StructModel) (interface{}, error) {
-	db.CloneIfDifferentRoutine()
 	if db.rawSql != nil && len(*db.rawSql) > 0 {
 		return db.query(*db.rawSql, *db.rawData, model)
 	} else {
-		selectFunc := db.factory.GetSqlFunc(structs.Query)
-		sqlProtos := selectFunc(structs.TableModel{Table: db.getTableName(model), Columns: getQueryColumns(model), Condition: db.getCnd(), OrderBys: db.getOrderBys(), Page: db.getPage()})
-		return db.query(sqlProtos[0].Sql, sqlProtos[0].Data, model)
+		return db.SelectByModel(model)
 	}
+}
+func (db DB) SelectByModel(model structs.StructModel) (interface{}, error) {
+	//TODO 此处逻辑不合理，如果是自定义查询的话，无需生成Model，简单的查询也不需要生成model。
+	db.CloneIfDifferentRoutine()
+	selectFunc := db.factory.GetSqlFunc(structs.Query)
+	sqlProtos := selectFunc(structs.TableModel{Table: db.getTableName(model), Columns: getQueryColumns(model), Condition: db.getCnd(), OrderBys: db.getOrderBys(), Page: db.getPage()})
+	return db.query(sqlProtos[0].Sql, sqlProtos[0].Data, model)
 }
 func (db DB) First(vs interface{}) (interface{}, error) {
 	return db.Page(0, 1).Select(vs)
@@ -324,11 +325,11 @@ func getInsertColumns(model structs.StructModel, columns ...string) []string {
 	return cols
 }
 
-func (db DB) query(sql string, data []interface{}, model structs.StructModel) (interface{}, error) {
+func (db DB) query(statement string, data []interface{}, model structs.StructModel) (interface{}, error) {
 	if Debug {
-		fmt.Println("Execute query,Sql:", sql, "data was:", data)
+		fmt.Println("Execute query,Sql:", statement, "data was:", data)
 	}
-	st, err := db.db.Prepare(sql)
+	st, err := db.db.Prepare(statement)
 	defer st.Close()
 	if err != nil {
 		return nil, err
@@ -339,10 +340,17 @@ func (db DB) query(sql string, data []interface{}, model structs.StructModel) (i
 	}
 	defer rows.Close()
 	columns, er := rows.Columns()
-	transfer := structs.GetDataTransfer(structs.Md5Text(sql), columns, model)
 	if er != nil {
 		return nil, er
 	}
+	//columnTypes, er := rows.ColumnTypes()
+	//for _, colType := range columnTypes {
+	//	lens, lensOk := colType.Length()
+	//	preciss, scales, decimalOk := colType.DecimalSize()
+	//	fmt.Println(colType.Name(), colType.ScanType().String(), colType.DatabaseTypeName(), "length:", lens, lensOk, "decimal:", preciss, scales, decimalOk)
+	//}
+	transfer := structs.GetDataTransfer(structs.Md5Text(statement), columns, model)
+
 	if transfer.Model().Value.Kind() == reflect.Slice {
 		results := transfer.Model().Value
 

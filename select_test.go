@@ -38,7 +38,7 @@ type TbRecord struct {
 
 func init() {
 	fmt.Println("init DB.............")
-	temp, er := Open("mysql", dsn, true)
+	temp, er := Open("mysql", dsn, false)
 	if er != nil {
 		panic(er)
 	}
@@ -70,39 +70,16 @@ func (Log) TableName() string {
 
 func TestGetTableModel(t *testing.T) {
 	var log []Log
-	m1, err := structs.GetStructModel(&log)
-	t.Log(m1, err)
-}
-func TestGetTableModelRepeat(t *testing.T) {
-	var log []Log
-	m1, err := structs.GetStructModel(&log)
-	t.Log(m1, err)
-	m2, err := structs.GetStructModel(&log)
-	t.Log(m2, err)
-}
-
-type TestTable struct {
-	Id  int `json:"id" gom:"@"`
-	Kid int `json:"kid" gom:"#"`
-	Vid int `json:"vid" gom:"#"`
-}
-
-func (TestTable) TableName() string {
-	return "test_table"
+	_, err := structs.GetStructModel(&log)
+	if err != nil {
+		t.Error(err)
+	}
 }
 
 func (UserInfo) TableName() string {
 	return "user_info"
 }
 
-func TestRawSelect(t *testing.T) {
-	var users []UserInfo
-	_, ser := db.Raw("select * from user_info limit ?,?", 0, 1000).Select(&users)
-	if ser != nil {
-		t.Error("counts :", len(users), db)
-		panic(ser)
-	}
-}
 func TestDefaultTableQuery(t *testing.T) {
 	var users []User
 	_, ser := db.Select(&users)

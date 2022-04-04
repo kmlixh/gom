@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"gom/register"
-	"gom/structs"
 	"time"
 )
 
@@ -15,7 +14,7 @@ const defaultDBId = -1000
 
 func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int, debugs bool) (*DB, error) {
 	Debug = debugs
-	structs.Debug = debugs
+	Debug = debugs
 	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		return nil, err
@@ -32,7 +31,7 @@ func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int, deb
 
 func Open(driverName string, dsn string, debugs bool) (*DB, error) {
 	Debug = debugs
-	structs.Debug = debugs
+	Debug = debugs
 	db, err := sql.Open(driverName, dsn)
 	db.SetConnMaxLifetime(time.Minute * 1)
 	if err != nil {

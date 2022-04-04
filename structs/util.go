@@ -14,6 +14,8 @@ import (
 	"time"
 )
 
+const ANY_COL = "ANY_COL"
+
 func IsEmpty(v interface{}) bool {
 	vv := reflect.ValueOf(v)
 	return vv.IsZero()
@@ -53,7 +55,7 @@ func GetStructModel(v interface{}, choosedColumns ...string) (StructModel, error
 		tableName = reflect.New(tt).Interface().(Table).TableName()
 	}
 	if tt.Kind() != reflect.Struct || (tt.Kind() == reflect.Struct && tt.NumField() == 0) {
-		return StructModel{}, errors.New(tt.Name() + " is not a valid structs")
+		return StructModel{}, errors.New(fmt.Sprintf("Type [%s] can't be use,we need struct", tt.Name()))
 	}
 
 	if v != nil && tt.Kind() != reflect.Interface {
@@ -192,12 +194,14 @@ func ModelToMap(model StructModel) (map[string]interface{}, []string, error) {
 	return maps, keys, nil
 }
 func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, []string, error) {
+
 	t, _, isSlice := GetType(vs)
 	if isSlice {
 		return nil, nil, err.Error("can't convert slice or array to map")
 	}
 
 	if t.Kind() == reflect.Struct {
+		//TODO 下面的方法过于复杂
 		model, err := GetStructModel(vs, columns...)
 		if err != nil {
 			panic(err)
@@ -235,7 +239,7 @@ func MapToCondition(maps map[string]interface{}) Condition {
 	}
 	return cnd
 }
-func GetValueOfType(c Column) IScanner {
+func GetIScannerOfType(c Column) IScanner {
 	vs := reflect.New(c.Type)
 	scanner, ojbk := vs.Interface().(IScanner)
 	if ojbk {

@@ -113,7 +113,9 @@ func Test_UnzipSliceToMapSlice(t *testing.T) {
 			if !reflect.DeepEqual(gots, tt.wants) {
 				t.Errorf("Test_UnzipSlice resource was: = %v, want: %v", gots, tt.wants)
 			} else {
-				t.Logf("Test_UnzipSlice ok resource was: = %v, want: %v", gots, tt.wants)
+				if Debug {
+					t.Logf("Test_UnzipSlice ok resource was: = %v, want: %v", gots, tt.wants)
+				}
 
 			}
 		})
@@ -185,7 +187,6 @@ func TestDB_Insert(t *testing.T) {
 			if tmp.Id == 0 {
 				t.Error("插入成功但查询失败")
 			}
-			fmt.Println("插入的数据：", tmp)
 
 		}},
 		{
@@ -233,7 +234,6 @@ func TestDB_Delete(t *testing.T) {
 			if c != 1 {
 				t.Error("删除失败")
 			}
-			fmt.Println("单个删除结果：", c, er)
 		}},
 		{
 			"批量插入后操作删除", func(t *testing.T) {
@@ -246,12 +246,10 @@ func TestDB_Delete(t *testing.T) {
 					users = append(users, user)
 				}
 				c, _, er := db.Insert(users)
-				fmt.Println("插入结果：", c, er)
 				c, _, er = db.Table("user").Where(structs.CndRaw("valid=?", 1).In("nick_name", ncks)).Delete()
 				if c != 100 || er != nil {
 					t.Error("批量删除失败", c, er)
 				}
-				fmt.Println(c, er)
 			}},
 	}
 	for _, tt := range tests {
@@ -328,8 +326,34 @@ func TestDB_Update(t *testing.T) {
 			}},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tt.t(t)
-		})
+		t.Run(tt.name, tt.t)
 	}
+}
+
+type Tt struct {
+	name string
+	t    func(t *testing.T)
+}
+
+func TestDB_Select(t *testing.T) {
+	tests := []Tt{
+		{"测试RawSql", func(t *testing.T) {
+			var users []UserInfo
+			_, ser := db.Raw("select * from user_info limit ?,?", 0, 1000).Select(&users)
+			if ser != nil {
+				t.Error("counts :", len(users), db)
+			}
+		}},
+		{"测试RawSql时限定列数", func(t *testing.T) {
+			var users []UserInfo
+			_, ser := db.Raw("select * from user_info limit ?,?", 0, 1000).Select(&users, "id", "valid")
+			if ser != nil {
+				t.Error("counts :", len(users), db)
+			}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, tt.t)
+	}
+
 }
