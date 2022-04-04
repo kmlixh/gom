@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"gom/structs"
+	"gitee.com/janyees/gom/structs"
 	"reflect"
 )
 

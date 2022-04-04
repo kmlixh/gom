@@ -2,7 +2,7 @@ package gom
 
 import (
 	"fmt"
-	_ "gom/factory/mysql"
+	_ "gitee.com/janyees/gom/factory/mysql"
 	"testing"
 )
 

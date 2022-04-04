@@ -2,8 +2,8 @@ package gom
 
 import (
 	"fmt"
-	_ "gom/factory/mysql"
-	"gom/structs"
+	_ "gitee.com/janyees/gom/factory/mysql"
+	"gitee.com/janyees/gom/structs"
 	"testing"
 	"time"
 )

@@ -2,8 +2,8 @@ package gom
 
 import (
 	"fmt"
+	"gitee.com/janyees/gom/structs"
 	"github.com/google/uuid"
-	"gom/structs"
 	"reflect"
 	"strconv"
 	"testing"

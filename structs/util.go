@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"gom/err"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -197,7 +196,7 @@ func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, []s
 
 	t, _, isSlice := GetType(vs)
 	if isSlice {
-		return nil, nil, err.Error("can't convert slice or array to map")
+		return nil, nil, errors.New("can't convert slice or array to map")
 	}
 
 	if t.Kind() == reflect.Struct {
@@ -208,7 +207,7 @@ func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, []s
 		}
 		return ModelToMap(model)
 	}
-	return nil, nil, err.Error(fmt.Sprintf("can't convert %s to map", t.Name()))
+	return nil, nil, errors.New(fmt.Sprintf("can't convert %s to map", t.Name()))
 
 }
 func StructToCondition(vs interface{}, columns ...string) Condition {

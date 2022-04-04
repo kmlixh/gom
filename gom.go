@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"gom/register"
+	"gitee.com/janyees/gom/register"
 	"time"
 )
 
