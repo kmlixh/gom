@@ -67,50 +67,50 @@ func init() {
 		model := models[0]
 		var datas []interface{}
 		sql := "SELECT "
-		counts := len(model.Columns)
+		counts := len(model.Columns())
 		if counts == 0 {
 			panic(errors.New("columns is null or empty"))
 		}
 		if counts > 1 {
-			for i := 0; i < len(model.Columns); i++ {
+			for i := 0; i < len(model.Columns()); i++ {
 				if i == 0 {
-					sql += wrapperName(model.Columns[i]) + " "
+					sql += wrapperName(model.Columns()[i]) + " "
 				} else {
-					sql += ", " + wrapperName(model.Columns[i]) + " "
+					sql += ", " + wrapperName(model.Columns()[i]) + " "
 				}
 			}
 		} else {
-			sql += " " + wrapperName(model.Columns[0])
+			sql += " " + wrapperName(model.Columns()[0])
 		}
-		sql += " FROM " + model.Table + " "
-		cnds, cndData := m.ConditionToSql(model.Condition)
+		sql += " FROM " + model.Table() + " "
+		cnds, cndData := m.ConditionToSql(model.Condition())
 		if len(cnds) > 0 {
 			sql += " WHERE " + cnds
 		}
 		datas = append(datas, cndData...)
-		if model.OrderBys != nil && len(model.OrderBys) > 0 {
+		if len(model.OrderBys()) > 0 {
 			sql += " ORDER BY"
-			for i := 0; i < len(model.OrderBys); i++ {
+			for i := 0; i < len(model.OrderBys()); i++ {
 				if i > 0 {
 					sql += ","
 				}
 				t := ""
-				if model.OrderBys[i].Type() == structs.Asc {
+				if model.OrderBys()[i].Type() == structs.Asc {
 					t = " ASC"
 				} else {
 					t = " DESC"
 				}
-				sql += " " + wrapperName(model.OrderBys[i].Name()) + t
+				sql += " " + wrapperName(model.OrderBys()[i].Name()) + t
 			}
 		}
-		if model.Page != nil {
-			idx, size := model.Page.Page()
+		if model.Page() != nil {
+			idx, size := model.Page().Page()
 			datas = append(datas, idx, size)
 			sql += " LIMIT ?,?"
 		}
 		sql += ";"
 		var result []structs.SqlProto
-		result = append(result, structs.SqlProto{Sql: sql, Data: datas})
+		result = append(result, structs.SqlProto{PreparedSql: sql, Data: datas})
 		return result
 	}
 	funcMap[structs.Update] = func(models ...structs.TableModel) []structs.SqlProto {
@@ -119,23 +119,24 @@ func init() {
 		}
 		var result []structs.SqlProto
 		for _, model := range models {
-			if model.Data == nil || reflect.ValueOf(model.Data).IsZero() {
+			if model.ColumnDataMap() == nil || reflect.ValueOf(model.ColumnDataMap()).IsZero() {
 				panic(errors.New("nothing to update"))
 			}
 			var datas []interface{}
 			sql := "UPDATE "
-			sql += " " + model.Table + " SET "
+			sql += " " + model.Table() + " SET "
 			i := 0
-			for _, k := range model.Columns {
-				if i == 0 {
+			for j, k := range model.Columns() {
+				if j > 0 { //默认第一个是主键，需要去掉
+					if i > 0 {
+						sql += ", "
+					}
 					sql += wrapperName(k) + " = ? "
-				} else {
-					sql += ", " + wrapperName(k) + " = ? "
+					datas = append(datas, model.ColumnDataMap()[k])
+					i++
 				}
-				datas = append(datas, model.Data[k])
-				i++
 			}
-			cnds, dds := m.ConditionToSql(model.Condition)
+			cnds, dds := m.ConditionToSql(model.Condition())
 			if len(cnds) > 0 {
 				sql += " WHERE " + cnds + ";"
 			}
@@ -150,16 +151,20 @@ func init() {
 		for _, model := range models {
 			var datas []interface{}
 
-			sql := "INSERT INTO " + model.Table + " ("
+			sql := "INSERT INTO " + model.Table() + " ("
 			valuesPattern := "VALUES("
-			for i, c := range model.Columns {
-				if i > 0 {
-					sql += ","
-					valuesPattern += ","
+			i := 0
+			for j, c := range model.Columns() {
+				if !model.PrimaryAuto() || j > 0 {
+					if i > 0 {
+						sql += ","
+						valuesPattern += ","
+					}
+					sql += c
+					valuesPattern += "?"
+					datas = append(datas, model.ColumnDataMap()[c])
+					i++
 				}
-				sql += c
-				valuesPattern += "?"
-				datas = append(datas, model.Data[c])
 			}
 			sql += ")"
 			valuesPattern += ");"
@@ -173,8 +178,8 @@ func init() {
 		for _, model := range models {
 			var datas []interface{}
 			sql := "DELETE FROM "
-			sql += " " + model.Table
-			cnds, dds := m.ConditionToSql(model.Condition)
+			sql += " " + model.Table()
+			cnds, dds := m.ConditionToSql(model.Condition())
 			if len(cnds) > 0 {
 				sql += " WHERE " + cnds + ";"
 			}

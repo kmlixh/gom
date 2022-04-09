@@ -7,22 +7,29 @@ import (
 	"time"
 )
 
+type ScannerGenerateFunc func(colName string, col interface{}) IScanner
+
 type ScanFunc func(src interface{}) (interface{}, error)
 
 type IScanner interface {
+	ColumnName() string
 	Value() (driver.Value, error)
 	Scan(src interface{}) error
 }
 
 type ScannerImpl struct {
-	Object driver.Value
+	ColName string
+	Object  driver.Value
 	ScanFunc
 }
 
+func (s *ScannerImpl) ColumnName() string {
+	return s.ColName
+}
 func (scanner *ScannerImpl) Scan(src interface{}) error {
-	result, error := scanner.ScanFunc(src)
-	if error != nil {
-		return error
+	result, er := scanner.ScanFunc(src)
+	if er != nil {
+		return er
 	}
 	scanner.Object = result
 	return nil
@@ -30,13 +37,25 @@ func (scanner *ScannerImpl) Scan(src interface{}) error {
 func (scanner ScannerImpl) Value() (driver.Value, error) {
 	return scanner.Object, nil
 }
-func EmptyScanner() IScanner {
-	return &ScannerImpl{0, func(src interface{}) (interface{}, error) {
-		return nil, nil
-	}}
+
+type EmptyScanner struct {
+	ColName string
+}
+
+func (e EmptyScanner) Scan(src interface{}) error {
+	return nil
+}
+func (e EmptyScanner) ColumnName() string {
+	return e.ColName
+}
+func (e EmptyScanner) Value() (driver.Value, error) {
+	return nil, nil
 }
 
 func StringScan(src interface{}) (interface{}, error) {
+	if src == nil {
+		return nil, nil
+	}
 	var result = ""
 	var err error
 	switch src.(type) {
@@ -50,6 +69,9 @@ func StringScan(src interface{}) (interface{}, error) {
 	return result, err
 }
 func Int64Scan(src interface{}) (interface{}, error) {
+	if src == nil {
+		return nil, nil
+	}
 	var result int64 = 0
 	var err error
 	switch src.(type) {
@@ -66,6 +88,9 @@ func Int64Scan(src interface{}) (interface{}, error) {
 
 }
 func Int32Scan(src interface{}) (interface{}, error) {
+	if src == nil {
+		return nil, nil
+	}
 	var result int = 0
 	switch src.(type) {
 	case string:
@@ -82,6 +107,9 @@ func Int32Scan(src interface{}) (interface{}, error) {
 	return result, nil
 }
 func Float32Scan(src interface{}) (interface{}, error) {
+	if src == nil {
+		return nil, nil
+	}
 	var result float32 = 0
 	var err error
 	switch src.(type) {
@@ -100,6 +128,9 @@ func Float32Scan(src interface{}) (interface{}, error) {
 
 }
 func Float64Scan(src interface{}) (interface{}, error) {
+	if src == nil {
+		return nil, nil
+	}
 	var result float64 = 0
 	switch src.(type) {
 	case string:
@@ -117,6 +148,9 @@ func Float64Scan(src interface{}) (interface{}, error) {
 
 }
 func ByteArrayScan(src interface{}) (interface{}, error) {
+	if src == nil {
+		return nil, nil
+	}
 	var result = []byte{}
 	switch src.(type) {
 	case string:
@@ -130,6 +164,9 @@ func ByteArrayScan(src interface{}) (interface{}, error) {
 
 }
 func TimeScan(src interface{}) (interface{}, error) {
+	if src == nil {
+		return nil, nil
+	}
 	var result = time.Time{}
 	switch src.(type) {
 	case string:
@@ -143,6 +180,9 @@ func TimeScan(src interface{}) (interface{}, error) {
 
 }
 func BoolScan(src interface{}) (interface{}, error) {
+	if src == nil {
+		return nil, nil
+	}
 	var result = false
 	var err error
 	switch src.(type) {
@@ -156,4 +196,54 @@ func BoolScan(src interface{}) (interface{}, error) {
 	}
 	return result, err
 
+}
+func GetIScannerOfColumn(colName string, col interface{}) IScanner {
+	scanner, ok := col.(IScanner)
+	if ok {
+		return scanner
+	}
+	switch col.(type) {
+	case int, int32:
+		return &ScannerImpl{colName, 0, Int32Scan}
+	case int64:
+		return &ScannerImpl{colName, int64(0), Int64Scan}
+	case float32:
+		return &ScannerImpl{colName, float32(0), Float32Scan}
+	case float64:
+		return &ScannerImpl{colName, float64(0), Float64Scan}
+	case string:
+		return &ScannerImpl{colName, "", StringScan}
+	case []byte:
+		return &ScannerImpl{colName, []byte{}, ByteArrayScan}
+	case time.Time:
+		return &ScannerImpl{colName, time.Time{}, TimeScan}
+	case bool:
+		return &ScannerImpl{colName, false, BoolScan}
+	default:
+		return nil
+	}
+}
+func GetDataScanners(rowColumns []string, dataMap map[string]interface{}, scannerFuncs ...ScannerGenerateFunc) []interface{} {
+	//TODO 未考虑简单对象传入的情况，将结果集的列和model的列做拟合的时候,必然会存在表列和columns不一致的情况.这个时候需要我们创造一个DataTransfer,ColumnDataMap,并且将datatransfer缓存到静态map中,后续直接从map中取用,无需再次优化
+	var scanners []interface{}
+	for _, colName := range rowColumns {
+		var scanner IScanner
+		col, ok := dataMap[colName]
+		if ok {
+			scanner = GetIScannerOfColumn(colName, col)
+			if scanner == nil && len(scannerFuncs) > 0 {
+				for _, scannerFunc := range scannerFuncs {
+					scanner = scannerFunc(colName, col)
+					if scanner != nil {
+						break
+					}
+				}
+			}
+		}
+		if scanner == nil {
+			scanner = &EmptyScanner{colName}
+		}
+		scanners = append(scanners, scanner)
+	}
+	return scanners
 }

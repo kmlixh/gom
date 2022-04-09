@@ -1,29 +1,36 @@
 package structs
 
 import (
+	"database/sql"
+	"errors"
+	"fmt"
 	"reflect"
-	"strings"
 )
 
 var Debug bool
 
-type SqlProto struct {
-	Sql  string
-	Data []interface{}
-}
 type DefaultStruct struct {
-	Defaults string
 }
 
-type TableModel struct {
-	Table   string
-	Columns []string
-	Data    map[string]interface{}
-	Condition
-	OrderBys []OrderBy
-	Page
+type RawTableInfo struct {
+	reflect.Type
+	RawTableName string
+	IsSlice      bool
+	IsPtr        bool
+	IsStruct     bool
 }
 
+type SqlProto struct {
+	PreparedSql string
+	Data        []interface{}
+}
+type Column struct {
+	Data        interface{}
+	ColumnName  string
+	FieldName   string
+	Primary     bool
+	PrimaryAuto bool //If Primary Key Auto Generate Or Not
+}
 type GenerateSQLFunc func(model ...TableModel) []SqlProto
 type SqlFactory interface {
 	GetSqlFunc(sqlType SqlType) GenerateSQLFunc
@@ -89,99 +96,199 @@ type CountResult struct {
 	Count int64
 	Error error
 }
-type Table interface {
-	TableName() string
+
+func (c Column) Clone() Column {
+	return Column{c.Data, c.ColumnName, c.FieldName, c.Primary, c.PrimaryAuto}
 }
 
-type StructModel struct {
-	Type            reflect.Type
-	Value           reflect.Value
-	TableName       string
-	ColumnNames     []string
-	ColumnMap       map[string]Column
-	Primary         Column
-	HasColumnFilter bool
-	DataMap         map[string]interface{}
+type TableModel interface {
+	Table() string
+	SetTable(tableName string)
+	Columns() []string
+	SetColumns([]string) error
+	SetData(data interface{}, valueOfData reflect.Value, isStruct bool, isPtr bool, isSlice bool)
+	PrimaryAuto() bool
+	ColumnDataMap() map[string]interface{}
+	Condition() Condition
+	SetCondition(c Condition) error
+	OrderBys() []OrderBy
+	SetOrderBys(orders []OrderBy) error
+	Page() Page
+	SetPage(p Page) error
+	Scan(rows *sql.Rows) (interface{}, error)
+	Clone() TableModel
 }
 
-func (this StructModel) Clone(value reflect.Value, columnFilters ...string) StructModel {
-	var names []string
-	var hasColumnFilter = false
-	if len(columnFilters) > 0 {
-		hasColumnFilter = true
-		for _, col := range columnFilters {
-			_, ok := this.ColumnMap[col]
-			if !ok {
-				col = CamelToSnakeString(col)
-				_, ok = this.ColumnMap[col]
+type DefaultTableModel struct {
+	rawType         reflect.Type
+	rawTable        string
+	rawColumnNames  []string
+	rawColumns      []Column
+	rawColumnIdxMap map[string]int
+	primaryAuto     bool
+	isStruct        bool
+
+	//以下内容动态添加
+	data          reflect.Value
+	isSlice       bool
+	isPtr         bool
+	table         string
+	columns       []string
+	columnsIdx    []int8
+	columnDataMap map[string]interface{}
+	condition     Condition
+	orderBys      []OrderBy
+	page          Page
+}
+
+func (d DefaultTableModel) Scan(rows *sql.Rows) (interface{}, error) {
+	columns, er := rows.Columns()
+	if er != nil {
+		return nil, er
+	}
+	//解析查询结果列与原始column的对应关系
+	scanners := GetDataScanners(columns, d.columnDataMap)
+	results := d.data
+	if d.isSlice {
+		for rows.Next() {
+			rows.Scan(scanners...)
+			var val reflect.Value
+			if d.isStruct {
+				val = ScannerResultToStruct(d.rawType, scanners, columns, d.rawColumnIdxMap)
+			} else {
+				vv, er := (scanners[0].(IScanner)).Value()
+				if er != nil {
+					panic(er)
+				}
+				val = reflect.ValueOf(vv)
 			}
-			if ok {
-				names = append(names, col)
-			}
+			results.Set(reflect.Append(results, val))
 		}
 	} else {
-		names = this.ColumnNames
-	}
-	return StructModel{this.Type, value, this.TableName, names, this.ColumnMap, this.Primary, hasColumnFilter, nil}
-}
-func (model StructModel) ColumnsValues() []interface{} {
-	var datas []interface{}
-	for _, name := range model.ColumnNames {
-		column := model.ColumnMap[name]
-		var data interface{}
-		value := model.Value.FieldByName(column.FieldName)
-		if !column.Auto {
-			scanner, ok := value.Interface().(IScanner)
-			if ok {
-				data, _ = scanner.Value()
-			} else {
-				data = value.Interface()
+		if rows.Next() {
+			er := rows.Scan(scanners...)
+			if er != nil {
+				panic(er)
 			}
-			datas = append(datas, data)
+			var val reflect.Value
+			if d.isStruct {
+				val = ScannerResultToStruct(d.rawType, scanners, columns, d.rawColumnIdxMap)
+			} else {
+				vv, er := (scanners[0].(IScanner)).Value()
+				if er != nil {
+					panic(er)
+				}
+				val = reflect.ValueOf(vv)
+			}
+			results.Set(val)
 		}
 	}
-	return datas
+	return results.Interface(), nil
+
+}
+func (d DefaultTableModel) Table() string {
+	if d.table != "" && len(d.table) > 0 {
+		return d.table
+	}
+	return d.rawTable
 }
 
-type Column struct {
-	reflect.Type
-	ColumnName string
-	FieldName  string
-	IsPrimary  bool
-	Auto       bool
+func (d *DefaultTableModel) SetTable(tableName string) {
+	d.table = tableName
 }
 
-func (this Column) Clone() Column {
-	return Column{this.Type, this.ColumnName, this.FieldName, this.IsPrimary, this.Auto}
+func (d DefaultTableModel) Columns() []string {
+	if d.columns != nil && len(d.columns) > 0 {
+		return d.columns
+	}
+	return d.rawColumnNames
 }
 
-func (mo StructModel) InsertValues() []interface{} {
-	var interfaces []interface{}
-	results := reflect.Indirect(reflect.ValueOf(&interfaces))
-	for _, name := range mo.ColumnNames {
-		if !mo.Primary.Auto || !strings.EqualFold(mo.Primary.ColumnName, name) {
-			vars := reflect.ValueOf(mo.Value.FieldByName(mo.ColumnMap[name].FieldName).Interface())
-			if results.Kind() == reflect.Ptr {
-				results.Set(reflect.Append(results, vars.Addr()))
-			} else {
-				results.Set(reflect.Append(results, vars))
+func (d *DefaultTableModel) SetColumns(columns []string) error {
+	d.columns = columns
+	return nil
+}
+
+func (d *DefaultTableModel) SetData(data interface{}, valueOfData reflect.Value, isStruct bool, isPtr bool, isSlice bool) {
+	d.data = valueOfData
+	d.isStruct = isStruct
+	d.isPtr = isPtr
+	d.isSlice = isSlice
+	if isStruct && !isSlice { //为结构体并且非数组或切片的情况
+		dataMap := make(map[string]interface{})
+		_, columns, _ := getColumns(valueOfData)
+		for _, column := range columns {
+			if column.Data != nil {
+				dataMap[column.ColumnName] = column.Data
 			}
 		}
+		d.columnDataMap = dataMap
+	}
+}
 
-	}
-	return interfaces
+func (d DefaultTableModel) PrimaryAuto() bool {
+	return d.primaryAuto
 }
-func (m StructModel) GetPrimary() reflect.Value {
-	return m.Value.FieldByName(m.Primary.FieldName)
-}
-func (m StructModel) GetPrimaryCondition() Condition {
-	if m.Value.Kind() != reflect.Struct {
-		return nil
-	}
-	if IsEmpty(m.GetPrimary()) || m.Primary.IsPrimary == false {
-		return nil
+
+func (d DefaultTableModel) ColumnDataMap() map[string]interface{} {
+	if d.columns == nil || len(d.columns) == 0 { //如果列过滤器为空，则直接返回
+		return d.columnDataMap
 	} else {
-		v := m.GetPrimary()
-		return Cnd(m.Primary.ColumnName, Eq, v.Interface())
+		maps := make(map[string]interface{})
+		for _, colName := range d.columns {
+			col, ok := d.columnDataMap[colName]
+			if ok {
+				maps[colName] = col
+			} else {
+				panic(errors.New(fmt.Sprintf("column [%s] does not exists", colName)))
+			}
+		}
+		return maps
+	}
+}
+
+func (d DefaultTableModel) Condition() Condition {
+	if d.condition != nil {
+		return d.condition
+	}
+	if d.columnDataMap != nil {
+		col, ok := d.columnDataMap[d.rawColumnNames[0]] //默认第一个为主键
+		if ok && col != nil {
+			return Cnd(d.rawColumnNames[0], Eq, col)
+		}
+	}
+	return nil
+}
+
+func (d *DefaultTableModel) SetCondition(c Condition) error {
+	d.condition = c
+	return nil
+}
+
+func (d DefaultTableModel) OrderBys() []OrderBy {
+	return d.orderBys
+}
+
+func (d *DefaultTableModel) SetOrderBys(orders []OrderBy) error {
+	d.orderBys = orders
+	return nil
+}
+
+func (d DefaultTableModel) Page() Page {
+	return d.page
+}
+
+func (d *DefaultTableModel) SetPage(p Page) error {
+	d.page = p
+	return nil
+}
+func (d DefaultTableModel) Clone() TableModel {
+	return &DefaultTableModel{
+		rawType:         d.rawType,
+		rawTable:        d.rawTable,
+		rawColumnNames:  d.rawColumnNames,
+		rawColumns:      d.rawColumns,
+		rawColumnIdxMap: d.rawColumnIdxMap,
+		primaryAuto:     d.primaryAuto,
 	}
 }

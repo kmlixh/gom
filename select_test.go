@@ -70,7 +70,7 @@ func (Log) TableName() string {
 
 func TestGetTableModel(t *testing.T) {
 	var log []Log
-	_, err := structs.GetStructModel(&log)
+	_, err := structs.GetTableModel(&log)
 	if err != nil {
 		t.Error(err)
 	}
