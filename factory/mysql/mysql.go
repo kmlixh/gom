@@ -28,7 +28,7 @@ func (m Factory) ConditionToSql(cnd structs.Condition) (string, []interface{}) {
 	if cnd == nil {
 		return "", nil
 	}
-	if !cnd.IsEnalbe() {
+	if !cnd.Valid() {
 		return "", nil
 	}
 	myCnd := cndToMyCndStruct(cnd)

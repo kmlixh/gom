@@ -94,9 +94,8 @@ func getColumns(v reflect.Value) ([]string, []Column, map[string]int) {
 	for i := 0; i < oo.NumField(); i++ {
 		field := oo.Field(i)
 		col, tps := getColumnFromField(v.Field(i), field)
+		columns = append(columns, col) //默认都插入一个
 		if tps != -1 {
-
-			columns = append(columns, col)
 			columnIdxMap[col.ColumnName] = i
 			columnNames = append(columnNames, col.ColumnName)
 		}
@@ -304,7 +303,10 @@ func ScannerResultToStruct(t reflect.Type, scanners []interface{}, columnNames [
 			if er != nil {
 				panic(er)
 			}
-			v.Field(columnIdxMap[name]).Set(reflect.ValueOf(val))
+			idx, ok := columnIdxMap[name]
+			if ok && val != nil {
+				v.Field(idx).Set(reflect.ValueOf(val))
+			}
 		}
 
 	}

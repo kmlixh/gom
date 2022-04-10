@@ -223,17 +223,17 @@ func GetIScannerOfColumn(colName string, col interface{}) IScanner {
 		return nil
 	}
 }
-func GetDataScanners(rowColumns []string, dataMap map[string]interface{}, scannerFuncs ...ScannerGenerateFunc) []interface{} {
+func GetDataScanners(rowColumns []string, dataMap map[string]int, columns []Column, scannerFuncs ...ScannerGenerateFunc) []interface{} {
 	//TODO 未考虑简单对象传入的情况，将结果集的列和model的列做拟合的时候,必然会存在表列和columns不一致的情况.这个时候需要我们创造一个DataTransfer,ColumnDataMap,并且将datatransfer缓存到静态map中,后续直接从map中取用,无需再次优化
 	var scanners []interface{}
 	for _, colName := range rowColumns {
 		var scanner IScanner
 		col, ok := dataMap[colName]
 		if ok {
-			scanner = GetIScannerOfColumn(colName, col)
+			scanner = GetIScannerOfColumn(colName, columns[col].Data)
 			if scanner == nil && len(scannerFuncs) > 0 {
 				for _, scannerFunc := range scannerFuncs {
-					scanner = scannerFunc(colName, col)
+					scanner = scannerFunc(colName, columns[col].Data)
 					if scanner != nil {
 						break
 					}

@@ -147,7 +147,7 @@ func (d DefaultTableModel) Scan(rows *sql.Rows) (interface{}, error) {
 		return nil, er
 	}
 	//解析查询结果列与原始column的对应关系
-	scanners := GetDataScanners(columns, d.columnDataMap)
+	scanners := GetDataScanners(columns, d.rawColumnIdxMap, d.rawColumns)
 	results := d.data
 	if d.isSlice {
 		for rows.Next() {
@@ -205,7 +205,9 @@ func (d DefaultTableModel) Columns() []string {
 }
 
 func (d *DefaultTableModel) SetColumns(columns []string) error {
-	d.columns = columns
+	if columns != nil && len(columns) > 0 {
+		d.columns = Intersect(d.rawColumnNames, append([]string{d.rawColumnNames[0]}, columns...))
+	}
 	return nil
 }
 

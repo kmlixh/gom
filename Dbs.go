@@ -166,6 +166,11 @@ func (db DB) Update2(vs ...interface{}) (int64, int64, error) {
 }
 
 func (db DB) Insert(v interface{}, columns ...string) (int64, int64, error) {
+	rawInfo := structs.GetRawTableInfo(v)
+	if rawInfo.IsSlice {
+		fmt.Println("")
+		return db.Insert2(structs.UnZipSlice(v), columns...)
+	}
 	vs, er := structs.GetTableModel(v, columns...)
 	if er != nil {
 		panic(er)
@@ -173,13 +178,13 @@ func (db DB) Insert(v interface{}, columns ...string) (int64, int64, error) {
 	db.initTableModel(vs)
 	return db.Execute(structs.Insert, []structs.TableModel{vs})
 }
-func (db DB) Insert2(vs []interface{}) (int64, int64, error) {
+func (db DB) Insert2(vs []interface{}, columns ...string) (int64, int64, error) {
 	if len(vs) == 0 {
 		return 0, 0, errors.New("insert nothing")
 	} else {
 		var vvs []structs.TableModel
 		for _, v := range vs {
-			t, er := structs.GetTableModel(v)
+			t, er := structs.GetTableModel(v, columns...)
 			if er != nil {
 				panic(er)
 			}
@@ -318,6 +323,12 @@ func (db *DB) initTableModel(t structs.TableModel) {
 	}
 	if db.cnd != nil {
 		t.SetCondition(*db.cnd)
+	}
+	if db.page != nil {
+		t.SetPage(*db.page)
+	}
+	if db.orderBys != nil {
+		t.SetOrderBys(*db.orderBys)
 	}
 
 }

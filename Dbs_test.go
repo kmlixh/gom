@@ -344,6 +344,13 @@ func TestDB_Select(t *testing.T) {
 				t.Error("counts :", len(users), db)
 			}
 		}},
+		{"测试RawSql查询单列", func(t *testing.T) {
+			var users []UserInfo
+			_, ser := db.Raw("select * from user_info limit ?,?", 0, 1000).Select(&users)
+			if ser != nil {
+				t.Error("counts :", len(users), db)
+			}
+		}},
 		{"测试RawSql时限定列数", func(t *testing.T) {
 			var users []UserInfo
 			_, ser := db.Raw("select * from user_info limit ?,?", 0, 1000).Select(&users, "id", "valid")
