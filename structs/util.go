@@ -52,27 +52,28 @@ func GetTableModel(v interface{}, choosedColumns ...string) (TableModel, error) 
 	mutex.Unlock()
 	rawTableInfo := GetRawTableInfo(v)
 
-	if !rawTableInfo.IsStruct {
-		if choosedColumns == nil || len(choosedColumns) != 1 {
-			return nil, errors.New("basic Type Only Support [1] Column")
-		}
-		t := &DefaultTableModel{data: reflect.Indirect(reflect.ValueOf(v)), isStruct: false, isPtr: rawTableInfo.IsPtr, isSlice: rawTableInfo.IsSlice, rawTable: ""}
-		er := t.SetColumns(choosedColumns)
-		return t, er
-	}
-
 	if v != nil && rawTableInfo.Kind() != reflect.Interface {
 		var model TableModel
 		cachedModel, ok := tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()]
 		if ok {
 			model = cachedModel.Clone()
 		} else {
-			tempVal := reflect.Indirect(reflect.New(rawTableInfo.Type))
-			columnNames, columns, columnIdxMap := getColumns(tempVal)
+			if rawTableInfo.IsStruct {
+				tempVal := reflect.Indirect(reflect.New(rawTableInfo.Type))
+				columnNames, columns, columnIdxMap := getColumns(tempVal)
 
-			temp := DefaultTableModel{rawType: rawTableInfo.Type, rawTable: rawTableInfo.RawTableName, rawColumns: columns, rawColumnNames: columnNames, rawColumnIdxMap: columnIdxMap, isStruct: true, primaryAuto: columns[0].PrimaryAuto}
-			tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()] = &temp
-			model = temp.Clone()
+				temp := DefaultTableModel{rawType: rawTableInfo.Type, rawTable: rawTableInfo.RawTableName, rawColumns: columns, rawColumnNames: columnNames, rawColumnIdxMap: columnIdxMap, isStruct: true, primaryAuto: columns[0].PrimaryAuto}
+				tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()] = &temp
+				model = temp.Clone()
+			} else {
+				if choosedColumns == nil || len(choosedColumns) != 1 {
+					return nil, errors.New("basic Type Only Support [1] Column")
+				}
+				t := &DefaultTableModel{data: reflect.Indirect(reflect.ValueOf(v)), isStruct: false, isPtr: rawTableInfo.IsPtr, isSlice: rawTableInfo.IsSlice, rawTable: ""}
+				tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()] = t
+				er := t.SetColumns(choosedColumns)
+				return t, er
+			}
 		}
 		model.SetData(v, reflect.Indirect(reflect.ValueOf(v)), rawTableInfo.IsStruct, rawTableInfo.IsPtr, rawTableInfo.IsSlice)
 		er := model.SetColumns(choosedColumns)
