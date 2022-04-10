@@ -85,25 +85,25 @@ func (db DB) Page(index int, pageSize int) DB {
 }
 
 func (db DB) Count(columnName string) structs.CountResult {
-	sql := fmt.Sprintf("select count(`%s`) as count from `%s`", columnName, *db.table)
+	statements := fmt.Sprintf("select count(`%s`) as count from `%s`", columnName, *db.table)
 	var countResult structs.CountResult
 	tb, er := structs.GetTableModel(&countResult, "count")
 	if er != nil {
 		panic(er)
 	}
-	_, er = db.query(sql, nil, tb)
+	_, er = db.query(statements, nil, tb)
 	countResult.Error = er
 	return countResult
 }
 
 func (db DB) Sum(columnName string) structs.CountResult {
-	sql := fmt.Sprintf("select SUM(`%s`) as count from `%s`", columnName, *db.table)
+	statements := fmt.Sprintf("select SUM(`%s`) as count from `%s`", columnName, *db.table)
 	var countResult structs.CountResult
 	tb, er := structs.GetTableModel(&countResult, "count")
 	if er != nil {
 		panic(er)
 	}
-	_, er = db.query(sql, nil, tb)
+	_, er = db.query(statements, nil, tb)
 	countResult.Error = er
 	return countResult
 }
@@ -112,7 +112,7 @@ func (db DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 	db.CloneIfDifferentRoutine()
 	model, er := structs.GetTableModel(vs, columns...)
 	if er != nil {
-		panic(er)
+		return nil, er
 	}
 	if db.rawSql != nil && len(*db.rawSql) > 0 {
 		return db.query(*db.rawSql, *db.rawData, model)
@@ -267,7 +267,12 @@ func (db DB) query(statement string, data []interface{}, model structs.TableMode
 		fmt.Println("Execute query,PreparedSql:", statement, "data was:", data)
 	}
 	st, err := db.db.Prepare(statement)
-	defer st.Close()
+	defer func(st *sql.Stmt) {
+		err := st.Close()
+		if err != nil {
+			panic(err)
+		}
+	}(st)
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +280,12 @@ func (db DB) query(statement string, data []interface{}, model structs.TableMode
 	if errs != nil {
 		return nil, errs
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+			panic(err)
+		}
+	}(rows)
 	db.CloneIfDifferentRoutine()
 	return model.Scan(rows)
 
@@ -294,7 +304,7 @@ func (db DB) Transaction(work TransactionWork) (int64, error) {
 
 	result, err := work(&db)
 	if err != nil {
-		tx.Rollback()
+		err = tx.Rollback()
 		return result, err
 	}
 	err = tx.Commit()
@@ -322,13 +332,22 @@ func (db *DB) initTableModel(t structs.TableModel) {
 		t.SetTable(*db.table)
 	}
 	if db.cnd != nil {
-		t.SetCondition(*db.cnd)
+		err := t.SetCondition(*db.cnd)
+		if err != nil {
+			panic(err)
+		}
 	}
 	if db.page != nil {
-		t.SetPage(*db.page)
+		err := t.SetPage(*db.page)
+		if err != nil {
+			panic(err)
+		}
 	}
 	if db.orderBys != nil {
-		t.SetOrderBys(*db.orderBys)
+		err := t.SetOrderBys(*db.orderBys)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 }

@@ -68,35 +68,37 @@ package main
 
 import (
 	"fmt"
-	_ "gitee.com/janyees/gom/factory/mysql"
 	"gitee.com/janyees/gom"
+	_ "gitee.com/janyees/gom/factory/mysql"
 	"time"
 )
+
 type Log struct {
-	Id string `json:"id" gom:"primary,id"`
-	Level int `gom:"ignore"`
-	Info string
-	Date time.Time `gom:"column,date"`
+	Id    string `json:"id" gom:"primary,id"`
+	Level int    `gom:"ignore"`
+	Info  string
+	Date  time.Time `gom:"column,date"`
 }
+
 func (Log) TableName() string {
 	return "system_log"
 }
 
 func main() {
 	var logs Log
-	dsn:=`root:xxxx@tcp(1x.xx.2xx.xx:3306)/xxxx`
-	db,err:=gom.Open("mysql",dsn)
-	if err!=nil{
+	dsn := `root:xxxx@tcp(1x.xx.2xx.xx:3306)/xxxx`
+	db, err := gom.Open("mysql", dsn)
+	if err != nil {
 		fmt.Println(err)
 	}
-	db.Where2(gom.Cnd("id=?","0d9c1726873f4bc3b6fb955877e5a082").OrderBy("id",gom.Desc).Limit(0,5)).Select(&logs)
-	db.Where("id=? order by id desc","0d9c1726873f4bc3b6fb955877e5a082").Select(&logs)
+	db.Where2(gom.Cnd("id=?", "0d9c1726873f4bc3b6fb955877e5a082").OrderBy("id", gom.Desc).Limit(0, 5)).Select(&logs)
+	db.Where("id=? order by id desc", "0d9c1726873f4bc3b6fb955877e5a082").Select(&logs)
 	//以上两个语句等价
-	idelte,ed:=db.Delete(logs)
-	fmt.Println(idelte,ed)
-	logs.Date=time.Now()
-	ii,ie:=db.Insert(logs)
-	fmt.Println(ii,ie)
+	idelte, ed := db.Delete(logs)
+	fmt.Println(idelte, ed)
+	logs.Date = time.Now()
+	ii, ie := db.Insert(logs)
+	fmt.Println(ii, ie)
 
 }
 

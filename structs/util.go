@@ -1,8 +1,6 @@
 package structs
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
@@ -13,12 +11,6 @@ import (
 	"time"
 )
 
-const ANY_COL = "ANY_COL"
-
-func IsEmpty(v interface{}) bool {
-	vv := reflect.ValueOf(v)
-	return vv.IsZero()
-}
 func GetRawTableInfo(v interface{}) RawTableInfo {
 	tt := reflect.TypeOf(v)
 	isStruct := false
@@ -61,7 +53,12 @@ func GetTableModel(v interface{}, choosedColumns ...string) (TableModel, error) 
 	rawTableInfo := GetRawTableInfo(v)
 
 	if !rawTableInfo.IsStruct {
-		return &DefaultTableModel{data: reflect.Indirect(reflect.ValueOf(v)), isStruct: false, isPtr: rawTableInfo.IsPtr, isSlice: rawTableInfo.IsSlice, rawTable: ""}, errors.New(fmt.Sprintf("Type [%s] can't be use,we need struct", rawTableInfo.Name()))
+		if choosedColumns == nil || len(choosedColumns) != 1 {
+			return nil, errors.New("basic Type Only Support [1] Column")
+		}
+		t := &DefaultTableModel{data: reflect.Indirect(reflect.ValueOf(v)), isStruct: false, isPtr: rawTableInfo.IsPtr, isSlice: rawTableInfo.IsSlice, rawTable: ""}
+		er := t.SetColumns(choosedColumns)
+		return t, er
 	}
 
 	if v != nil && rawTableInfo.Kind() != reflect.Interface {
@@ -78,8 +75,8 @@ func GetTableModel(v interface{}, choosedColumns ...string) (TableModel, error) 
 			model = temp.Clone()
 		}
 		model.SetData(v, reflect.Indirect(reflect.ValueOf(v)), rawTableInfo.IsStruct, rawTableInfo.IsPtr, rawTableInfo.IsSlice)
-		model.SetColumns(choosedColumns)
-		return model, nil
+		er := model.SetColumns(choosedColumns)
+		return model, er
 
 	} else {
 		return &DefaultTableModel{}, errors.New("can't use interface")
@@ -105,11 +102,12 @@ func getColumns(v reflect.Value) ([]string, []Column, map[string]int) {
 	}
 	return columnNames, columns, columnIdxMap
 }
-func Md5Text(str string) string {
-	h := md5.New()
-	h.Write([]byte(str))
-	return hex.EncodeToString(h.Sum(nil))
-}
+
+//func Md5Text(str string) string {
+//	h := md5.New()
+//	h.Write([]byte(str))
+//	return hex.EncodeToString(h.Sum(nil))
+//}
 func getColumnFromField(v reflect.Value, filed reflect.StructField) (Column, int) {
 	colName, tps := getColumnNameAndTypeFromField(filed)
 	if Debug {
@@ -279,22 +277,23 @@ func Intersect(slice1, slice2 []string) []string {
 	}
 	return nn
 }
-func Difference(slice1, slice2 []string) []string {
-	m := make(map[string]int)
-	nn := make([]string, 0)
-	inter := Intersect(slice1, slice2)
-	for _, v := range inter {
-		m[v]++
-	}
 
-	for _, value := range slice1 {
-		times, _ := m[value]
-		if times == 0 {
-			nn = append(nn, value)
-		}
-	}
-	return nn
-}
+//func Difference(slice1, slice2 []string) []string {
+//	m := make(map[string]int)
+//	nn := make([]string, 0)
+//	inter := Intersect(slice1, slice2)
+//	for _, v := range inter {
+//		m[v]++
+//	}
+//
+//	for _, value := range slice1 {
+//		times, _ := m[value]
+//		if times == 0 {
+//			nn = append(nn, value)
+//		}
+//	}
+//	return nn
+//}
 func ScannerResultToStruct(t reflect.Type, scanners []interface{}, columnNames []string, columnIdxMap map[string]int) reflect.Value {
 	v := reflect.Indirect(reflect.New(t))
 	for i, name := range columnNames {

@@ -25,13 +25,7 @@ const (
 	NotIn
 	IsNull
 	IsNotNull
-	OperationCustom1
-	OperationCustom2
-	OperationCustom3
-	OperationCustom4
-	OperationCustom5
-	OperationCustom6
-	OperationCustom7
+	Raw
 )
 
 type Condition interface {
@@ -479,7 +473,7 @@ func CndRaw(rawExpresssion string, values ...interface{}) Condition {
 	return CndRawBool(true, rawExpresssion, values...)
 }
 func CndRawBool(b bool, rawExpresssion string, values ...interface{}) Condition {
-	return &ConditionImpl{depth: 0, linker: And, rawExpression: rawExpresssion, values: values, operation: OperationCustom1, valid: b}
+	return &ConditionImpl{depth: 0, linker: And, rawExpression: rawExpresssion, values: values, operation: Raw, valid: b}
 }
 func CndFull(b bool, linker Linker, field string, operation Operation, values ...interface{}) Condition {
 	return &ConditionImpl{

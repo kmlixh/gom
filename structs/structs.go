@@ -147,16 +147,36 @@ func (d DefaultTableModel) Scan(rows *sql.Rows) (interface{}, error) {
 		return nil, er
 	}
 	//解析查询结果列与原始column的对应关系
-	scanners := GetDataScanners(columns, d.rawColumnIdxMap, d.rawColumns)
+	var scanners []interface{}
+	simpleIdx := 0
+	if d.isStruct {
+		scanners = GetDataScanners(columns, d.rawColumnIdxMap, d.rawColumns)
+	} else if len(d.Columns()) == 1 {
+		colName := d.columns[0]
+		for i, column := range columns {
+			if column == colName {
+				simpleIdx = i
+				scanners = append(scanners, GetIScannerOfColumn(column, reflect.Indirect(reflect.New(GetDeepType(d.data))).Interface()))
+			} else {
+				scanners = append(scanners, &EmptyScanner{column})
+			}
+		}
+	} else {
+		panic(errors.New(fmt.Sprintf("type [%s] was a simple Type,but u has [%d] columns to convert", d.data.Type().Name(), len(columns))))
+
+	}
 	results := d.data
 	if d.isSlice {
 		for rows.Next() {
-			rows.Scan(scanners...)
+			err := rows.Scan(scanners...)
+			if err != nil {
+				panic(err)
+			}
 			var val reflect.Value
 			if d.isStruct {
 				val = ScannerResultToStruct(d.rawType, scanners, columns, d.rawColumnIdxMap)
 			} else {
-				vv, er := (scanners[0].(IScanner)).Value()
+				vv, er := (scanners[simpleIdx].(IScanner)).Value()
 				if er != nil {
 					panic(er)
 				}
@@ -206,12 +226,16 @@ func (d DefaultTableModel) Columns() []string {
 
 func (d *DefaultTableModel) SetColumns(columns []string) error {
 	if columns != nil && len(columns) > 0 {
-		d.columns = Intersect(d.rawColumnNames, append([]string{d.rawColumnNames[0]}, columns...))
+		if d.isStruct {
+			d.columns = Intersect(d.rawColumnNames, append([]string{d.rawColumnNames[0]}, columns...))
+		} else {
+			d.columns = columns
+		}
 	}
 	return nil
 }
 
-func (d *DefaultTableModel) SetData(data interface{}, valueOfData reflect.Value, isStruct bool, isPtr bool, isSlice bool) {
+func (d *DefaultTableModel) SetData(_ interface{}, valueOfData reflect.Value, isStruct bool, isPtr bool, isSlice bool) {
 	d.data = valueOfData
 	d.isStruct = isStruct
 	d.isPtr = isPtr
@@ -293,4 +317,9 @@ func (d DefaultTableModel) Clone() TableModel {
 		rawColumnIdxMap: d.rawColumnIdxMap,
 		primaryAuto:     d.primaryAuto,
 	}
+}
+func GetDeepType(value reflect.Value) reflect.Type {
+	rawInfo := GetRawTableInfo(value.Interface())
+	return rawInfo.Type
+
 }

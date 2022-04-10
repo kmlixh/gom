@@ -42,7 +42,7 @@ type EmptyScanner struct {
 	ColName string
 }
 
-func (e EmptyScanner) Scan(src interface{}) error {
+func (e EmptyScanner) Scan(_ interface{}) error {
 	return nil
 }
 func (e EmptyScanner) ColumnName() string {
@@ -91,7 +91,7 @@ func Int32Scan(src interface{}) (interface{}, error) {
 	if src == nil {
 		return nil, nil
 	}
-	var result int = 0
+	var result = 0
 	switch src.(type) {
 	case string:
 		result, _ = IntfromString(src.(string))

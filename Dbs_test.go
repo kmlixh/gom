@@ -183,7 +183,10 @@ func TestDB_Insert(t *testing.T) {
 				t.Error("插入异常：", er.Error())
 			}
 			var tmp User
-			db.Where2("nick_name=?", nck).Select(&tmp)
+			_, err := db.Where2("nick_name=?", nck).Select(&tmp)
+			if err != nil {
+				t.Error(err)
+			}
 			if tmp.Id == 0 {
 				t.Error("插入成功但查询失败")
 			}
@@ -346,9 +349,30 @@ func TestDB_Select(t *testing.T) {
 		}},
 		{"测试RawSql查询单列", func(t *testing.T) {
 			var users []UserInfo
-			_, ser := db.Raw("select * from user_info limit ?,?", 0, 1000).Select(&users)
+			_, ser := db.Raw("select * from user_info limit ?,?", 0, 1000).Select(&users, "id")
 			if ser != nil {
 				t.Error("counts :", len(users), db)
+			}
+		}},
+		{"测试RawSql查询单列进简单数组", func(t *testing.T) {
+			var ids []int64
+			_, ser := db.Raw("select * from user_info limit ?,?", 0, 1000).Select(&ids, "id")
+			if ser != nil {
+				t.Error("counts :", len(ids), db)
+			}
+		}},
+		{"测试RawSql查询单列进简单数组column为空是否报错", func(t *testing.T) {
+			var ids []int64
+			_, ser := db.Raw("select * from user_info limit ?,?", 0, 1000).Select(&ids)
+			if ser == nil {
+				t.Error("columns为空时未报错")
+			}
+		}},
+		{"测试RawSql查询单列进简单数组column为空是否报错", func(t *testing.T) {
+			var ids []int64
+			_, ser := db.Raw("select * from user_info limit ?,?", 0, 1000).Select(&ids, "id", "sdfa")
+			if ser == nil {
+				t.Error("简单类型columns不为1时必须报错")
 			}
 		}},
 		{"测试RawSql时限定列数", func(t *testing.T) {
