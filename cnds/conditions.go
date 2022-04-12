@@ -1,4 +1,4 @@
-package structs
+package cnds
 
 type Linker int
 
@@ -25,7 +25,7 @@ const (
 	NotIn
 	IsNull
 	IsNotNull
-	Raw
+	RawOperation
 )
 
 type Condition interface {
@@ -40,13 +40,13 @@ type Condition interface {
 	RawExpression() string
 	Valid() bool
 	Eq(field string, values interface{}) Condition
-	EqBool(b bool, field string, values interface{}) Condition
-	OrEq(field string, values interface{}) Condition
-	OrEqBool(b bool, field string, values interface{}) Condition
-	Ge(field string, values interface{}) Condition
-	GeBool(b bool, field string, values interface{}) Condition
-	OrGe(field string, values interface{}) Condition
-	OrGeBool(b bool, field string, values interface{}) Condition
+	EqBool(b bool, field string, value interface{}) Condition
+	OrEq(field string, value interface{}) Condition
+	OrEqBool(b bool, field string, value interface{}) Condition
+	Ge(field string, value interface{}) Condition
+	GeBool(b bool, field string, value interface{}) Condition
+	OrGe(field string, value interface{}) Condition
+	OrGeBool(b bool, field string, value interface{}) Condition
 	Gt(field string, values interface{}) Condition
 	GtBool(b bool, field string, values interface{}) Condition
 	OrGt(field string, values interface{}) Condition
@@ -84,17 +84,23 @@ type Condition interface {
 	OrLikeIgnoreEnd(field string, values interface{}) Condition
 	OrLikeIgnoreEndBool(b bool, field string, values interface{}) Condition
 	IsNull(filed string) Condition
-	IsNullBool(b bool, filed string) Condition
+	IsNullBool(b bool, field string) Condition
 	IsNotNull(field string) Condition
 	IsNotNullBool(b bool, field string) Condition
+	OrIsNull(filed string) Condition
+	OrIsNullBool(b bool, field string) Condition
+	OrIsNotNull(field string) Condition
+	OrIsNotNullBool(b bool, field string) Condition
 	And(field string, operation Operation, value ...interface{}) Condition
 	AndBool(b bool, field string, operation Operation, value ...interface{}) Condition
-	And1(condition Condition) Condition
-	Or(condition Condition) Condition
-	And2(rawExpresssion string, values ...interface{}) Condition
-	And2Bool(b bool, rawExpresssion string, values ...interface{}) Condition
-	Or2(rawExpresssion string, values ...interface{}) Condition
-	Or2Bool(b bool, rawExpresssion string, values ...interface{}) Condition
+	And2(condition Condition) Condition
+	And3(rawExpresssion string, values ...interface{}) Condition
+	And3Bool(b bool, rawExpresssion string, values ...interface{}) Condition
+	Or(field string, operation Operation, value ...interface{}) Condition
+	OrBool(b bool, field string, operation Operation, value ...interface{}) Condition
+	Or2(condition Condition) Condition
+	Or3(rawExpresssion string, values ...interface{}) Condition
+	Or3Bool(b bool, rawExpresssion string, values ...interface{}) Condition
 }
 type ConditionImpl struct {
 	depth         int64
@@ -237,245 +243,315 @@ func (c *ConditionImpl) IsNotNull(field string) Condition {
 }
 
 func (c *ConditionImpl) And(field string, operation Operation, value ...interface{}) Condition {
-	return c.AndBool(true, field, operation, value...)
+	return c.AndBool(true, field, operation, value)
+}
+func (c *ConditionImpl) And2(condition Condition) Condition {
+	cc := condition.(*ConditionImpl)
+	cc.depth = c.depth + 1
+	cc.linker = And
+	c.items = append(c.items, cc)
+	return c
 }
 
-func (c *ConditionImpl) And2(rawExpresssion string, values ...interface{}) Condition {
-	return c.And2Bool(true, rawExpresssion, values...)
+func (c *ConditionImpl) And3(rawExpresssion string, values ...interface{}) Condition {
+	return c.And3Bool(true, rawExpresssion, values...)
 }
 
 func (c *ConditionImpl) EqBool(b bool, field string, values interface{}) Condition {
-	condition := CndBool(b, field, Eq, values)
+	condition := newBool(b, field, Eq, values)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) OrEqBool(b bool, field string, values interface{}) Condition {
-	condition := CndFull(b, Or, field, Eq, values)
+	condition := NewFull(b, Or, field, Eq, "", values)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) GeBool(b bool, field string, values interface{}) Condition {
-	condition := CndBool(b, field, Ge, values)
+	condition := newBool(b, field, Ge, values)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) OrGeBool(b bool, field string, values interface{}) Condition {
-	condition := CndFull(b, Or, field, Ge, values)
+	condition := NewFull(b, Or, field, Ge, "", values)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) GtBool(b bool, field string, values interface{}) Condition {
-	condition := CndBool(b, field, Eq, values)
+	condition := newBool(b, field, Eq, values)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) OrGtBool(b bool, field string, values interface{}) Condition {
-	condition := CndFull(b, Or, field, Gt, values)
+	condition := NewFull(b, Or, field, Gt, "", values)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) LeBool(b bool, field string, values interface{}) Condition {
-	condition := CndBool(b, field, Le, values)
+	condition := newBool(b, field, Le, values)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) OrLeBool(b bool, field string, values interface{}) Condition {
-	condition := CndFull(b, Or, field, Le, values)
+	condition := NewFull(b, Or, field, Le, "", values)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) LtBool(b bool, field string, values interface{}) Condition {
-	condition := CndBool(b, field, Lt, values)
+	condition := newBool(b, field, Lt, values)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) OrLtBool(b bool, field string, values interface{}) Condition {
-	condition := CndFull(b, Or, field, Lt, values)
+	condition := NewFull(b, Or, field, Lt, "", values)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) NotEqBool(b bool, field string, values interface{}) Condition {
-	condition := CndBool(b, field, NotEq, values)
+	condition := newBool(b, field, NotEq, values)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) OrNotEqBool(b bool, field string, values interface{}) Condition {
-	condition := CndFull(b, Or, field, NotEq, values)
+	condition := NewFull(b, Or, field, NotEq, "", values)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) InBool(b bool, field string, values ...interface{}) Condition {
-	condition := CndBool(b, field, In, UnZipSlice(values)...)
+	condition := newBool(b, field, In, values...)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) OrInBool(b bool, field string, values ...interface{}) Condition {
-	condition := CndFull(b, Or, field, NotEq, values)
+	condition := NewFull(b, Or, field, NotEq, "", values...)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) NotInBool(b bool, field string, values ...interface{}) Condition {
-	condition := CndBool(b, field, NotIn, values)
+	condition := newBool(b, field, NotIn, values...)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) OrNotInBool(b bool, field string, values ...interface{}) Condition {
-	condition := CndFull(b, Or, field, NotIn, values)
+	condition := NewFull(b, Or, field, NotIn, "", values...)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) LikeBool(b bool, field string, values interface{}) Condition {
-	condition := CndBool(b, field, Like, values)
+	condition := newBool(b, field, Like, values)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) OrLikeBool(b bool, field string, values interface{}) Condition {
-	condition := CndFull(b, Or, field, Like, values)
+	condition := NewFull(b, Or, field, Like, "", values)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) LikeIgnoreStartBool(b bool, field string, values interface{}) Condition {
-	condition := CndBool(b, field, LikeIgnoreStart, values)
+	condition := newBool(b, field, LikeIgnoreStart, "", values)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) OrLikeIgnoreStartBool(b bool, field string, values interface{}) Condition {
-	condition := CndFull(b, Or, field, LikeIgnoreStart, values)
+	condition := NewFull(b, Or, field, LikeIgnoreStart, "", values)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) LikeIgnoreEndBool(b bool, field string, values interface{}) Condition {
-	condition := CndBool(b, field, Like, values)
+	condition := newBool(b, field, Like, values)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *ConditionImpl) IsNullBool(b bool, filed string) Condition {
-	condition := CndBool(b, filed, IsNull, nil)
+func (c *ConditionImpl) IsNullBool(b bool, field string) Condition {
+	condition := newBool(b, field, IsNull, nil)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *ConditionImpl) IsNotNullBool(b bool, filed string) Condition {
-	condition := CndBool(b, filed, IsNotNull, nil)
+	condition := newBool(b, filed, IsNotNull, nil)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
+
+func (c *ConditionImpl) OrIsNull(field string) Condition {
+	return c.OrIsNullBool(true, field)
+}
+
+func (c *ConditionImpl) OrIsNullBool(b bool, field string) Condition {
+	condition := newBool(b, field, IsNull, nil)
+	cc := condition.(*ConditionImpl)
+	cc.linker = Or
+	cc.depth = c.depth + 1
+	c.items = append(c.items, cc)
+	return c
+}
+
+func (c *ConditionImpl) OrIsNotNull(field string) Condition {
+	return c.OrIsNotNullBool(true, field)
+}
+
+func (c *ConditionImpl) OrIsNotNullBool(b bool, field string) Condition {
+	condition := newBool(b, field, IsNotNull, nil)
+	cc := condition.(*ConditionImpl)
+	cc.linker = Or
+	cc.depth = c.depth + 1
+	c.items = append(c.items, cc)
+	return c
+}
+
 func (c *ConditionImpl) OrLikeIgnoreEndBool(b bool, field string, values interface{}) Condition {
-	condition := CndFull(b, Or, field, LikeIgnoreEnd, values)
+	condition := NewFull(b, Or, field, LikeIgnoreEnd, "", values)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *ConditionImpl) And1(condition Condition) Condition {
-	cc := condition.(*ConditionImpl)
-	cc.depth = c.depth + 1
-	cc.linker = And
-	c.items = append(c.items, cc)
-	return c
-}
+
 func (c *ConditionImpl) AndBool(b bool, field string, operation Operation, values ...interface{}) Condition {
-	cc := CndBool(b, field, operation, values...).(*ConditionImpl)
+	cc := newBool(b, field, operation, values...).(*ConditionImpl)
 	cc.depth = c.depth + 1
 	cc.linker = And
 	c.items = append(c.items, cc)
 	return c
 }
 
-func (c *ConditionImpl) And2Bool(b bool, rawExpresssion string, values ...interface{}) Condition {
-	condition := CndRawBool(b, rawExpresssion, values...)
+func (c *ConditionImpl) And3Bool(b bool, rawExpresssion string, values ...interface{}) Condition {
+	condition := newRawBool(b, rawExpresssion, values...)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	cc.linker = Or
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *ConditionImpl) Or(condition Condition) Condition {
+func (c *ConditionImpl) Or(field string, operation Operation, values ...interface{}) Condition {
+	return c.OrBool(true, field, operation, values...)
+}
+func (c *ConditionImpl) OrBool(b bool, field string, operation Operation, values ...interface{}) Condition {
+	cc := newBool(b, field, operation, values...).(*ConditionImpl)
+	cc.depth = c.depth + 1
+	cc.linker = And
+	c.items = append(c.items, cc)
+	return c
+}
+func (c *ConditionImpl) Or2(condition Condition) Condition {
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	cc.linker = Or
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *ConditionImpl) Or2Bool(b bool, rawExpresssion string, values ...interface{}) Condition {
-	condition := CndRawBool(b, rawExpresssion, values...)
+func (c *ConditionImpl) Or3(rawExpresssion string, values ...interface{}) Condition {
+	return c.Or3Bool(true, rawExpresssion, values...)
+}
+func (c *ConditionImpl) Or3Bool(b bool, rawExpresssion string, values ...interface{}) Condition {
+	condition := newRawBool(b, rawExpresssion, values...)
 	cc := condition.(*ConditionImpl)
 	cc.depth = c.depth + 1
 	cc.linker = Or
 	c.items = append(c.items, cc)
 	return c
-}
-func (c *ConditionImpl) Or2(rawExpresssion string, values ...interface{}) Condition {
-	return c.Or2Bool(true, rawExpresssion, values...)
 }
 
-func CndBool(b bool, field string, operation Operation, values ...interface{}) Condition {
-	return &ConditionImpl{
-		0,
-		And,
-		field,
-		operation,
-		values,
-		nil,
-		"",
-		b,
-	}
+func NewEq(field string, value interface{}) Condition {
+	return New(field, Eq, value)
 }
-func Cnd(field string, operation Operation, values ...interface{}) Condition {
-	return CndBool(true, field, operation, values...)
+func NewNotEq(field string, value interface{}) Condition {
+	return New(field, NotEq, value)
 }
-func CndRaw(rawExpresssion string, values ...interface{}) Condition {
-	return CndRawBool(true, rawExpresssion, values...)
+func NewGe(field string, value interface{}) Condition {
+	return New(field, Ge, value)
 }
-func CndRawBool(b bool, rawExpresssion string, values ...interface{}) Condition {
-	return &ConditionImpl{depth: 0, linker: And, rawExpression: rawExpresssion, values: values, operation: Raw, valid: b}
+func NewGt(field string, value interface{}) Condition {
+	return New(field, Gt, value)
 }
-func CndFull(b bool, linker Linker, field string, operation Operation, values ...interface{}) Condition {
+func NewLe(field string, value interface{}) Condition {
+	return New(field, Le, value)
+}
+func NewLt(field string, value interface{}) Condition {
+	return New(field, Lt, value)
+}
+func NewLike(field string, value interface{}) Condition {
+	return New(field, Like, value)
+}
+func NewLikeIgnoreStart(field string, value interface{}) Condition {
+	return New(field, LikeIgnoreStart, value)
+}
+func NewLikeIgnoreEnd(field string, value interface{}) Condition {
+	return New(field, LikeIgnoreEnd, value)
+}
+func NewIn(field string, values ...interface{}) Condition {
+	return New(field, In, values...)
+}
+func NewNotIn(field string, values ...interface{}) Condition {
+	return New(field, NotIn, values...)
+}
+func NewIsNull(field string) Condition {
+	return New(field, IsNull)
+}
+func NewIsNotNull(field string) Condition {
+	return New(field, IsNotNull)
+}
+
+func New(field string, operation Operation, values ...interface{}) Condition {
+	return newBool(true, field, operation, values...)
+}
+func newBool(b bool, field string, operation Operation, values ...interface{}) Condition {
+	return NewFull(b, And, field, operation, "", values...)
+}
+func NewRaw(rawExpresssion string, values ...interface{}) Condition {
+	return newRawBool(true, rawExpresssion, values...)
+}
+func newRawBool(b bool, rawExpresssion string, values ...interface{}) Condition {
+	return &ConditionImpl{depth: 0, linker: And, rawExpression: rawExpresssion, values: values, operation: RawOperation, valid: b}
+}
+
+func NewFull(b bool, linker Linker, field string, operation Operation, rawExpression string, values ...interface{}) Condition {
 	return &ConditionImpl{
 		0,
 		linker,
@@ -483,7 +559,7 @@ func CndFull(b bool, linker Linker, field string, operation Operation, values ..
 		operation,
 		values,
 		nil,
-		"",
+		rawExpression,
 		b,
 	}
 }

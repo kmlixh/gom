@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"gitee.com/janyees/gom/arrays"
+	"gitee.com/janyees/gom/cnds"
 	"reflect"
 )
 
@@ -29,12 +31,12 @@ type Column struct {
 	ColumnName  string
 	FieldName   string
 	Primary     bool
-	PrimaryAuto bool //If Primary Key Auto Generate Or Not
+	PrimaryAuto bool //If Primary Key Auto Generate Or2 Not
 }
 type GenerateSQLFunc func(model ...TableModel) []SqlProto
 type SqlFactory interface {
 	GetSqlFunc(sqlType SqlType) GenerateSQLFunc
-	ConditionToSql(condition Condition) (string, []interface{})
+	ConditionToSql(condition cnds.Condition) (string, []interface{})
 }
 
 type OrderType int
@@ -107,10 +109,11 @@ type TableModel interface {
 	Columns() []string
 	SetColumns([]string) error
 	SetData(data interface{}, valueOfData reflect.Value, isStruct bool, isPtr bool, isSlice bool)
+	GetScanners(columns []string) ([]interface{}, int, error)
 	PrimaryAuto() bool
 	ColumnDataMap() map[string]interface{}
-	Condition() Condition
-	SetCondition(c Condition) error
+	Condition() cnds.Condition
+	SetCondition(c cnds.Condition) error
 	OrderBys() []OrderBy
 	SetOrderBys(orders []OrderBy) error
 	Page() Page
@@ -124,6 +127,7 @@ type DefaultTableModel struct {
 	rawTable        string
 	rawColumnNames  []string
 	rawColumns      []Column
+	rawScanners     []IScanner
 	rawColumnIdxMap map[string]int
 	primaryAuto     bool
 	isStruct        bool
@@ -136,9 +140,43 @@ type DefaultTableModel struct {
 	columns       []string
 	columnsIdx    []int8
 	columnDataMap map[string]interface{}
-	condition     Condition
+	condition     cnds.Condition
 	orderBys      []OrderBy
 	page          Page
+}
+
+func (d DefaultTableModel) GetScanners(columns []string) ([]interface{}, int, error) {
+	var scanners []interface{}
+	simpleIdx := 0
+	if d.isStruct {
+		for _, column := range columns {
+			idx, ok := d.rawColumnIdxMap[column]
+			if ok {
+				scanners = append(scanners, d.rawScanners[idx])
+			} else {
+				scanners = append(scanners, EMPTY_SCANNER)
+			}
+		}
+	} else if d.columns == nil || len(d.Columns()) <= 1 {
+		colName := ""
+		if d.columns == nil {
+			colName = columns[0]
+		} else {
+			colName = d.columns[0]
+		}
+		for i, column := range columns {
+			if column == colName {
+				simpleIdx = i
+				scanners = append(scanners, d.rawScanners[0])
+			} else {
+				scanners = append(scanners, EMPTY_SCANNER)
+			}
+		}
+	} else {
+		return nil, -1, errors.New(fmt.Sprintf("Basic Type [%s] only can match one column or nothing", d.rawType.Name()))
+
+	}
+	return scanners, simpleIdx, nil
 }
 
 func (d DefaultTableModel) Scan(rows *sql.Rows) (interface{}, error) {
@@ -147,23 +185,9 @@ func (d DefaultTableModel) Scan(rows *sql.Rows) (interface{}, error) {
 		return nil, er
 	}
 	//解析查询结果列与原始column的对应关系
-	var scanners []interface{}
-	simpleIdx := 0
-	if d.isStruct {
-		scanners = GetDataScanners(columns, d.rawColumnIdxMap, d.rawColumns)
-	} else if len(d.Columns()) == 1 {
-		colName := d.columns[0]
-		for i, column := range columns {
-			if column == colName {
-				simpleIdx = i
-				scanners = append(scanners, GetIScannerOfColumn(column, reflect.Indirect(reflect.New(GetDeepType(d.data))).Interface()))
-			} else {
-				scanners = append(scanners, &EmptyScanner{column})
-			}
-		}
-	} else {
-		panic(errors.New(fmt.Sprintf("type [%s] was a simple Type,but u has [%d] columns to convert", d.data.Type().Name(), len(columns))))
-
+	var scanners, simpleIdx, err = d.GetScanners(columns)
+	if err != nil {
+		return nil, er
 	}
 	results := d.data
 	if d.isSlice {
@@ -227,7 +251,7 @@ func (d DefaultTableModel) Columns() []string {
 func (d *DefaultTableModel) SetColumns(columns []string) error {
 	if columns != nil && len(columns) > 0 {
 		if d.isStruct {
-			d.columns = Intersect(d.rawColumnNames, append([]string{d.rawColumnNames[0]}, columns...))
+			d.columns = arrays.Intersect(d.rawColumnNames, append([]string{d.rawColumnNames[0]}, columns...))
 		} else {
 			d.columns = columns
 		}
@@ -273,20 +297,20 @@ func (d DefaultTableModel) ColumnDataMap() map[string]interface{} {
 	}
 }
 
-func (d DefaultTableModel) Condition() Condition {
+func (d DefaultTableModel) Condition() cnds.Condition {
 	if d.condition != nil {
 		return d.condition
 	}
 	if d.columnDataMap != nil {
 		col, ok := d.columnDataMap[d.rawColumnNames[0]] //默认第一个为主键
 		if ok && col != nil {
-			return Cnd(d.rawColumnNames[0], Eq, col)
+			return cnds.New(d.rawColumnNames[0], cnds.Eq, col)
 		}
 	}
 	return nil
 }
 
-func (d *DefaultTableModel) SetCondition(c Condition) error {
+func (d *DefaultTableModel) SetCondition(c cnds.Condition) error {
 	d.condition = c
 	return nil
 }
@@ -310,6 +334,7 @@ func (d *DefaultTableModel) SetPage(p Page) error {
 }
 func (d DefaultTableModel) Clone() TableModel {
 	return &DefaultTableModel{
+		rawScanners:     d.rawScanners,
 		rawType:         d.rawType,
 		rawTable:        d.rawTable,
 		rawColumnNames:  d.rawColumnNames,
@@ -317,9 +342,4 @@ func (d DefaultTableModel) Clone() TableModel {
 		rawColumnIdxMap: d.rawColumnIdxMap,
 		primaryAuto:     d.primaryAuto,
 	}
-}
-func GetDeepType(value reflect.Value) reflect.Type {
-	rawInfo := GetRawTableInfo(value.Interface())
-	return rawInfo.Type
-
 }

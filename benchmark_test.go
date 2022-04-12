@@ -2,7 +2,10 @@ package gom
 
 import (
 	"database/sql"
+	"github.com/google/uuid"
+	"strconv"
 	"testing"
+	"time"
 )
 
 var rawDb *sql.DB
@@ -23,6 +26,44 @@ func BenchmarkBaseSelectGom(b *testing.B) {
 		selectDataByGom()
 	}
 }
+func BenchmarkDB_InsertSingle(b *testing.B) {
+	uid := uuid.New().String()
+
+	for i := 0; i < b.N; i++ {
+		user := User2{
+			Id:         uid + strconv.Itoa(i),
+			Name:       uid + "_" + strconv.Itoa(i),
+			Age:        20,
+			Height:     120.23,
+			Width:      123.11,
+			BinData:    []byte{12, 43, 54, 122, 127},
+			CreateDate: time.Now(),
+		}
+		db.Insert(user)
+	}
+}
+func BenchmarkRaw_InsertSingle(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+
+		uid := uuid.New().String()
+		name := uid + strconv.Itoa(i)
+		sql := "INSERT INTO `test`.`user2` (`id`, `name`, `age`, `height`, `width`, `bin_data`, `create_date`) VALUES (?, ?, 20, 120.23, 123.11, 0x0C2B367A7F, now());"
+
+		st, er := rawDb.Prepare(sql)
+		if er != nil {
+			b.Error(er)
+		}
+		rs, er := st.Exec(uid, name)
+		if er != nil {
+			b.Error(er)
+		}
+		c, er := rs.RowsAffected()
+		if c != 1 || er != nil {
+			b.Error(c, er)
+		}
+	}
+}
+
 func selectDataByRawDb() {
 	var users []User
 	st, er := rawDb.Prepare("select * from user limit 0,1000")

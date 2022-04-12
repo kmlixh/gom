@@ -3,6 +3,8 @@ package structs
 import (
 	"errors"
 	"fmt"
+	"gitee.com/janyees/gom/arrays"
+	"gitee.com/janyees/gom/cnds"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -51,37 +53,43 @@ func GetTableModel(v interface{}, choosedColumns ...string) (TableModel, error) 
 	}
 	mutex.Unlock()
 	rawTableInfo := GetRawTableInfo(v)
-
-	if v != nil && rawTableInfo.Kind() != reflect.Interface {
-		var model TableModel
-		cachedModel, ok := tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()]
-		if ok {
-			model = cachedModel.Clone()
-		} else {
-			if rawTableInfo.IsStruct {
-				tempVal := reflect.Indirect(reflect.New(rawTableInfo.Type))
-				columnNames, columns, columnIdxMap := getColumns(tempVal)
-
-				temp := DefaultTableModel{rawType: rawTableInfo.Type, rawTable: rawTableInfo.RawTableName, rawColumns: columns, rawColumnNames: columnNames, rawColumnIdxMap: columnIdxMap, isStruct: true, primaryAuto: columns[0].PrimaryAuto}
-				tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()] = &temp
-				model = temp.Clone()
-			} else {
-				if choosedColumns == nil || len(choosedColumns) != 1 {
-					return nil, errors.New("basic Type Only Support [1] Column")
-				}
-				t := &DefaultTableModel{data: reflect.Indirect(reflect.ValueOf(v)), isStruct: false, isPtr: rawTableInfo.IsPtr, isSlice: rawTableInfo.IsSlice, rawTable: ""}
-				tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()] = t
-				er := t.SetColumns(choosedColumns)
-				return t, er
-			}
-		}
-		model.SetData(v, reflect.Indirect(reflect.ValueOf(v)), rawTableInfo.IsStruct, rawTableInfo.IsPtr, rawTableInfo.IsSlice)
-		er := model.SetColumns(choosedColumns)
-		return model, er
-
-	} else {
-		return &DefaultTableModel{}, errors.New("can't use interface")
+	if !rawTableInfo.IsStruct && (choosedColumns == nil || len(choosedColumns) != 1) {
+		return nil, errors.New("basic Type Only Support [1] Column Or2 nil")
 	}
+
+	var model TableModel
+	cachedModel, ok := tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()]
+	if ok {
+		model = cachedModel.Clone()
+	} else {
+
+		var temp TableModel
+		var scanners []IScanner
+		tempVal := reflect.Indirect(reflect.New(rawTableInfo.Type))
+		if rawTableInfo.IsStruct {
+			if rawTableInfo.IsStruct && rawTableInfo.Type.NumField() == 0 {
+				_, ok := reflect.Indirect(reflect.New(rawTableInfo.Type)).Interface().(DefaultStruct)
+				if !ok {
+					return nil, errors.New(fmt.Sprintf("[%s] was a \"empty struct\",it has no field or All fields has been ignored", rawTableInfo.Type.Name()))
+				} else {
+					return &DefaultTableModel{}, nil
+				}
+			}
+			columnNames, columns, columnIdxMap := getColumns(tempVal)
+			for _, column := range columns {
+				scanners = append(scanners, GetIScannerOfColumn(column.ColumnName, column.Data))
+			}
+			temp = &DefaultTableModel{rawScanners: scanners, rawType: rawTableInfo.Type, rawTable: rawTableInfo.RawTableName, rawColumns: columns, rawColumnNames: columnNames, rawColumnIdxMap: columnIdxMap, primaryAuto: columns[0].PrimaryAuto}
+		} else {
+			scanners = append(scanners, GetIScannerOfColumn("", reflect.Indirect(reflect.New(rawTableInfo.Type)).Interface()))
+			temp = &DefaultTableModel{rawScanners: scanners, rawType: rawTableInfo.Type, rawTable: "", primaryAuto: false}
+		}
+		tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()] = temp
+		model = temp.Clone()
+	}
+	model.SetData(v, reflect.Indirect(reflect.ValueOf(v)), rawTableInfo.IsStruct, rawTableInfo.IsPtr, rawTableInfo.IsSlice)
+	er := model.SetColumns(choosedColumns)
+	return model, er
 }
 
 func getColumns(v reflect.Value) ([]string, []Column, map[string]int) {
@@ -89,12 +97,13 @@ func getColumns(v reflect.Value) ([]string, []Column, map[string]int) {
 	var columns []Column
 	var columnIdxMap = make(map[string]int)
 	oo := v.Type()
+
 	for i := 0; i < oo.NumField(); i++ {
 		field := oo.Field(i)
 		col, tps := getColumnFromField(v.Field(i), field)
 		columns = append(columns, col) //默认都插入一个
+		columnIdxMap[col.ColumnName] = i
 		if tps != -1 {
-			columnIdxMap[col.ColumnName] = i
 			columnNames = append(columnNames, col.ColumnName)
 		}
 	}
@@ -114,11 +123,7 @@ func getColumnFromField(v reflect.Value, filed reflect.StructField) (Column, int
 	if Debug {
 		fmt.Println("Tag is:", colName, "type is:", tps)
 	}
-	if tps != -1 {
-		return Column{Data: v.Interface(), ColumnName: colName, FieldName: filed.Name, PrimaryAuto: tps == 2, Primary: tps == 1 || tps == 2}, tps
-	} else {
-		return Column{}, -1
-	}
+	return Column{Data: v.Interface(), ColumnName: colName, FieldName: filed.Name, PrimaryAuto: tps == 2, Primary: tps == 1 || tps == 2}, tps
 
 }
 func getColumnNameAndTypeFromField(field reflect.StructField) (string, int) {
@@ -160,17 +165,24 @@ func getColumnNameAndTypeFromField(field reflect.StructField) (string, int) {
 }
 
 func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, []string, error) {
+	if vs == nil {
+		return nil, nil, errors.New("nil can't be used to create Map")
+	}
 	rawInfo := GetRawTableInfo(vs)
 	if rawInfo.IsSlice {
 		return nil, nil, errors.New("can't convert slice or array to map")
 	}
 	if rawInfo.Kind() == reflect.Struct {
+		if rawInfo.Type.NumField() == 0 {
+			//
+			return nil, nil, errors.New(fmt.Sprintf("[%s] was a \"empty struct\",it has no field or All fields has been ignored", rawInfo.Type.Name()))
+		}
 		//TODO 下面的方法过于复杂
 		colNames, cols, _ := getColumns(reflect.ValueOf(vs))
 		if colNames == nil || len(colNames) == 0 {
 			panic(fmt.Sprintf("can't get any data from Type [%s]", rawInfo.Name()))
 		}
-		columns = Intersect(columns, colNames)
+		columns = arrays.Intersect(columns, colNames)
 		newMap := make(map[string]interface{})
 		for i, column := range columns {
 			newMap[column] = cols[i].Data
@@ -180,15 +192,18 @@ func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, []s
 	return nil, nil, errors.New(fmt.Sprintf("can't convert %s to map", rawInfo.Name()))
 
 }
-func StructToCondition(vs interface{}, columns ...string) Condition {
+func StructToCondition(vs interface{}, columns ...string) cnds.Condition {
 	maps, _, err := StructToMap(vs, columns...)
 	if err != nil {
 		panic(err)
 	}
 	return MapToCondition(maps)
 }
-func MapToCondition(maps map[string]interface{}) Condition {
-	var cnd Condition
+func MapToCondition(maps map[string]interface{}) cnds.Condition {
+	if maps == nil {
+		return nil
+	}
+	var cnd cnds.Condition
 	for k, v := range maps {
 		t := reflect.TypeOf(v)
 		if t.Kind() == reflect.Ptr {
@@ -196,13 +211,10 @@ func MapToCondition(maps map[string]interface{}) Condition {
 		}
 		if (t.Kind() != reflect.Struct && t.Kind() != reflect.Slice) || t.Kind() == reflect.TypeOf(time.Now()).Kind() {
 			value := v
-			//if t.Kind() == reflect.TypeOf(time.Now()).Kind() {
-			//	value = v.(time.Time).Format("2006-01-02 15:04:05")
-			//}
 			if cnd == nil {
-				cnd = Cnd(k, Eq, value)
+				cnd = cnds.New(k, cnds.Eq, value)
 			} else {
-				cnd.And(k, Eq, value)
+				cnd.And(k, cnds.Eq, arrays.Of(value))
 			}
 		}
 	}
@@ -224,7 +236,9 @@ func UnZipSlice(vs interface{}) []interface{} {
 		if v.Len() > 0 {
 			for i := 0; i < v.Len(); i++ { //m为上述切片
 				item := v.Index(i)
-				result = append(result, UnZipSlice(item.Interface())...)
+				if item.Interface() != nil {
+					result = append(result, UnZipSlice(item.Interface())...)
+				}
 			}
 
 		}
@@ -262,21 +276,6 @@ func GetGoid() int64 {
 	}
 
 	return int64(id)
-}
-func Intersect(slice1, slice2 []string) []string {
-	m := make(map[string]int)
-	nn := make([]string, 0)
-	for _, v := range slice1 {
-		m[v]++
-	}
-
-	for _, v := range slice2 {
-		times, _ := m[v]
-		if times == 1 {
-			nn = append(nn, v)
-		}
-	}
-	return nn
 }
 
 //func Difference(slice1, slice2 []string) []string {

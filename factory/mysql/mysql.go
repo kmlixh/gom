@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"errors"
+	"gitee.com/janyees/gom/cnds"
 	"gitee.com/janyees/gom/register"
 	"gitee.com/janyees/gom/structs"
 	_ "github.com/go-sql-driver/mysql"
@@ -24,7 +25,7 @@ type Factory struct {
 func (m Factory) GetSqlFunc(sqlType structs.SqlType) structs.GenerateSQLFunc {
 	return funcMap[sqlType]
 }
-func (m Factory) ConditionToSql(cnd structs.Condition) (string, []interface{}) {
+func (m Factory) ConditionToSql(cnd cnds.Condition) (string, []interface{}) {
 	if cnd == nil {
 		return "", nil
 	}
@@ -83,9 +84,9 @@ func init() {
 			sql += " " + wrapperName(model.Columns()[0])
 		}
 		sql += " FROM " + model.Table() + " "
-		cnds, cndData := m.ConditionToSql(model.Condition())
-		if len(cnds) > 0 {
-			sql += " WHERE " + cnds
+		cndString, cndData := m.ConditionToSql(model.Condition())
+		if len(cndString) > 0 {
+			sql += " WHERE " + cndString
 		}
 		datas = append(datas, cndData...)
 		if len(model.OrderBys()) > 0 {
@@ -198,56 +199,56 @@ func wrapperName(name string) string {
 	}
 }
 
-func cndToMyCndStruct(cnd structs.Condition) MyCndStruct {
+func cndToMyCndStruct(cnd cnds.Condition) MyCndStruct {
 	if len(cnd.RawExpression()) > 0 {
 		return MyCndStruct{linkerToString(cnd), cnd.RawExpression(), cnd.Values()}
 	}
 	opers := cnd.Field()
 	switch cnd.Operation() {
-	case structs.Eq:
+	case cnds.Eq:
 		opers += " = ? "
-	case structs.NotEq:
+	case cnds.NotEq:
 		opers += " <> ? "
-	case structs.Ge:
+	case cnds.Ge:
 		opers += " >= ? "
-	case structs.Gt:
+	case cnds.Gt:
 		opers += " > ? "
-	case structs.Le:
+	case cnds.Le:
 		opers += " <= ? "
-	case structs.Lt:
+	case cnds.Lt:
 		opers += " < ? "
-	case structs.In:
+	case cnds.In:
 		opers += " IN " + valueSpace(len(cnd.Values()))
-	case structs.NotIn:
+	case cnds.NotIn:
 		opers += " NOT IN " + valueSpace(len(cnd.Values()))
-	case structs.Like:
+	case cnds.Like:
 		opers += " LIKE ? "
 		vals := cnd.Values()
 		vals[0] = "%" + vals[0].(string) + "%"
 		cnd.SetValues(vals)
-	case structs.LikeIgnoreStart:
+	case cnds.LikeIgnoreStart:
 		opers += " LIKE ? "
 		vals := cnd.Values()
 		vals[0] = "%" + vals[0].(string)
 		cnd.SetValues(vals)
-	case structs.LikeIgnoreEnd:
+	case cnds.LikeIgnoreEnd:
 		opers += " LIKE ? "
 		vals := cnd.Values()
 		vals[0] = vals[0].(string) + "%"
 		cnd.SetValues(vals)
-	case structs.IsNull:
+	case cnds.IsNull:
 		opers += " IS NULL "
-	case structs.IsNotNull:
+	case cnds.IsNotNull:
 		opers += " IS NOT NULL "
 	}
 	return MyCndStruct{linkerToString(cnd), opers, cnd.Values()}
 }
 
-func linkerToString(cnd structs.Condition) string {
+func linkerToString(cnd cnds.Condition) string {
 	switch cnd.Linker() {
-	case structs.And:
+	case cnds.And:
 		return " AND "
-	case structs.Or:
+	case cnds.Or:
 		return " OR "
 	default:
 		return " AND "

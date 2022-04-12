@@ -1,7 +1,7 @@
 package gom
 
 import (
-	"fmt"
+	"gitee.com/janyees/gom/cnds"
 	"gitee.com/janyees/gom/structs"
 	"github.com/google/uuid"
 	"reflect"
@@ -53,7 +53,7 @@ func TestDB_Count(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			this := tt.db
-			if got := this.Table(tt.args.tableName).Count(tt.args.columnName); got.Count < tt.want {
+			if got, _ := this.Table(tt.args.tableName).Count(tt.args.columnName); got < tt.want {
 				t.Errorf("Count() = %v, want %v", got, tt.want)
 			}
 		})
@@ -195,7 +195,7 @@ func TestDB_Insert(t *testing.T) {
 		{
 			"批量插入操作", func(t *testing.T) {
 				var users []User
-				var ncks []string
+				var ncks []interface{}
 				for i := 0; i < 100; i++ {
 					nck := uuid.New().String()
 					ncks = append(ncks, nck)
@@ -203,9 +203,12 @@ func TestDB_Insert(t *testing.T) {
 					users = append(users, user)
 				}
 				c, _, er := db.Insert(users)
-				fmt.Println("插入结果：", c, er)
+				if er != nil {
+					t.Error("批量插入报错", c, er)
+				}
 				var tempUsers []User
-				_, err := db.Where(structs.CndRaw("id > ?", 0).In("nick_name", ncks)).Select(&tempUsers)
+				_, err := db.Where(cnds.NewRaw("id > ?", 0).In("nick_name", ncks...)).Select(&tempUsers)
+
 				if err != nil {
 					t.Error("查询出错")
 				}
@@ -230,18 +233,18 @@ func TestDB_Delete(t *testing.T) {
 			nck := uuid.New().String()
 			user := User{NickName: nck, Pwd: "1213", Email: nck + "@nck.com", RegDate: time.Now()}
 			c, _, er := db.Insert(user)
-			if c != 1 && er != nil {
+			if c != 1 || er != nil {
 				t.Error("插入异常：", er.Error())
 			}
 			c, _, er = db.Table("user").Where2("nick_name=?", nck).Delete()
-			if c != 1 {
+			if c != 1 || er != nil {
 				t.Error("删除失败")
 			}
 		}},
 		{
 			"批量插入后操作删除", func(t *testing.T) {
 				var users []User
-				var ncks []string
+				var ncks []interface{}
 				for i := 0; i < 100; i++ {
 					nck := uuid.New().String()
 					ncks = append(ncks, nck)
@@ -249,7 +252,7 @@ func TestDB_Delete(t *testing.T) {
 					users = append(users, user)
 				}
 				c, _, er := db.Insert(users)
-				c, _, er = db.Table("user").Where(structs.CndRaw("valid=?", 1).In("nick_name", ncks)).Delete()
+				c, _, er = db.Table("user").Where(cnds.NewRaw("valid=?", 1).In("nick_name", ncks...)).Delete()
 				if c != 100 || er != nil {
 					t.Error("批量删除失败", c, er)
 				}
@@ -274,7 +277,7 @@ func TestDB_Update(t *testing.T) {
 				t.Error("插入异常：", er.Error())
 			}
 			var temp User
-			_, err := db.Where(structs.CndRaw("id=?", id)).Select(&temp)
+			_, err := db.Where(cnds.NewRaw("id=?", id)).Select(&temp)
 			if err != nil {
 				t.Error("插入后查询失败：", err)
 			}
@@ -286,7 +289,6 @@ func TestDB_Update(t *testing.T) {
 			if c != 1 {
 				t.Error("更新失败", c, er)
 			}
-			fmt.Println("单个更新结果：", c, er)
 		}},
 		{"指定表名更新", func(t *testing.T) {
 			nck := uuid.New().String()
@@ -296,7 +298,6 @@ func TestDB_Update(t *testing.T) {
 				t.Error("插入异常：", er.Error())
 				return
 			}
-			fmt.Println(user.TableName(), c, er)
 			//var temp User
 			//_, err := db.Where2("nick_name=?", nck).Select(&temp)
 			//if err != nil {
@@ -307,26 +308,74 @@ func TestDB_Update(t *testing.T) {
 				t.Error("更新失败", c, er)
 				return
 			}
-			fmt.Println("单个更新结果：", c, er)
 		}},
-		{
-			"批量插入后操作删除", func(t *testing.T) {
+		{"带事务处理批量插入后操作更新", func(t *testing.T) {
+			c, er := db.Transaction(func(db *DB) (int64, error) {
 				var users []User
-				var ncks []string
+				var ncks []interface{}
 				for i := 0; i < 100; i++ {
 					nck := uuid.New().String()
 					ncks = append(ncks, nck)
-					user := User{NickName: nck, Pwd: "pwd" + strconv.Itoa(i), Valid: 1, Email: nck + "@nck.com", RegDate: time.Now()}
+					user := User{NickName: nck, Pwd: "pwd" + strconv.Itoa(i), Email: nck + "@nck.com", Valid: 1, RegDate: time.Now()}
 					users = append(users, user)
 				}
 				c, _, er := db.Insert(users)
-				fmt.Println("插入结果：", c, er)
-				c, _, er = db.Table("user").Where(structs.CndRaw("valid=?", 1).In("nick_name", ncks)).Delete()
-				if c != 100 || er != nil {
-					t.Error("批量删除失败")
+				if er != nil || c != 100 {
+					t.Error("插入后查询失败", er)
 				}
-				fmt.Println(c, er)
-			}},
+				var temps []User
+				_, er = db.Where(cnds.NewIn("nick_name", ncks...)).Select(&temps)
+				if er != nil || len(temps) != 100 {
+					t.Error("插入后查询失败", er)
+				}
+				var inserts []User
+				for i, temp := range temps {
+					temp.NickName = temp.NickName + "_change_" + strconv.Itoa(i)
+					inserts = append(inserts, temp)
+				}
+				c, _, er = db.Update(inserts)
+				return c, er
+			})
+			if er != nil || c == 0 {
+				t.Error("带事务批量操作失败", c, er)
+			}
+		}},
+		{"测试Update Raw", func(t *testing.T) {
+			c, _, er := db.Raw("update user2 set age= ?", 101).Update(nil)
+			if er != nil {
+				t.Error("raw ExecuteTableModel failed", c, er)
+			}
+		}},
+		{"测试Update2 空状态", func(t *testing.T) {
+			c, _, er := db.Update(nil)
+			if er == nil {
+				t.Error("空白更新未抛出一场", c, er)
+			}
+		}},
+		{"测试Insert Raw", func(t *testing.T) {
+			c, _, er := db.Raw("update user2 set age= ?", 101).Insert(nil)
+			if er != nil {
+				t.Error("raw ExecuteTableModel failed", c, er)
+			}
+		}},
+		{"GetOrderBys", func(t *testing.T) {
+			orderbys := db.OrderBy("name", structs.Desc).OrderBy("id", structs.Asc).getOrderBys()
+			if orderbys == nil || len(orderbys) == 0 {
+				t.Error(orderbys)
+			}
+		}},
+		{"Get Page", func(t *testing.T) {
+			page := db.Page(0, 1000).getPage()
+			if page == nil {
+				t.Error(page)
+			}
+		}},
+		{"Get Cnd", func(t *testing.T) {
+			cnd := db.Where(cnds.NewEq("name", "kmlixh")).getCnd()
+			if cnd == nil {
+				t.Error(cnd)
+			}
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, tt.t)
@@ -359,13 +408,6 @@ func TestDB_Select(t *testing.T) {
 			_, ser := db.Raw("select * from user_info limit ?,?", 0, 1000).Select(&ids, "id")
 			if ser != nil {
 				t.Error("counts :", len(ids), db)
-			}
-		}},
-		{"测试RawSql查询单列进简单数组column为空是否报错", func(t *testing.T) {
-			var ids []int64
-			_, ser := db.Raw("select * from user_info limit ?,?", 0, 1000).Select(&ids)
-			if ser == nil {
-				t.Error("columns为空时未报错")
 			}
 		}},
 		{"测试RawSql查询单列进简单数组column为空是否报错", func(t *testing.T) {

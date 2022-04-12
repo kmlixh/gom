@@ -2,8 +2,11 @@ package gom
 
 import (
 	"fmt"
+	"gitee.com/janyees/gom/cnds"
 	_ "gitee.com/janyees/gom/factory/mysql"
 	"gitee.com/janyees/gom/structs"
+	"github.com/google/uuid"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -28,12 +31,21 @@ type UserInfo struct {
 	CreateDate  time.Time `json:"create_date" gom:"create_date"`
 }
 type TbRecord struct {
-	Id         int64
+	Id         string
 	Age        int
 	Height     int
 	Width      int
 	Length     int
 	CreateDate time.Time
+}
+type User2 struct {
+	Id         string    `json:"id,omitempty",gom:"!,id"`
+	Name       string    `json:"name" gom:"#,name"`
+	Age        int       `json:"age,omitempty"`
+	Height     float64   `json:"height,omitempty"`
+	Width      float32   `json:"width,omitempty"`
+	BinData    []byte    `json:"bin_data,omitempty"`
+	CreateDate time.Time `json:"create_date"`
 }
 
 func init() {
@@ -134,7 +146,7 @@ func TestRawCondition(t *testing.T) {
 }
 func TestCondition(t *testing.T) {
 	users := make([]UserInfo, 0)
-	_, er := db.Where(structs.Cnd("nick_name", structs.LikeIgnoreStart, "淑兰")).Page(0, 10).Select(&users)
+	_, er := db.Where(cnds.New("nick_name", cnds.LikeIgnoreStart, "淑兰")).Page(0, 10).Select(&users)
 	if er != nil {
 		panic(er)
 	}
@@ -145,7 +157,7 @@ func TestCondition(t *testing.T) {
 }
 func TestMultiCondition(t *testing.T) {
 	users := make([]UserInfo, 0)
-	_, er := db.Where(structs.Cnd("nick_name", structs.LikeIgnoreStart, "淑兰").Or(structs.Cnd("phone_number", structs.Eq, "13663049871").Eq("nick_name", "吃素是福"))).Page(0, 10).Select(&users)
+	_, er := db.Where(cnds.New("nick_name", cnds.LikeIgnoreStart, "淑兰").Or2(cnds.New("phone_number", cnds.Eq, "13663049871").Eq("nick_name", "吃素是福"))).Page(0, 10).Select(&users)
 	if er != nil {
 		panic(er)
 	}
@@ -192,8 +204,8 @@ func TestRawQueryWithGroupBy(t *testing.T) {
 	}
 }
 func TestCount(t *testing.T) {
-	cs := db.Table("user_info").Count("id")
-	if cs.Error != nil {
+	_, er := db.Table("user_info").Count("id")
+	if er != nil {
 		t.Error("counts :", db)
 		t.Fail()
 	}
@@ -211,5 +223,119 @@ func TestFirst(t *testing.T) {
 	if er != nil {
 		t.Error("log :", log, db)
 		t.Fail()
+	}
+}
+
+type EmptyStruct struct {
+}
+
+func TestSpecial(t *testing.T) {
+	ts := []Tt{
+		{"测试使用Interface获取对象", func(t *testing.T) {
+			var v interface{}
+			m, er := structs.GetTableModel(v)
+			if er != nil {
+				t.Error("使用interface获取表模型应该报错", m, er)
+			}
+		}},
+		{"测试使用Interface赋值Struct获取对象", func(t *testing.T) {
+			var v interface{} = User{}
+			m, er := structs.GetTableModel(v)
+			if er != nil {
+				t.Error(m, er)
+			}
+		}},
+		{"测试对数组使用StructToMap", func(t *testing.T) {
+			var v []interface{}
+			m, n, er := structs.StructToMap(v)
+			if er == nil {
+				t.Error("interface数组未报错", m, n)
+			}
+		}},
+		{"用interface使用StructToMap", func(t *testing.T) {
+			var v interface{}
+			m, n, er := structs.StructToMap(v)
+			if er == nil {
+				t.Error("interface未报错", m, n)
+			}
+		}},
+		{"测试MapToCondition", func(t *testing.T) {
+			maps := map[string]interface{}{"name": "kmlixh", "age": 12, "sex": "big cook"}
+			c := structs.MapToCondition(maps)
+			if c == nil {
+				t.Error("MaptoCondition失败", c)
+			}
+		}},
+		{"测试MapToCondition", func(t *testing.T) {
+			maps := map[string]interface{}{"name": "kmlixh", "age": 12, "sex": "big cook"}
+			c := structs.MapToCondition(maps)
+			if c == nil {
+				t.Error("MaptoCondition失败", c)
+			}
+		}},
+		{"测试空结构体获取Map", func(t *testing.T) {
+			d, ds, er := structs.StructToMap(EmptyStruct{})
+			if er == nil {
+				t.Error("MaptoCondition失败", d, ds)
+			}
+		}},
+		{"空结构体获取TableModel", func(t *testing.T) {
+			tb, er := structs.GetTableModel(EmptyStruct{})
+			if er == nil {
+				t.Error("空结构体生成tb成功", tb, er)
+			}
+		}},
+		{"非自增主键插入单条数据", func(t *testing.T) {
+			user := User2{
+				Id:         uuid.New().String(),
+				Age:        20,
+				Height:     120.23,
+				Width:      123.11,
+				BinData:    []byte{12, 43, 54, 122, 127},
+				CreateDate: time.Now(),
+			}
+			count, id, er := db.Insert(user)
+			if count != 1 || er != nil {
+				t.Error("单个非自增插入错误", count, id, er)
+			}
+		}},
+		{"非自增主键批量插入数据", func(t *testing.T) {
+			var users []User2
+			for i := 0; i < 100; i++ {
+				uid := uuid.New().String()
+				user := User2{
+					Id:         uid,
+					Name:       uid + "_" + strconv.Itoa(i),
+					Age:        20,
+					Height:     120.23,
+					Width:      123.11,
+					BinData:    []byte{12, 43, 54, 122, 127},
+					CreateDate: time.Now(),
+				}
+				users = append(users, user)
+			}
+			count, id, er := db.Insert(users)
+			if count != 100 || er != nil {
+				t.Error("批量非自增插入错误", count, id, er)
+			}
+
+		}},
+		{
+			"测试获取RawDb", func(t *testing.T) {
+				rawDb := db.RawDb()
+				if rawDb == nil {
+					t.Error("rawDb is nil", rawDb)
+				}
+			},
+		},
+		{
+			"测试CleanDb", func(t *testing.T) {
+				db.CleanDb()
+			},
+		},
+	}
+
+	for _, tt := range ts {
+		t.Run(tt.name, tt.t)
 	}
 }
