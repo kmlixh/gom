@@ -181,7 +181,6 @@ func (db DB) execute(sqlType structs.SqlType, v []interface{}, columns ...string
 			}
 		}
 		return db.ExecuteTableModel(sqlType, vvs)
-
 	}
 }
 func (db DB) ExecuteRaw() (int64, int64, error) {
