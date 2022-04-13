@@ -55,27 +55,25 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">gitee.com/janyees/gom/Dbs.go (86.5%)</option>
+				<option value="file0">gitee.com/janyees/gom/Dbs.go (87.8%)</option>
 				
 				<option value="file1">gitee.com/janyees/gom/arrays/array.go (100.0%)</option>
 				
 				<option value="file2">gitee.com/janyees/gom/cnds/conditions.go (100.0%)</option>
 				
-				<option value="file3">gitee.com/janyees/gom/factory/mysql/mysql.go (83.6%)</option>
+				<option value="file3">gitee.com/janyees/gom/factory/mysql/mysql.go (94.3%)</option>
 				
-				<option value="file4">gitee.com/janyees/gom/gom.go (81.0%)</option>
+				<option value="file4">gitee.com/janyees/gom/gom.go (89.5%)</option>
 				
 				<option value="file5">gitee.com/janyees/gom/register/register.go (77.8%)</option>
 				
 				<option value="file6">gitee.com/janyees/gom/structs/castor.go (100.0%)</option>
 				
-				<option value="file7">gitee.com/janyees/gom/structs/parser.go (21.2%)</option>
+				<option value="file7">gitee.com/janyees/gom/structs/scanners.go (78.7%)</option>
 				
-				<option value="file8">gitee.com/janyees/gom/structs/scanners.go (46.5%)</option>
+				<option value="file8">gitee.com/janyees/gom/structs/structs.go (93.3%)</option>
 				
-				<option value="file9">gitee.com/janyees/gom/structs/structs.go (89.1%)</option>
-				
-				<option value="file10">gitee.com/janyees/gom/structs/util.go (89.9%)</option>
+				<option value="file9">gitee.com/janyees/gom/structs/util.go (90.9%)</option>
 				
 				</select>
 			</div>
@@ -233,7 +231,6 @@ func (db DB) Delete(vs ...interface{}) (int64, int64, error) <span class="cov8" 
 
 }</span>
 func (db DB) Update(v interface{}, columns ...string) (int64, int64, error) <span class="cov8" title="1">{
-
         return db.execute(structs.Update, arrays.Of(v), columns...)
 }</span>
 
@@ -255,15 +252,21 @@ func (db DB) execute(sqlType structs.SqlType, v []interface{}, columns ...string
                 if len(vs) == 0 </span><span class="cov8" title="1">{
                         t, _ := structs.GetTableModel(nil, columns...)
                         db.initTableModel(t)
-                        vvs = append(vvs, t)
-                }</span> else<span class="cov8" title="1"> {
+                        if sqlType == structs.Update &amp;&amp; t.Condition() == nil </span><span class="cov0" title="0">{
+                                return 0, 0, errors.New("can't update Database without Conditions")
+                        }</span>
+                        <span class="cov8" title="1">vvs = append(vvs, t)</span>
+                } else<span class="cov8" title="1"> {
                         for _, v := range vs </span><span class="cov8" title="1">{
                                 t, er := structs.GetTableModel(v, columns...)
                                 if er != nil </span><span class="cov0" title="0">{
                                         panic(er)</span>
                                 }
                                 <span class="cov8" title="1">db.initTableModel(t)
-                                vvs = append(vvs, t)</span>
+                                if sqlType == structs.Update &amp;&amp; t.Condition() == nil </span><span class="cov8" title="1">{
+                                        return 0, 0, errors.New("can't update Database without Conditions")
+                                }</span>
+                                <span class="cov8" title="1">vvs = append(vvs, t)</span>
                         }
                 }
                 <span class="cov8" title="1">return db.ExecuteTableModel(sqlType, vvs)</span>
@@ -271,7 +274,7 @@ func (db DB) execute(sqlType structs.SqlType, v []interface{}, columns ...string
         }
 }
 func (db DB) ExecuteRaw() (int64, int64, error) <span class="cov8" title="1">{
-        rs, er := db.executeSql(*db.rawSql, *db.rawData...)
+        rs, er := db.ExecuteStatement(*db.rawSql, *db.rawData...)
         if er != nil </span><span class="cov0" title="0">{
                 return 0, 0, er
         }</span>
@@ -290,7 +293,7 @@ func (db DB) ExecuteTableModel(sqlType structs.SqlType, models []structs.TableMo
                 if Debug </span><span class="cov0" title="0">{
                         fmt.Println(sqlProto)
                 }</span>
-                <span class="cov8" title="1">rs, er := db.executeSql(sqlProto.PreparedSql, sqlProto.Data...)
+                <span class="cov8" title="1">rs, er := db.ExecuteStatement(sqlProto.PreparedSql, sqlProto.Data...)
                 if er != nil </span><span class="cov0" title="0">{
                         return 0, 0, er
                 }</span>
@@ -311,8 +314,8 @@ func (db DB) ExecuteTableModel(sqlType structs.SqlType, models []structs.TableMo
         return count, lastInsertId, nil</span>
 }
 
-func (db DB) executeSql(sql string, data ...interface{}) (sql.Result, error) <span class="cov8" title="1">{
-        st, err := db.db.Prepare(sql)
+func (db DB) ExecuteStatement(statement string, data ...interface{}) (sql.Result, error) <span class="cov8" title="1">{
+        st, err := db.db.Prepare(statement)
         if err != nil </span><span class="cov0" title="0">{
                 return nil, err
         }</span>
@@ -323,7 +326,7 @@ func (db DB) getCnd() cnds.Condition <span class="cov8" title="1">{
         if db.cnd != nil &amp;&amp; *db.cnd != nil </span><span class="cov8" title="1">{
                 return *db.cnd
         }</span>
-        <span class="cov0" title="0">return nil</span>
+        <span class="cov8" title="1">return nil</span>
 }
 
 func (db DB) query(statement string, data []interface{}, model structs.TableModel) (interface{}, error) <span class="cov8" title="1">{
@@ -350,8 +353,7 @@ func (db DB) query(statement string, data []interface{}, model structs.TableMode
                         panic(err)</span>
                 }
         }(rows)
-        <span class="cov8" title="1">db.CloneIfDifferentRoutine()
-        return model.Scan(rows)</span>
+        <span class="cov8" title="1">return model.Scan(rows)</span>
 
 }
 
@@ -382,14 +384,14 @@ func (db DB) getOrderBys() []structs.OrderBy <span class="cov8" title="1">{
         if db.orderBys != nil &amp;&amp; *db.orderBys != nil </span><span class="cov8" title="1">{
                 return *db.orderBys
         }</span>
-        <span class="cov0" title="0">return nil</span>
+        <span class="cov8" title="1">return nil</span>
 }
 
 func (db DB) getPage() structs.Page <span class="cov8" title="1">{
         if db.page != nil &amp;&amp; *db.page != nil </span><span class="cov8" title="1">{
                 return *db.page
         }</span>
-        <span class="cov0" title="0">return nil</span>
+        <span class="cov8" title="1">return nil</span>
 }
 func (db *DB) initTableModel(t structs.TableModel) <span class="cov8" title="1">{
         if db.table != nil </span><span class="cov8" title="1">{
@@ -1100,9 +1102,9 @@ func init() <span class="cov8" title="1">{
                         sql += " " + wrapperName(model.Columns()[0])
                 }</span>
                 <span class="cov8" title="1">sql += " FROM " + model.Table() + " "
-                cnds, cndData := m.ConditionToSql(model.Condition())
-                if len(cnds) &gt; 0 </span><span class="cov8" title="1">{
-                        sql += " WHERE " + cnds
+                cndString, cndData := m.ConditionToSql(model.Condition())
+                if len(cndString) &gt; 0 </span><span class="cov8" title="1">{
+                        sql += " WHERE " + cndString
                 }</span>
                 <span class="cov8" title="1">datas = append(datas, cndData...)
                 if len(model.OrderBys()) &gt; 0 </span><span class="cov8" title="1">{
@@ -1223,21 +1225,21 @@ func cndToMyCndStruct(cnd cnds.Condition) MyCndStruct <span class="cov8" title="
         switch cnd.Operation() </span>{
         case cnds.Eq:<span class="cov8" title="1">
                 opers += " = ? "</span>
-        case cnds.NotEq:<span class="cov0" title="0">
+        case cnds.NotEq:<span class="cov8" title="1">
                 opers += " &lt;&gt; ? "</span>
-        case cnds.Ge:<span class="cov0" title="0">
+        case cnds.Ge:<span class="cov8" title="1">
                 opers += " &gt;= ? "</span>
-        case cnds.Gt:<span class="cov0" title="0">
+        case cnds.Gt:<span class="cov8" title="1">
                 opers += " &gt; ? "</span>
-        case cnds.Le:<span class="cov0" title="0">
+        case cnds.Le:<span class="cov8" title="1">
                 opers += " &lt;= ? "</span>
-        case cnds.Lt:<span class="cov0" title="0">
+        case cnds.Lt:<span class="cov8" title="1">
                 opers += " &lt; ? "</span>
         case cnds.In:<span class="cov8" title="1">
                 opers += " IN " + valueSpace(len(cnd.Values()))</span>
-        case cnds.NotIn:<span class="cov0" title="0">
+        case cnds.NotIn:<span class="cov8" title="1">
                 opers += " NOT IN " + valueSpace(len(cnd.Values()))</span>
-        case cnds.Like:<span class="cov0" title="0">
+        case cnds.Like:<span class="cov8" title="1">
                 opers += " LIKE ? "
                 vals := cnd.Values()
                 vals[0] = "%" + vals[0].(string) + "%"
@@ -1247,14 +1249,14 @@ func cndToMyCndStruct(cnd cnds.Condition) MyCndStruct <span class="cov8" title="
                 vals := cnd.Values()
                 vals[0] = "%" + vals[0].(string)
                 cnd.SetValues(vals)</span>
-        case cnds.LikeIgnoreEnd:<span class="cov0" title="0">
+        case cnds.LikeIgnoreEnd:<span class="cov8" title="1">
                 opers += " LIKE ? "
                 vals := cnd.Values()
                 vals[0] = vals[0].(string) + "%"
                 cnd.SetValues(vals)</span>
-        case cnds.IsNull:<span class="cov0" title="0">
+        case cnds.IsNull:<span class="cov8" title="1">
                 opers += " IS NULL "</span>
-        case cnds.IsNotNull:<span class="cov0" title="0">
+        case cnds.IsNotNull:<span class="cov8" title="1">
                 opers += " IS NOT NULL "</span>
         }
         <span class="cov8" title="1">return MyCndStruct{linkerToString(cnd), opers, cnd.Values()}</span>
@@ -1272,7 +1274,7 @@ func linkerToString(cnd cnds.Condition) string <span class="cov8" title="1">{
 }
 
 func valueSpace(count int) string <span class="cov8" title="1">{
-        if count == 1 </span><span class="cov0" title="0">{
+        if count == 1 </span><span class="cov8" title="1">{
                 return " ? "
         }</span> else<span class="cov8" title="1"> {
                 str := "("
@@ -1301,33 +1303,31 @@ const defaultDBId = -1000
 
 func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int, debugs bool) (*DB, error) <span class="cov8" title="1">{
         Debug = debugs
-        Debug = debugs
         db, err := sql.Open(driverName, dsn)
-        if err != nil </span><span class="cov0" title="0">{
+        if err != nil </span><span class="cov8" title="1">{
                 return nil, err
         }</span> else<span class="cov8" title="1"> {
                 db.SetMaxOpenConns(maxOpen)
                 db.SetMaxIdleConns(maxIdle)
                 factory, ok := register.Get(driverName)
                 if !ok </span><span class="cov0" title="0">{
-                        panic(errors.New(fmt.Sprintf("can't find '%s' SqlFactory", driverName)))</span>
-                }
+                        return nil, errors.New(fmt.Sprintf("can't find '%s' SqlFactory", driverName))
+                }</span>
                 <span class="cov8" title="1">return &amp;DB{id: defaultDBId, db: db, factory: factory}, nil</span>
         }
 }
 
 func Open(driverName string, dsn string, debugs bool) (*DB, error) <span class="cov8" title="1">{
         Debug = debugs
-        Debug = debugs
         db, err := sql.Open(driverName, dsn)
-        db.SetConnMaxLifetime(time.Minute * 1)
-        if err != nil </span><span class="cov0" title="0">{
+        if err != nil </span><span class="cov8" title="1">{
                 return nil, err
         }</span> else<span class="cov8" title="1"> {
+                db.SetConnMaxLifetime(time.Minute * 1)
                 factory, ok := register.Get(driverName)
                 if !ok </span><span class="cov0" title="0">{
-                        panic(errors.New(fmt.Sprintf("can't find '%s' SqlFactory", driverName)))</span>
-                }
+                        return nil, errors.New(fmt.Sprintf("can't find '%s' SqlFactory", driverName))
+                }</span>
                 <span class="cov8" title="1">return &amp;DB{id: defaultDBId, db: db, factory: factory}, nil</span>
         }
 }
@@ -1422,122 +1422,8 @@ func CamelToSnakeString(s string) string <span class="cov8" title="1">{
 		<pre class="file" id="file7" style="display: none">package structs
 
 import (
-        "encoding/binary"
-        "math"
-        "strconv"
-        "time"
-)
-
-func Stringfrombytes(data []byte) string <span class="cov0" title="0">{
-        return string(data)
-}</span>
-func Float32fromString(data string) (float32, error) <span class="cov0" title="0">{
-        var f float64
-        f, err := strconv.ParseFloat(data, 32)
-        return float32(f), err
-}</span>
-func Float64fromString(data string) (float64, error) <span class="cov0" title="0">{
-        var f float64
-        f, err := strconv.ParseFloat(data, 64)
-        return f, err
-}</span>
-func IntfromString(data string) (int, error) <span class="cov0" title="0">{
-        return strconv.Atoi(data)
-}</span>
-
-func Int8fromString(data string) (int8, error) <span class="cov0" title="0">{
-        result, err := IntfromString(data)
-        return int8(result), err
-}</span>
-func Int16fromString(data string) (int16, error) <span class="cov0" title="0">{
-        result, err := IntfromString(data)
-        return int16(result), err
-}</span>
-func Int32fromString(data string) (int32, error) <span class="cov8" title="1">{
-        i, er := strconv.ParseInt(data, 10, 32)
-        if er != nil </span><span class="cov0" title="0">{
-                return 0, er
-        }</span>
-        <span class="cov8" title="1">return int32(i), nil</span>
-
-}
-func Int64fromString(data string) (int64, error) <span class="cov8" title="1">{
-        return strconv.ParseInt(data, 10, 64)
-}</span>
-func UInt8fromString(data string) (uint8, error) <span class="cov0" title="0">{
-        result, err := IntfromString(data)
-        return uint8(result), err
-}</span>
-func UInt16fromString(data string) (uint16, error) <span class="cov0" title="0">{
-        result, err := IntfromString(data)
-        return uint16(result), err
-}</span>
-func UInt32fromString(data string) (uint32, error) <span class="cov0" title="0">{
-        result, err := IntfromString(data)
-        return uint32(result), err
-}</span>
-func UIntfromString(data string) (uint, error) <span class="cov0" title="0">{
-        result, err := IntfromString(data)
-        return uint(result), err
-}</span>
-func UInt64fromString(data string) (uint64, error) <span class="cov0" title="0">{
-        result, err := IntfromString(data)
-        return uint64(result), err
-}</span>
-func TimeFromString(data string) (time.Time, error) <span class="cov0" title="0">{
-        TimeFormat := "2006-01-02 03:04:05"
-        return time.ParseInLocation(TimeFormat, data, time.Local)
-}</span>
-
-func Float64fromBytes(bytes []byte) float64 <span class="cov0" title="0">{
-        float, _ := strconv.ParseFloat(string(bytes), 64)
-        return float
-}</span>
-
-func Float64ToBytes(float float64) []byte <span class="cov0" title="0">{
-        bits := math.Float64bits(float)
-        bytes := make([]byte, 8)
-        binary.LittleEndian.PutUint64(bytes, bits)
-        return bytes
-}</span>
-func Float32fromBytes(bytes []byte) float32 <span class="cov0" title="0">{
-        float, _ := strconv.ParseFloat(string(bytes), 32)
-        return float32(float)
-}</span>
-func Float32ToBytes(float float32) []byte <span class="cov0" title="0">{
-        bits := math.Float32bits(float)
-        bytes := make([]byte, 8)
-        binary.LittleEndian.PutUint32(bytes, bits)
-        return bytes
-}</span>
-func Int64ToBytes(i int64) []byte <span class="cov0" title="0">{
-        var buf = make([]byte, 8)
-        binary.BigEndian.PutUint64(buf, uint64(i))
-        return buf
-}</span>
-
-func Int64FromBytes(buf []byte) int64 <span class="cov8" title="1">{
-        if len(buf) == 8 </span><span class="cov0" title="0">{
-                return int64(binary.BigEndian.Uint64(buf))
-        }</span>
-        <span class="cov8" title="1">r, _ := Int64fromString(string(buf))
-        return r</span>
-}
-func Int32FromBytes(buf []byte) int32 <span class="cov8" title="1">{
-        if len(buf) == 4 </span><span class="cov8" title="1">{
-                return int32(binary.BigEndian.Uint32(buf))
-        }</span>
-        <span class="cov8" title="1">r, _ := Int32fromString(string(buf))
-        return r</span>
-}
-</pre>
-		
-		<pre class="file" id="file8" style="display: none">package structs
-
-import (
+        "database/sql"
         "database/sql/driver"
-        "errors"
-        "strconv"
         "time"
 )
 
@@ -1548,20 +1434,15 @@ type ScanFunc func(src interface{}) (interface{}, error)
 var EMPTY_SCANNER *EmptyScanner = &amp;EmptyScanner{}
 
 type IScanner interface {
-        ColumnName() string
         Value() (driver.Value, error)
         Scan(src interface{}) error
 }
 
 type ScannerImpl struct {
-        ColName string
-        Object  driver.Value
+        Object driver.Value
         ScanFunc
 }
 
-func (s *ScannerImpl) ColumnName() string <span class="cov0" title="0">{
-        return s.ColName
-}</span>
 func (scanner *ScannerImpl) Scan(src interface{}) error <span class="cov8" title="1">{
         result, er := scanner.ScanFunc(src)
         if er != nil </span><span class="cov0" title="0">{
@@ -1581,192 +1462,92 @@ type EmptyScanner struct {
 func (e EmptyScanner) Scan(_ interface{}) error <span class="cov8" title="1">{
         return nil
 }</span>
-func (e EmptyScanner) ColumnName() string <span class="cov0" title="0">{
-        return e.ColName
-}</span>
 func (e EmptyScanner) Value() (driver.Value, error) <span class="cov8" title="1">{
         return nil, nil
 }</span>
 
-func StringScan(src interface{}) (interface{}, error) <span class="cov8" title="1">{
-        if src == nil </span><span class="cov8" title="1">{
-                return nil, nil
-        }</span>
-        <span class="cov8" title="1">var result = ""
-        var err error
-        switch src.(type) </span>{
-        case string:<span class="cov0" title="0">
-                result = src.(string)</span>
-        case []byte:<span class="cov8" title="1">
-                result = string(src.([]byte))</span>
-        case time.Time:<span class="cov0" title="0">
-                result = src.(time.Time).String()</span>
-        }
-        <span class="cov8" title="1">return result, err</span>
-}
-func Int64Scan(src interface{}) (interface{}, error) <span class="cov8" title="1">{
-        if src == nil </span><span class="cov0" title="0">{
-                return nil, nil
-        }</span>
-        <span class="cov8" title="1">var result int64 = 0
-        var err error
-        switch src.(type) </span>{
-        case int, int32, int64:<span class="cov8" title="1">
-                result = src.(int64)</span>
-        case string:<span class="cov0" title="0">
-                result, _ = Int64fromString(src.(string))</span>
-        case []uint8:<span class="cov8" title="1">
-                result = Int64FromBytes(src.([]byte))</span>
-        case time.Time:<span class="cov0" title="0">
-                result = src.(time.Time).Unix()</span>
-        }
-        <span class="cov8" title="1">return result, err</span>
-
-}
-func Int32Scan(src interface{}) (interface{}, error) <span class="cov8" title="1">{
+func IntScan(src interface{}) (interface{}, error) <span class="cov8" title="1">{
         if src == nil </span><span class="cov8" title="1">{
                 return nil, nil
         }</span>
         <span class="cov8" title="1">var result = 0
-        switch src.(type) </span>{
-        case string:<span class="cov0" title="0">
-                result, _ = IntfromString(src.(string))</span>
-        case int, int32:<span class="cov0" title="0">
-                result = src.(int)</span>
-        case int64:<span class="cov8" title="1">
-                result = int(src.(int64))</span>
-        case []byte:<span class="cov8" title="1">
-                result = int(Int32FromBytes(src.([]byte)))</span>
-        case time.Time:<span class="cov0" title="0">
-                result = int(src.(time.Time).Unix())</span>
-        }
-        <span class="cov8" title="1">return result, nil</span>
-}
-func Float32Scan(src interface{}) (interface{}, error) <span class="cov0" title="0">{
-        if src == nil </span><span class="cov0" title="0">{
-                return nil, nil
-        }</span>
-        <span class="cov0" title="0">var result float32 = 0
         var err error
         switch src.(type) </span>{
-        case string:<span class="cov0" title="0">
-                result, _ = Float32fromString(src.(string))</span>
-        case []byte:<span class="cov0" title="0">
-                result = Float32fromBytes(src.([]byte))</span>
-        case time.Time:<span class="cov0" title="0">
-                err = errors.New("can't parse time.Time to float32")</span>
+        case int:<span class="cov0" title="0">
+                result = src.(int)</span>
+        case int32:<span class="cov0" title="0">
+                result = (int)(src.(int32))</span>
+        case int64:<span class="cov8" title="1">
+                result = (int)(src.(int64))</span>
+        }
+        <span class="cov8" title="1">return result, err</span>
+
+}
+func Float32Scan(src interface{}) (interface{}, error) <span class="cov8" title="1">{
+        if src == nil </span><span class="cov0" title="0">{
+                return nil, nil
+        }</span>
+        <span class="cov8" title="1">var result float32 = 0
+        var err error
+        switch src.(type) </span>{
         case float64:<span class="cov0" title="0">
                 result = float32(src.(float64))</span>
-        case float32:<span class="cov0" title="0">
+        case float32:<span class="cov8" title="1">
                 result = src.(float32)</span>
         }
-        <span class="cov0" title="0">return result, err</span>
+        <span class="cov8" title="1">return result, err</span>
 
 }
-func Float64Scan(src interface{}) (interface{}, error) <span class="cov0" title="0">{
+func ByteArrayScan(src interface{}) (interface{}, error) <span class="cov8" title="1">{
         if src == nil </span><span class="cov0" title="0">{
                 return nil, nil
         }</span>
-        <span class="cov0" title="0">var result float64 = 0
-        switch src.(type) </span>{
-        case string:<span class="cov0" title="0">
-                result, _ = Float64fromString(src.(string))</span>
-        case []byte:<span class="cov0" title="0">
-                result = Float64fromBytes(src.([]byte))</span>
-        case time.Time:<span class="cov0" title="0">
-                result = float64(src.(time.Time).Unix())</span>
-        case float32:<span class="cov0" title="0">
-                result = float64(src.(float32))</span>
-        case float64:<span class="cov0" title="0">
-                result = src.(float64)</span>
-        }
-        <span class="cov0" title="0">return result, nil</span>
-
-}
-func ByteArrayScan(src interface{}) (interface{}, error) <span class="cov0" title="0">{
-        if src == nil </span><span class="cov0" title="0">{
-                return nil, nil
-        }</span>
-        <span class="cov0" title="0">var result = []byte{}
+        <span class="cov8" title="1">var result = []byte{}
         switch src.(type) </span>{
         case string:<span class="cov0" title="0">
                 result = []byte(src.(string))</span>
-        case []byte:<span class="cov0" title="0">
+        case []byte:<span class="cov8" title="1">
                 result = src.([]byte)</span>
-        case time.Time:<span class="cov0" title="0">
-                result = Int64ToBytes(src.(time.Time).Unix())</span>
-        }
-        <span class="cov0" title="0">return result, nil</span>
-
-}
-func TimeScan(src interface{}) (interface{}, error) <span class="cov8" title="1">{
-        if src == nil </span><span class="cov8" title="1">{
-                return nil, nil
-        }</span>
-        <span class="cov8" title="1">var result = time.Time{}
-        switch src.(type) </span>{
-        case string:<span class="cov0" title="0">
-                result, _ = TimeFromString(src.(string))</span>
-        case []byte:<span class="cov0" title="0">
-                result = time.Unix(Int64FromBytes(src.([]byte)), 0)</span>
-        case time.Time:<span class="cov8" title="1">
-                result = src.(time.Time)</span>
         }
         <span class="cov8" title="1">return result, nil</span>
 
 }
-func BoolScan(src interface{}) (interface{}, error) <span class="cov0" title="0">{
-        if src == nil </span><span class="cov0" title="0">{
-                return nil, nil
-        }</span>
-        <span class="cov0" title="0">var result = false
-        var err error
-        switch src.(type) </span>{
-        case string:<span class="cov0" title="0">
-                result, _ = strconv.ParseBool(src.(string))</span>
-        case []byte:<span class="cov0" title="0">
-                temp := Int64FromBytes(src.([]byte))
-                result = temp &gt; 0</span>
-        case time.Time:<span class="cov0" title="0">
-                err = errors.New("can't parse time.Time to Boolean")</span>
-        }
-        <span class="cov0" title="0">return result, err</span>
-
-}
-func GetIScannerOfColumn(colName string, col interface{}) IScanner <span class="cov8" title="1">{
+func GetIScannerOfColumn(col interface{}) IScanner <span class="cov8" title="1">{
         scanner, ok := col.(IScanner)
         if ok </span><span class="cov0" title="0">{
                 return scanner
         }</span>
         <span class="cov8" title="1">switch col.(type) </span>{
-        case int, int32:<span class="cov8" title="1">
-                return &amp;ScannerImpl{colName, 0, Int32Scan}</span>
+        case int:<span class="cov8" title="1">
+                return &amp;ScannerImpl{0, IntScan}</span>
+        case int16:<span class="cov0" title="0">
+                return &amp;sql.NullInt16{}</span>
+        case int32:<span class="cov0" title="0">
+                return &amp;sql.NullInt32{}</span>
         case int64:<span class="cov8" title="1">
-                return &amp;ScannerImpl{colName, int64(0), Int64Scan}</span>
+                return &amp;sql.NullInt64{}</span>
         case float32:<span class="cov8" title="1">
-                return &amp;ScannerImpl{colName, float32(0), Float32Scan}</span>
+                return &amp;ScannerImpl{float32(0), Float32Scan}</span>
         case float64:<span class="cov8" title="1">
-                return &amp;ScannerImpl{colName, float64(0), Float64Scan}</span>
+                return &amp;sql.NullFloat64{}</span>
         case string:<span class="cov8" title="1">
-                return &amp;ScannerImpl{colName, "", StringScan}</span>
+                return &amp;sql.NullString{}</span>
         case []byte:<span class="cov8" title="1">
-                return &amp;ScannerImpl{colName, []byte{}, ByteArrayScan}</span>
+                return &amp;ScannerImpl{[]byte{}, ByteArrayScan}</span>
         case time.Time:<span class="cov8" title="1">
-                return &amp;ScannerImpl{colName, time.Time{}, TimeScan}</span>
+                return &amp;sql.NullTime{}</span>
         case bool:<span class="cov8" title="1">
-                return &amp;ScannerImpl{colName, false, BoolScan}</span>
+                return &amp;sql.NullBool{}</span>
         default:<span class="cov8" title="1">
                 return nil</span>
         }
 }
 </pre>
 		
-		<pre class="file" id="file9" style="display: none">package structs
+		<pre class="file" id="file8" style="display: none">package structs
 
 import (
         "database/sql"
-        "errors"
-        "fmt"
         "gitee.com/janyees/gom/arrays"
         "gitee.com/janyees/gom/cnds"
         "reflect"
@@ -1862,10 +1643,6 @@ type CountResult struct {
         Error error
 }
 
-func (c Column) Clone() Column <span class="cov0" title="0">{
-        return Column{c.Data, c.ColumnName, c.FieldName, c.Primary, c.PrimaryAuto}
-}</span>
-
 type TableModel interface {
         Table() string
         SetTable(tableName string)
@@ -1935,10 +1712,7 @@ func (d DefaultTableModel) GetScanners(columns []string) ([]interface{}, int, er
                                 scanners = append(scanners, EMPTY_SCANNER)
                         }</span>
                 }
-        } else<span class="cov0" title="0"> {
-                return nil, -1, errors.New(fmt.Sprintf("Basic Type [%s] only can match one column or nothing", d.rawType.Name()))
-
-        }</span>
+        }
         <span class="cov8" title="1">return scanners, simpleIdx, nil</span>
 }
 
@@ -2049,13 +1823,15 @@ func (d DefaultTableModel) ColumnDataMap() map[string]interface{} <span class="c
         }</span> else<span class="cov8" title="1"> {
                 maps := make(map[string]interface{})
                 for _, colName := range d.columns </span><span class="cov8" title="1">{
-                        col, ok := d.columnDataMap[colName]
-                        if ok </span><span class="cov8" title="1">{
-                                maps[colName] = col
-                        }</span> else<span class="cov0" title="0"> {
-                                panic(errors.New(fmt.Sprintf("column [%s] does not exists", colName)))</span>
-                        }
-                }
+                        maps[colName] = d.columnDataMap[colName]
+                        //以下代码其实不可能发生，columns是经过交集产生的，如果不为空，
+                        //col, ok := d.columnDataMap[colName]
+                        //if ok {
+                        //
+                        //} else {
+                        //        panic(errors.New(fmt.Sprintf("column [%s] does not exists", colName)))
+                        //}
+                }</span>
                 <span class="cov8" title="1">return maps</span>
         }
 }
@@ -2066,11 +1842,13 @@ func (d DefaultTableModel) Condition() cnds.Condition <span class="cov8" title="
         }</span>
         <span class="cov8" title="1">if d.columnDataMap != nil </span><span class="cov8" title="1">{
                 col, ok := d.columnDataMap[d.rawColumnNames[0]] //默认第一个为主键
-                if ok &amp;&amp; col != nil </span><span class="cov8" title="1">{
-                        return cnds.New(d.rawColumnNames[0], cnds.Eq, col)
+                v := reflect.ValueOf(col)
+                //TODO 此处逻辑不够完备，需要判断列本身是否为空
+                if ok &amp;&amp; !v.IsZero() </span><span class="cov8" title="1">{
+                        d.condition = cnds.New(d.rawColumnNames[0], cnds.Eq, col)
                 }</span>
         }
-        <span class="cov8" title="1">return nil</span>
+        <span class="cov8" title="1">return d.condition</span>
 }
 
 func (d *DefaultTableModel) SetCondition(c cnds.Condition) error <span class="cov8" title="1">{
@@ -2106,14 +1884,9 @@ func (d DefaultTableModel) Clone() TableModel <span class="cov8" title="1">{
                 primaryAuto:     d.primaryAuto,
         }
 }</span>
-func GetDeepType(value reflect.Value) reflect.Type <span class="cov0" title="0">{
-        rawInfo := GetRawTableInfo(value.Interface())
-        return rawInfo.Type
-
-}</span>
 </pre>
 		
-		<pre class="file" id="file10" style="display: none">package structs
+		<pre class="file" id="file9" style="display: none">package structs
 
 import (
         "errors"
@@ -2192,11 +1965,11 @@ func GetTableModel(v interface{}, choosedColumns ...string) (TableModel, error) 
                         }
                         <span class="cov8" title="1">columnNames, columns, columnIdxMap := getColumns(tempVal)
                         for _, column := range columns </span><span class="cov8" title="1">{
-                                scanners = append(scanners, GetIScannerOfColumn(column.ColumnName, column.Data))
+                                scanners = append(scanners, GetIScannerOfColumn(column.Data))
                         }</span>
                         <span class="cov8" title="1">temp = &amp;DefaultTableModel{rawScanners: scanners, rawType: rawTableInfo.Type, rawTable: rawTableInfo.RawTableName, rawColumns: columns, rawColumnNames: columnNames, rawColumnIdxMap: columnIdxMap, primaryAuto: columns[0].PrimaryAuto}</span>
                 } else<span class="cov8" title="1"> {
-                        scanners = append(scanners, GetIScannerOfColumn("", reflect.Indirect(reflect.New(rawTableInfo.Type)).Interface()))
+                        scanners = append(scanners, GetIScannerOfColumn(reflect.Indirect(reflect.New(rawTableInfo.Type)).Interface()))
                         temp = &amp;DefaultTableModel{rawScanners: scanners, rawType: rawTableInfo.Type, rawTable: "", primaryAuto: false}
                 }</span>
                 <span class="cov8" title="1">tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()] = temp
@@ -2338,17 +2111,13 @@ func MapToCondition(maps map[string]interface{}) cnds.Condition <span class="cov
 func UnZipSlice(vs interface{}) []interface{} <span class="cov8" title="1">{
         var result = make([]interface{}, 0)
         t := reflect.TypeOf(vs)
-        isPtr := false
         if t.Kind() == reflect.Ptr </span><span class="cov0" title="0">{
                 t = t.Elem()
-                isPtr = true
         }</span>
         <span class="cov8" title="1">if t.Kind() == reflect.Slice </span><span class="cov8" title="1">{
                 v := reflect.ValueOf(vs)
-                if isPtr </span><span class="cov0" title="0">{
-                        v = v.Elem()
-                }</span>
-                <span class="cov8" title="1">if v.Len() &gt; 0 </span><span class="cov8" title="1">{
+
+                if v.Len() &gt; 0 </span><span class="cov8" title="1">{
                         for i := 0; i &lt; v.Len(); i++ </span><span class="cov8" title="1">{ //m为上述切片
                                 item := v.Index(i)
                                 if item.Interface() != nil </span><span class="cov8" title="1">{
@@ -2393,22 +2162,6 @@ func GetGoid() int64 <span class="cov8" title="1">{
         <span class="cov8" title="1">return int64(id)</span>
 }
 
-//func Difference(slice1, slice2 []string) []string {
-//        m := make(map[string]int)
-//        nn := make([]string, 0)
-//        inter := Intersect(slice1, slice2)
-//        for _, v := range inter {
-//                m[v]++
-//        }
-//
-//        for _, value := range slice1 {
-//                times, _ := m[value]
-//                if times == 0 {
-//                        nn = append(nn, value)
-//                }
-//        }
-//        return nn
-//}
 func ScannerResultToStruct(t reflect.Type, scanners []interface{}, columnNames []string, columnIdxMap map[string]int) reflect.Value <span class="cov8" title="1">{
         v := reflect.Indirect(reflect.New(t))
         for i, name := range columnNames </span><span class="cov8" title="1">{

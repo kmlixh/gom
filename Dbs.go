@@ -142,7 +142,6 @@ func (db DB) Delete(vs ...interface{}) (int64, int64, error) {
 
 }
 func (db DB) Update(v interface{}, columns ...string) (int64, int64, error) {
-
 	return db.execute(structs.Update, arrays.Of(v), columns...)
 }
 
@@ -164,6 +163,9 @@ func (db DB) execute(sqlType structs.SqlType, v []interface{}, columns ...string
 		if len(vs) == 0 {
 			t, _ := structs.GetTableModel(nil, columns...)
 			db.initTableModel(t)
+			if sqlType == structs.Update && t.Condition() == nil {
+				return 0, 0, errors.New("can't update Database without Conditions")
+			}
 			vvs = append(vvs, t)
 		} else {
 			for _, v := range vs {
@@ -172,6 +174,9 @@ func (db DB) execute(sqlType structs.SqlType, v []interface{}, columns ...string
 					panic(er)
 				}
 				db.initTableModel(t)
+				if sqlType == structs.Update && t.Condition() == nil {
+					return 0, 0, errors.New("can't update Database without Conditions")
+				}
 				vvs = append(vvs, t)
 			}
 		}
@@ -180,7 +185,7 @@ func (db DB) execute(sqlType structs.SqlType, v []interface{}, columns ...string
 	}
 }
 func (db DB) ExecuteRaw() (int64, int64, error) {
-	rs, er := db.executeSql(*db.rawSql, *db.rawData...)
+	rs, er := db.ExecuteStatement(*db.rawSql, *db.rawData...)
 	if er != nil {
 		return 0, 0, er
 	}
@@ -199,7 +204,7 @@ func (db DB) ExecuteTableModel(sqlType structs.SqlType, models []structs.TableMo
 		if Debug {
 			fmt.Println(sqlProto)
 		}
-		rs, er := db.executeSql(sqlProto.PreparedSql, sqlProto.Data...)
+		rs, er := db.ExecuteStatement(sqlProto.PreparedSql, sqlProto.Data...)
 		if er != nil {
 			return 0, 0, er
 		}
@@ -220,8 +225,8 @@ func (db DB) ExecuteTableModel(sqlType structs.SqlType, models []structs.TableMo
 	return count, lastInsertId, nil
 }
 
-func (db DB) executeSql(sql string, data ...interface{}) (sql.Result, error) {
-	st, err := db.db.Prepare(sql)
+func (db DB) ExecuteStatement(statement string, data ...interface{}) (sql.Result, error) {
+	st, err := db.db.Prepare(statement)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +264,6 @@ func (db DB) query(statement string, data []interface{}, model structs.TableMode
 			panic(err)
 		}
 	}(rows)
-	db.CloneIfDifferentRoutine()
 	return model.Scan(rows)
 
 }

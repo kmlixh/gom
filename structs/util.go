@@ -77,11 +77,11 @@ func GetTableModel(v interface{}, choosedColumns ...string) (TableModel, error) 
 			}
 			columnNames, columns, columnIdxMap := getColumns(tempVal)
 			for _, column := range columns {
-				scanners = append(scanners, GetIScannerOfColumn(column.ColumnName, column.Data))
+				scanners = append(scanners, GetIScannerOfColumn(column.Data))
 			}
 			temp = &DefaultTableModel{rawScanners: scanners, rawType: rawTableInfo.Type, rawTable: rawTableInfo.RawTableName, rawColumns: columns, rawColumnNames: columnNames, rawColumnIdxMap: columnIdxMap, primaryAuto: columns[0].PrimaryAuto}
 		} else {
-			scanners = append(scanners, GetIScannerOfColumn("", reflect.Indirect(reflect.New(rawTableInfo.Type)).Interface()))
+			scanners = append(scanners, GetIScannerOfColumn(reflect.Indirect(reflect.New(rawTableInfo.Type)).Interface()))
 			temp = &DefaultTableModel{rawScanners: scanners, rawType: rawTableInfo.Type, rawTable: "", primaryAuto: false}
 		}
 		tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()] = temp
@@ -223,16 +223,12 @@ func MapToCondition(maps map[string]interface{}) cnds.Condition {
 func UnZipSlice(vs interface{}) []interface{} {
 	var result = make([]interface{}, 0)
 	t := reflect.TypeOf(vs)
-	isPtr := false
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
-		isPtr = true
 	}
 	if t.Kind() == reflect.Slice {
 		v := reflect.ValueOf(vs)
-		if isPtr {
-			v = v.Elem()
-		}
+
 		if v.Len() > 0 {
 			for i := 0; i < v.Len(); i++ { //m为上述切片
 				item := v.Index(i)
@@ -278,22 +274,6 @@ func GetGoid() int64 {
 	return int64(id)
 }
 
-//func Difference(slice1, slice2 []string) []string {
-//	m := make(map[string]int)
-//	nn := make([]string, 0)
-//	inter := Intersect(slice1, slice2)
-//	for _, v := range inter {
-//		m[v]++
-//	}
-//
-//	for _, value := range slice1 {
-//		times, _ := m[value]
-//		if times == 0 {
-//			nn = append(nn, value)
-//		}
-//	}
-//	return nn
-//}
 func ScannerResultToStruct(t reflect.Type, scanners []interface{}, columnNames []string, columnIdxMap map[string]int) reflect.Value {
 	v := reflect.Indirect(reflect.New(t))
 	for i, name := range columnNames {

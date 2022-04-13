@@ -1,9 +1,8 @@
 package structs
 
 import (
+	"database/sql"
 	"database/sql/driver"
-	"errors"
-	"strconv"
 	"time"
 )
 
@@ -14,20 +13,15 @@ type ScanFunc func(src interface{}) (interface{}, error)
 var EMPTY_SCANNER *EmptyScanner = &EmptyScanner{}
 
 type IScanner interface {
-	ColumnName() string
 	Value() (driver.Value, error)
 	Scan(src interface{}) error
 }
 
 type ScannerImpl struct {
-	ColName string
-	Object  driver.Value
+	Object driver.Value
 	ScanFunc
 }
 
-func (s *ScannerImpl) ColumnName() string {
-	return s.ColName
-}
 func (scanner *ScannerImpl) Scan(src interface{}) error {
 	result, er := scanner.ScanFunc(src)
 	if er != nil {
@@ -47,66 +41,26 @@ type EmptyScanner struct {
 func (e EmptyScanner) Scan(_ interface{}) error {
 	return nil
 }
-func (e EmptyScanner) ColumnName() string {
-	return e.ColName
-}
 func (e EmptyScanner) Value() (driver.Value, error) {
 	return nil, nil
 }
 
-func StringScan(src interface{}) (interface{}, error) {
-	if src == nil {
-		return nil, nil
-	}
-	var result = ""
-	var err error
-	switch src.(type) {
-	case string:
-		result = src.(string)
-	case []byte:
-		result = string(src.([]byte))
-	case time.Time:
-		result = src.(time.Time).String()
-	}
-	return result, err
-}
-func Int64Scan(src interface{}) (interface{}, error) {
-	if src == nil {
-		return nil, nil
-	}
-	var result int64 = 0
-	var err error
-	switch src.(type) {
-	case int, int32, int64:
-		result = src.(int64)
-	case string:
-		result, _ = Int64fromString(src.(string))
-	case []uint8:
-		result = Int64FromBytes(src.([]byte))
-	case time.Time:
-		result = src.(time.Time).Unix()
-	}
-	return result, err
-
-}
-func Int32Scan(src interface{}) (interface{}, error) {
+func IntScan(src interface{}) (interface{}, error) {
 	if src == nil {
 		return nil, nil
 	}
 	var result = 0
+	var err error
 	switch src.(type) {
-	case string:
-		result, _ = IntfromString(src.(string))
-	case int, int32:
+	case int:
 		result = src.(int)
+	case int32:
+		result = (int)(src.(int32))
 	case int64:
-		result = int(src.(int64))
-	case []byte:
-		result = int(Int32FromBytes(src.([]byte)))
-	case time.Time:
-		result = int(src.(time.Time).Unix())
+		result = (int)(src.(int64))
 	}
-	return result, nil
+	return result, err
+
 }
 func Float32Scan(src interface{}) (interface{}, error) {
 	if src == nil {
@@ -115,38 +69,12 @@ func Float32Scan(src interface{}) (interface{}, error) {
 	var result float32 = 0
 	var err error
 	switch src.(type) {
-	case string:
-		result, _ = Float32fromString(src.(string))
-	case []byte:
-		result = Float32fromBytes(src.([]byte))
-	case time.Time:
-		err = errors.New("can't parse time.Time to float32")
 	case float64:
 		result = float32(src.(float64))
 	case float32:
 		result = src.(float32)
 	}
 	return result, err
-
-}
-func Float64Scan(src interface{}) (interface{}, error) {
-	if src == nil {
-		return nil, nil
-	}
-	var result float64 = 0
-	switch src.(type) {
-	case string:
-		result, _ = Float64fromString(src.(string))
-	case []byte:
-		result = Float64fromBytes(src.([]byte))
-	case time.Time:
-		result = float64(src.(time.Time).Unix())
-	case float32:
-		result = float64(src.(float32))
-	case float64:
-		result = src.(float64)
-	}
-	return result, nil
 
 }
 func ByteArrayScan(src interface{}) (interface{}, error) {
@@ -159,68 +87,36 @@ func ByteArrayScan(src interface{}) (interface{}, error) {
 		result = []byte(src.(string))
 	case []byte:
 		result = src.([]byte)
-	case time.Time:
-		result = Int64ToBytes(src.(time.Time).Unix())
 	}
 	return result, nil
 
 }
-func TimeScan(src interface{}) (interface{}, error) {
-	if src == nil {
-		return nil, nil
-	}
-	var result = time.Time{}
-	switch src.(type) {
-	case string:
-		result, _ = TimeFromString(src.(string))
-	case []byte:
-		result = time.Unix(Int64FromBytes(src.([]byte)), 0)
-	case time.Time:
-		result = src.(time.Time)
-	}
-	return result, nil
-
-}
-func BoolScan(src interface{}) (interface{}, error) {
-	if src == nil {
-		return nil, nil
-	}
-	var result = false
-	var err error
-	switch src.(type) {
-	case string:
-		result, _ = strconv.ParseBool(src.(string))
-	case []byte:
-		temp := Int64FromBytes(src.([]byte))
-		result = temp > 0
-	case time.Time:
-		err = errors.New("can't parse time.Time to Boolean")
-	}
-	return result, err
-
-}
-func GetIScannerOfColumn(colName string, col interface{}) IScanner {
+func GetIScannerOfColumn(col interface{}) IScanner {
 	scanner, ok := col.(IScanner)
 	if ok {
 		return scanner
 	}
 	switch col.(type) {
-	case int, int32:
-		return &ScannerImpl{colName, 0, Int32Scan}
+	case int:
+		return &ScannerImpl{0, IntScan}
+	case int16:
+		return &sql.NullInt16{}
+	case int32:
+		return &sql.NullInt32{}
 	case int64:
-		return &ScannerImpl{colName, int64(0), Int64Scan}
+		return &sql.NullInt64{}
 	case float32:
-		return &ScannerImpl{colName, float32(0), Float32Scan}
+		return &ScannerImpl{float32(0), Float32Scan}
 	case float64:
-		return &ScannerImpl{colName, float64(0), Float64Scan}
+		return &sql.NullFloat64{}
 	case string:
-		return &ScannerImpl{colName, "", StringScan}
+		return &sql.NullString{}
 	case []byte:
-		return &ScannerImpl{colName, []byte{}, ByteArrayScan}
+		return &ScannerImpl{[]byte{}, ByteArrayScan}
 	case time.Time:
-		return &ScannerImpl{colName, time.Time{}, TimeScan}
+		return &sql.NullTime{}
 	case bool:
-		return &ScannerImpl{colName, false, BoolScan}
+		return &sql.NullBool{}
 	default:
 		return nil
 	}

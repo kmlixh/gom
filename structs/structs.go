@@ -2,8 +2,6 @@ package structs
 
 import (
 	"database/sql"
-	"errors"
-	"fmt"
 	"gitee.com/janyees/gom/arrays"
 	"gitee.com/janyees/gom/cnds"
 	"reflect"
@@ -99,10 +97,6 @@ type CountResult struct {
 	Error error
 }
 
-func (c Column) Clone() Column {
-	return Column{c.Data, c.ColumnName, c.FieldName, c.Primary, c.PrimaryAuto}
-}
-
 type TableModel interface {
 	Table() string
 	SetTable(tableName string)
@@ -172,9 +166,6 @@ func (d DefaultTableModel) GetScanners(columns []string) ([]interface{}, int, er
 				scanners = append(scanners, EMPTY_SCANNER)
 			}
 		}
-	} else {
-		return nil, -1, errors.New(fmt.Sprintf("Basic Type [%s] only can match one column or nothing", d.rawType.Name()))
-
 	}
 	return scanners, simpleIdx, nil
 }
@@ -286,12 +277,14 @@ func (d DefaultTableModel) ColumnDataMap() map[string]interface{} {
 	} else {
 		maps := make(map[string]interface{})
 		for _, colName := range d.columns {
-			col, ok := d.columnDataMap[colName]
-			if ok {
-				maps[colName] = col
-			} else {
-				panic(errors.New(fmt.Sprintf("column [%s] does not exists", colName)))
-			}
+			maps[colName] = d.columnDataMap[colName]
+			//以下代码其实不可能发生，columns是经过交集产生的，如果不为空，
+			//col, ok := d.columnDataMap[colName]
+			//if ok {
+			//
+			//} else {
+			//	panic(errors.New(fmt.Sprintf("column [%s] does not exists", colName)))
+			//}
 		}
 		return maps
 	}
@@ -303,11 +296,13 @@ func (d DefaultTableModel) Condition() cnds.Condition {
 	}
 	if d.columnDataMap != nil {
 		col, ok := d.columnDataMap[d.rawColumnNames[0]] //默认第一个为主键
-		if ok && col != nil {
-			return cnds.New(d.rawColumnNames[0], cnds.Eq, col)
+		v := reflect.ValueOf(col)
+		//TODO 此处逻辑不够完备，需要判断列本身是否为空
+		if ok && !v.IsZero() {
+			d.condition = cnds.New(d.rawColumnNames[0], cnds.Eq, col)
 		}
 	}
-	return nil
+	return d.condition
 }
 
 func (d *DefaultTableModel) SetCondition(c cnds.Condition) error {

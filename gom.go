@@ -14,7 +14,6 @@ const defaultDBId = -1000
 
 func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int, debugs bool) (*DB, error) {
 	Debug = debugs
-	Debug = debugs
 	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		return nil, err
@@ -23,7 +22,7 @@ func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int, deb
 		db.SetMaxIdleConns(maxIdle)
 		factory, ok := register.Get(driverName)
 		if !ok {
-			panic(errors.New(fmt.Sprintf("can't find '%s' SqlFactory", driverName)))
+			return nil, errors.New(fmt.Sprintf("can't find '%s' SqlFactory", driverName))
 		}
 		return &DB{id: defaultDBId, db: db, factory: factory}, nil
 	}
@@ -31,15 +30,14 @@ func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int, deb
 
 func Open(driverName string, dsn string, debugs bool) (*DB, error) {
 	Debug = debugs
-	Debug = debugs
 	db, err := sql.Open(driverName, dsn)
-	db.SetConnMaxLifetime(time.Minute * 1)
 	if err != nil {
 		return nil, err
 	} else {
+		db.SetConnMaxLifetime(time.Minute * 1)
 		factory, ok := register.Get(driverName)
 		if !ok {
-			panic(errors.New(fmt.Sprintf("can't find '%s' SqlFactory", driverName)))
+			return nil, errors.New(fmt.Sprintf("can't find '%s' SqlFactory", driverName))
 		}
 		return &DB{id: defaultDBId, db: db, factory: factory}, nil
 	}

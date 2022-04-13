@@ -67,7 +67,7 @@ func TestCreate(t *testing.T) {
 func TestOperation(t *testing.T) {
 	tests := []Tt{
 		{"Test cnd function", func(t *testing.T) {
-			cnds.New("name", cnds.NotEq, "kmlixh").
+			cnd := cnds.New("name", cnds.NotEq, "kmlixh").
 				And("age", cnds.Lt, 12).And2(cnds.New("gg", cnds.Eq, "ss")).And3("ssdf=?", 23).
 				Or("sdfsd", cnds.Eq, "sdafs").Or2(cnds.NewRaw("age >= ?", 22)).Or3("name like ?", "sadf").OrNotEq("sdf", "sdfsd").
 				Eq("name", "j").OrEq("sdfsd", "sdf").NotEq("name", "sdfds").
@@ -77,6 +77,10 @@ func TestOperation(t *testing.T) {
 				OrLike("sdfsd", "sdfds").OrLikeIgnoreStart("sdfsd", "sdfdsf").OrLikeIgnoreEnd("sdfsd", "werwe").
 				In("id", "sdf", "sdf", "sdfsd").NotIn("sdfasdf", "sdf").OrIn("asdf", "dfdfd").OrNotIn("safs", "asfsdf").
 				IsNull("sadfa").IsNotNull("asdfasd").OrIsNull("safasdf").OrIsNotNull("sadfasdf")
+			str, er := db.factory.ConditionToSql(cnd)
+			if str == "" || er == nil {
+				t.Error("condition to string failed", er, str)
+			}
 		}},
 	}
 	for _, tt := range tests {

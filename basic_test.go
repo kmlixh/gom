@@ -333,6 +333,68 @@ func TestSpecial(t *testing.T) {
 				db.CleanDb()
 			},
 		},
+		{
+			"非自增主键查询", func(t *testing.T) {
+				var users []User2
+				db.Select(&users)
+			},
+		},
+		{
+			"获取空的OrderBys", func(t *testing.T) {
+				db.CleanDb().getOrderBys()
+			},
+		},
+		{
+			"获取空的Page", func(t *testing.T) {
+				db.CleanDb().getPage()
+			},
+		},
+		{
+			"获取空的Condition", func(t *testing.T) {
+				db.CleanDb().getCnd()
+			},
+		},
+		{
+			"open by wrong driver", func(t *testing.T) {
+				ddb, er := Open("sdf", dsn, false)
+				if er == nil {
+					t.Error(ddb, er)
+				}
+				ddbs, ers := OpenWithConfig("sdf", dsn, 1000, 1000, false)
+				if ers == nil {
+					t.Error(ddbs, ers)
+				}
+			},
+		},
+		{
+			"open by wrong Config", func(t *testing.T) {
+				ddb, er := Open("sdf", dsn, false)
+				if er == nil {
+					t.Error(ddb, er)
+				}
+				ddbs, ers := OpenWithConfig("mysql", dsn, -1000, -1000, false)
+				if ers != nil {
+					t.Error(ddbs, ers)
+				}
+			},
+		},
+		{
+			"简单类型查询返回多列", func(t *testing.T) {
+				var ids []int64
+				_, er := db.Raw("select * from user").Select(&ids, "id", "sdfds")
+				if er == nil {
+					t.Error("简单数据插入多列应该报错")
+				}
+			},
+		},
+		{
+			"无条件更新应当报错", func(t *testing.T) {
+				_, _, er := db.Update(User{NickName: "sdfdsf", RegDate: time.Now()})
+				if er == nil {
+					t.Error("无条件更新应当报错")
+				}
+			},
+		},
 	}
 
 	for _, tt := range ts {
