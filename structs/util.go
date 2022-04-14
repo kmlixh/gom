@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -39,19 +38,13 @@ func GetRawTableInfo(v interface{}) RawTableInfo {
 	return RawTableInfo{tt, tableName, isSlice, isPtr, isStruct}
 }
 
-var mutex sync.Mutex
-var tableModelCache map[string]TableModel
+var tableModelCache = make(map[string]TableModel)
 
 func GetTableModel(v interface{}, choosedColumns ...string) (TableModel, error) {
 	//防止重复创建map，需要对map创建过程加锁
 	if v == nil {
 		return &DefaultTableModel{}, nil
 	}
-	mutex.Lock()
-	if tableModelCache == nil {
-		tableModelCache = make(map[string]TableModel)
-	}
-	mutex.Unlock()
 	rawTableInfo := GetRawTableInfo(v)
 	if !rawTableInfo.IsStruct && (choosedColumns == nil || len(choosedColumns) != 1) {
 		return nil, errors.New("basic Type Only Support [1] Column Or2 nil")

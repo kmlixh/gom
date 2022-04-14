@@ -21,7 +21,8 @@ type DB struct {
 	orderBys *[]structs.OrderBy
 	page     *structs.Page
 }
-type TransactionWork func(databaseTx *DB) (int64, error)
+
+type TransactionWork func(databaseTx *DB) (interface{}, error)
 
 func (db DB) RawDb() *sql.DB {
 	return db.db
@@ -180,7 +181,7 @@ func (db DB) execute(sqlType structs.SqlType, v []interface{}, columns ...string
 				vvs = append(vvs, t)
 			}
 		}
-		return db.ExecuteTableModel(sqlType, vvs)
+		return db.executeTableModel(sqlType, vvs)
 	}
 }
 func (db DB) ExecuteRaw() (int64, int64, error) {
@@ -192,7 +193,7 @@ func (db DB) ExecuteRaw() (int64, int64, error) {
 	return c, 0, er
 }
 
-func (db DB) ExecuteTableModel(sqlType structs.SqlType, models []structs.TableModel) (int64, int64, error) {
+func (db DB) executeTableModel(sqlType structs.SqlType, models []structs.TableModel) (int64, int64, error) {
 	db.CloneIfDifferentRoutine()
 	var lastInsertId = int64(0)
 	genFunc := db.factory.GetSqlFunc(sqlType)
@@ -220,16 +221,37 @@ func (db DB) ExecuteTableModel(sqlType structs.SqlType, models []structs.TableMo
 		}
 		count += cs
 	}
-	db.CloneIfDifferentRoutine()
 	return count, lastInsertId, nil
 }
 
 func (db DB) ExecuteStatement(statement string, data ...interface{}) (sql.Result, error) {
-	st, err := db.db.Prepare(statement)
+	st, err := db.prepare(statement)
 	if err != nil {
 		return nil, err
 	}
-	return st.Exec(data...)
+	rs, er := st.Exec(data...)
+	if er != nil && db.IsInTransaction() {
+		//如果是在事务中，则直接panic整个事务，从而使事务可以回滚尽早回滚事务，避免发生错误的Commit
+		db.Rollback()
+	}
+	defer func() {
+		panics := recover()
+		if panics != nil && db.IsInTransaction() {
+			db.Rollback()
+		}
+	}()
+	return rs, er
+}
+
+func (db DB) prepare(query string) (*sql.Stmt, error) {
+	if db.IsInTransaction() {
+		st, er := db.tx.Prepare(query)
+		if er != nil {
+			db.Rollback()
+		}
+		return st, er
+	}
+	return db.db.Prepare(query)
 }
 
 func (db DB) getCnd() cnds.Condition {
@@ -241,15 +263,18 @@ func (db DB) getCnd() cnds.Condition {
 
 func (db DB) query(statement string, data []interface{}, model structs.TableModel) (interface{}, error) {
 	if Debug {
-		fmt.Println("ExecuteTableModel query,PreparedSql:", statement, "data was:", data)
+		fmt.Println("executeTableModel query,PreparedSql:", statement, "data was:", data)
 	}
-	st, err := db.db.Prepare(statement)
-	defer func(st *sql.Stmt) {
-		err := st.Close()
-		if err != nil {
-			panic(err)
+	st, err := db.prepare(statement)
+	if err != nil {
+		return nil, err
+	}
+	defer func(st *sql.Stmt, err error) {
+		if err == nil {
+			st.Close()
 		}
-	}(st)
+
+	}(st, err)
 	if err != nil {
 		return nil, err
 	}
@@ -260,34 +285,59 @@ func (db DB) query(statement string, data []interface{}, model structs.TableMode
 	defer func(rows *sql.Rows) {
 		err := rows.Close()
 		if err != nil {
-			panic(err)
+			fmt.Println(err)
+		}
+		result := recover()
+		if result != nil {
+			db.Rollback()
 		}
 	}(rows)
 	return model.Scan(rows)
 
 }
+func (db *DB) Begin() error {
+	if db.tx != nil {
+		return errors.New(" there was a DoTransaction")
+	}
+	tx, err := db.db.Begin()
+	db.tx = tx
+	return err
+}
+func (db DB) IsInTransaction() bool {
+	return db.tx != nil
+}
+func (db *DB) Commit() {
+	if db.IsInTransaction() {
+		db.tx.Commit()
+		db.tx = nil
+	}
+}
+func (db *DB) Rollback() {
+	if db.tx != nil {
+		db.tx.Rollback()
+		db.tx = nil
+	}
+}
 
-func (db DB) Transaction(work TransactionWork) (int64, error) {
-	result := int64(0)
-	tx := db.tx
-	if tx == nil { //if transaction is nil create it
-		var err error
-		tx, err = db.db.Begin()
-		if err != nil {
-			return result, err
+func (db DB) DoTransaction(work TransactionWork) (interface{}, error) {
+	//Create A New Db And set Tx for it
+	dbTx := db.Clone()
+	eb := dbTx.Begin()
+	if eb != nil {
+		return nil, eb
+	}
+	defer func(dbTx *DB) { //catch the panic of 'work' function
+		if r := recover(); r != nil {
+			dbTx.Rollback()
 		}
+	}(&dbTx)
+	i, es := work(&dbTx)
+	if es != nil {
+		dbTx.Rollback()
+	} else {
+		dbTx.Commit()
 	}
-
-	result, err := work(&db)
-	if err != nil {
-		err = tx.Rollback()
-		return result, err
-	}
-	err = tx.Commit()
-	if err != nil {
-		fmt.Println("transaction commit err:", err)
-	}
-	return result, err
+	return i, es
 }
 
 func (db DB) getOrderBys() []structs.OrderBy {

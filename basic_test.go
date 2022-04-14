@@ -39,7 +39,7 @@ type TbRecord struct {
 	CreateDate time.Time
 }
 type User2 struct {
-	Id         string    `json:"id,omitempty",gom:"!,id"`
+	Id         string    `json:"id,omitempty" gom:"!,id"`
 	Name       string    `json:"name" gom:"#,name"`
 	Age        int       `json:"age,omitempty"`
 	Height     float64   `json:"height,omitempty"`
@@ -336,7 +336,10 @@ func TestSpecial(t *testing.T) {
 		{
 			"非自增主键查询", func(t *testing.T) {
 				var users []User2
-				db.Select(&users)
+				_, err := db.Select(&users)
+				if err != nil {
+					t.Error(err)
+				}
 			},
 		},
 		{
@@ -392,6 +395,30 @@ func TestSpecial(t *testing.T) {
 				_, _, er := db.Update(User{NickName: "sdfdsf", RegDate: time.Now()})
 				if er == nil {
 					t.Error("无条件更新应当报错")
+				}
+			},
+		},
+		{
+			"事务回滚测试", func(t *testing.T) {
+				uid := uuid.New().String()
+
+				c, er := db.DoTransaction(func(dbTx *DB) (interface{}, error) {
+					c, _, er := dbTx.Insert(User{NickName: uid, Valid: 2, Email: "test@gg.com", RegDate: time.Now()})
+					if er != nil {
+						return c, er
+					}
+					_, _, err := dbTx.Raw("update dafadsf set dfadf").Update(nil)
+					if err != nil {
+						return 0, err
+					}
+					return 0, nil
+				})
+				if er != nil {
+					var temp User
+					db.Where2("nick_name=?", uid).Select(&temp)
+					if temp.Id != 0 {
+						t.Error("事务回滚失败", c, er)
+					}
 				}
 			},
 		},

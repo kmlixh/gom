@@ -1,15 +1,13 @@
 package gom
 
 import (
-	"fmt"
 	"gitee.com/janyees/gom/cnds"
 	"testing"
 )
 
 func init() {
 }
-func TestCreate(t *testing.T) {
-	fmt.Println("Test Conditions")
+func TestConditions(t *testing.T) {
 
 	tests := []Tt{
 		{"测试Raw创建", func(t *testing.T) {

@@ -259,9 +259,7 @@ func (d *DefaultTableModel) SetData(_ interface{}, valueOfData reflect.Value, is
 		dataMap := make(map[string]interface{})
 		_, columns, _ := getColumns(valueOfData)
 		for _, column := range columns {
-			if column.Data != nil {
-				dataMap[column.ColumnName] = column.Data
-			}
+			dataMap[column.ColumnName] = column.Data
 		}
 		d.columnDataMap = dataMap
 	}
@@ -278,13 +276,6 @@ func (d DefaultTableModel) ColumnDataMap() map[string]interface{} {
 		maps := make(map[string]interface{})
 		for _, colName := range d.columns {
 			maps[colName] = d.columnDataMap[colName]
-			//以下代码其实不可能发生，columns是经过交集产生的，如果不为空，
-			//col, ok := d.columnDataMap[colName]
-			//if ok {
-			//
-			//} else {
-			//	panic(errors.New(fmt.Sprintf("column [%s] does not exists", colName)))
-			//}
 		}
 		return maps
 	}

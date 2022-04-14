@@ -310,7 +310,7 @@ func TestDB_Update(t *testing.T) {
 			}
 		}},
 		{"带事务处理批量插入后操作更新", func(t *testing.T) {
-			c, er := db.Transaction(func(db *DB) (int64, error) {
+			c, er := db.DoTransaction(func(db *DB) (interface{}, error) {
 				var users []User
 				var ncks []interface{}
 				for i := 0; i < 100; i++ {
@@ -343,7 +343,7 @@ func TestDB_Update(t *testing.T) {
 		{"测试Update Raw", func(t *testing.T) {
 			c, _, er := db.Raw("update user2 set age= ?", 101).Update(nil)
 			if er != nil {
-				t.Error("raw ExecuteTableModel failed", c, er)
+				t.Error("raw executeTableModel failed", c, er)
 			}
 		}},
 		{"测试Update2 空状态", func(t *testing.T) {
@@ -355,7 +355,7 @@ func TestDB_Update(t *testing.T) {
 		{"测试Insert Raw", func(t *testing.T) {
 			c, _, er := db.Raw("update user2 set age= ?", 101).Insert(nil)
 			if er != nil {
-				t.Error("raw ExecuteTableModel failed", c, er)
+				t.Error("raw executeTableModel failed", c, er)
 			}
 		}},
 		{"GetOrderBys", func(t *testing.T) {

@@ -7,7 +7,6 @@ import (
 	"gitee.com/janyees/gom/structs"
 	_ "github.com/go-sql-driver/mysql"
 
-	"reflect"
 	"strings"
 )
 
@@ -120,7 +119,7 @@ func init() {
 		}
 		var result []structs.SqlProto
 		for _, model := range models {
-			if model.ColumnDataMap() == nil || reflect.ValueOf(model.ColumnDataMap()).IsZero() {
+			if model.ColumnDataMap() == nil {
 				panic(errors.New("nothing to update"))
 			}
 			var datas []interface{}
@@ -137,9 +136,9 @@ func init() {
 					i++
 				}
 			}
-			cnds, dds := m.ConditionToSql(model.Condition())
-			if len(cnds) > 0 {
-				sql += " WHERE " + cnds + ";"
+			conditionSql, dds := m.ConditionToSql(model.Condition())
+			if len(conditionSql) > 0 {
+				sql += " WHERE " + conditionSql + ";"
 			}
 			datas = append(datas, dds...)
 			result = append(result, structs.SqlProto{sql, datas})
@@ -180,9 +179,9 @@ func init() {
 			var datas []interface{}
 			sql := "DELETE FROM "
 			sql += " " + model.Table()
-			cnds, dds := m.ConditionToSql(model.Condition())
-			if len(cnds) > 0 {
-				sql += " WHERE " + cnds + ";"
+			conditionSql, dds := m.ConditionToSql(model.Condition())
+			if len(conditionSql) > 0 {
+				sql += " WHERE " + conditionSql + ";"
 			}
 			datas = append(datas, dds...)
 			result = append(result, structs.SqlProto{sql, datas})
