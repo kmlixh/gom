@@ -1,7 +1,7 @@
 package gom
 
 import (
-	"gitee.com/janyees/gom/cnds"
+	"gitee.com/janyees/gom/v2/cnds"
 	"testing"
 )
 

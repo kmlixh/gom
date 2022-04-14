@@ -5,13 +5,16 @@
 [![wercker status](https://app.wercker.com/status/56931116573ad6b913d0c7176e72e759/s/master "wercker status")](https://app.wercker.com/project/byKey/56931116573ad6b913d0c7176e72e759)
 
 ## 基本介绍&特性
-gom是一个基于golang语言的关系型数据库ORM框架（准确说是一个CRUD工具库，支持事务）
+gom是一个基于golang语言的关系型数据库ORM框架（CRUD工具库，支持事务）
 
-**当前支持的数据库类型为*`mysql`*及其衍生品*`mariadb`*
+目前最新版本为v2.0，于2022年4月15 发布
+
+**当前支持的数据库类型仅为*`mysql`*及其衍生品*`mariadb`*
 
 数据库类型支持自定义扩展（参考factory/mysql/mysql.go）
+
 gom是goroutine安全的（自认为的安全）
-目前最新版本为v2.0，于2022年4月15 凌晨发布。。。
+
 
 
 ## 稳定性及性能
@@ -20,7 +23,7 @@ gom是goroutine安全的（自认为的安全）
 
 单元测试覆盖率93%，稳定性应该有保证。
 
-但是逻辑覆盖率没法做到百分之百，如使用过程中出现问题，欢迎邮件我：kmlixh@foxmail.com或者直接给PR
+但是逻辑覆盖率没法做到百分之百，如使用过程中如出现问题，欢迎邮件我：kmlixh@foxmail.com或者直接给PR
 
 本地测试的结果详见*迭代注记*
 

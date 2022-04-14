@@ -1,7 +1,7 @@
 package gom
 
 import (
-	_ "gitee.com/janyees/gom/factory/mysql"
+	_ "gitee.com/janyees/gom/v2/factory/mysql"
 	"testing"
 )
 

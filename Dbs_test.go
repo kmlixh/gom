@@ -1,8 +1,8 @@
 package gom
 
 import (
-	"gitee.com/janyees/gom/cnds"
-	"gitee.com/janyees/gom/structs"
+	"gitee.com/janyees/gom/v2/cnds"
+	"gitee.com/janyees/gom/v2/structs"
 	"github.com/google/uuid"
 	"reflect"
 	"strconv"

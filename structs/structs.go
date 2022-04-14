@@ -2,8 +2,8 @@ package structs
 
 import (
 	"database/sql"
-	"gitee.com/janyees/gom/arrays"
-	"gitee.com/janyees/gom/cnds"
+	"gitee.com/janyees/gom/v2/arrays"
+	"gitee.com/janyees/gom/v2/cnds"
 	"reflect"
 )
 
