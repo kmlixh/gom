@@ -1,0 +1,2315 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>v2: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/kmlixh/gom/v2/Dbs.go (89.3%)</option>
+				
+				<option value="file1">github.com/kmlixh/gom/v2/arrays/array.go (100.0%)</option>
+				
+				<option value="file2">github.com/kmlixh/gom/v2/cnds/cnd.go (89.5%)</option>
+				
+				<option value="file3">github.com/kmlixh/gom/v2/factory/mysql/mysql.go (95.5%)</option>
+				
+				<option value="file4">github.com/kmlixh/gom/v2/gom.go (89.5%)</option>
+				
+				<option value="file5">github.com/kmlixh/gom/v2/register/register.go (77.8%)</option>
+				
+				<option value="file6">github.com/kmlixh/gom/v2/structs/castor.go (100.0%)</option>
+				
+				<option value="file7">github.com/kmlixh/gom/v2/structs/scanners.go (78.7%)</option>
+				
+				<option value="file8">github.com/kmlixh/gom/v2/structs/structs.go (93.2%)</option>
+				
+				<option value="file9">github.com/kmlixh/gom/v2/structs/util.go (91.3%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package gom
+
+import (
+        "database/sql"
+        "errors"
+        "fmt"
+        "github.com/kmlixh/gom/v2/arrays"
+        "github.com/kmlixh/gom/v2/cnds"
+        "github.com/kmlixh/gom/v2/structs"
+)
+
+type DB struct {
+        id       int64
+        factory  structs.SqlFactory
+        db       *sql.DB
+        cnd      *cnds.Condition
+        table    *string
+        rawSql   *string
+        rawData  *[]interface{}
+        tx       *sql.Tx
+        orderBys *[]structs.OrderBy
+        page     *structs.Page
+}
+
+type TransactionWork func(databaseTx *DB) (interface{}, error)
+
+func (db DB) RawDb() *sql.DB <span class="cov8" title="1">{
+        return db.db
+}</span>
+func (db DB) Table(table string) DB <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        db.table = &amp;table
+        return db
+}</span>
+func (db *DB) CloneIfDifferentRoutine() <span class="cov8" title="1">{
+        if db.id != structs.GetGoid() </span><span class="cov8" title="1">{
+                *db = db.Clone()
+        }</span>
+}
+func (db DB) Raw(sql string, datas ...interface{}) DB <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        db.rawSql = &amp;sql
+        var temp = structs.UnZipSlice(datas)
+        db.rawData = &amp;temp
+        return db
+}</span>
+
+func (db DB) OrderBy(field string, t structs.OrderType) DB <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        var temp []structs.OrderBy
+        temp = append(temp, structs.MakeOrderBy(field, t))
+        db.orderBys = &amp;temp
+        return db
+}</span>
+func (db DB) CleanOrders() DB <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        temp := make([]structs.OrderBy, 0)
+        db.orderBys = &amp;temp
+        return db
+}</span>
+func (db DB) OrderByAsc(field string) DB <span class="cov8" title="1">{
+        db.OrderBy(field, structs.Asc)
+        return db
+}</span>
+func (db DB) OrderByDesc(field string) DB <span class="cov8" title="1">{
+        db.OrderBy(field, structs.Desc)
+        return db
+}</span>
+
+func (db DB) Where2(sql string, patches ...interface{}) DB <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        return db.Where(cnds.NewRaw(sql, patches...))
+}</span>
+func (db DB) Where(cnd cnds.Condition) DB <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        db.cnd = &amp;cnd
+        return db
+}</span>
+func (db DB) Clone() DB <span class="cov8" title="1">{
+        return DB{id: structs.GetGoid(), factory: db.factory, db: db.db}
+}</span>
+
+func (db DB) Page(index int, pageSize int) DB <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        page := structs.MakePage(index, pageSize)
+        db.page = &amp;page
+        return db
+}</span>
+
+func (db DB) Count(columnName string) (int64, error) <span class="cov8" title="1">{
+        statements := fmt.Sprintf("select count(`%s`) as count from `%s`", columnName, *db.table)
+        var count int64
+        tb, er := structs.GetTableModel(&amp;count, "count")
+        if er != nil </span><span class="cov0" title="0">{
+                panic(er)</span>
+        }
+        <span class="cov8" title="1">_, er = db.query(statements, nil, tb)
+
+        return count, er</span>
+}
+
+func (db DB) Sum(columnName string) structs.CountResult <span class="cov8" title="1">{
+        statements := fmt.Sprintf("select SUM(`%s`) as count from `%s`", columnName, *db.table)
+        var countResult structs.CountResult
+        tb, er := structs.GetTableModel(&amp;countResult, "count")
+        if er != nil </span><span class="cov0" title="0">{
+                panic(er)</span>
+        }
+        <span class="cov8" title="1">_, er = db.query(statements, nil, tb)
+        countResult.Error = er
+        return countResult</span>
+}
+
+func (db DB) Select(vs interface{}, columns ...string) (interface{}, error) <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        model, er := structs.GetTableModel(vs, columns...)
+        if er != nil </span><span class="cov8" title="1">{
+                return nil, er
+        }</span>
+        <span class="cov8" title="1">if db.rawSql != nil &amp;&amp; len(*db.rawSql) &gt; 0 </span><span class="cov8" title="1">{
+                return db.query(*db.rawSql, *db.rawData, model)
+        }</span> else<span class="cov8" title="1"> {
+                db.initTableModel(model)
+                return db.SelectByModel(model)
+        }</span>
+}
+func (db DB) SelectByModel(model structs.TableModel) (interface{}, error) <span class="cov8" title="1">{
+        //TODO 此处逻辑不合理，如果是自定义查询的话，无需生成Model，简单的查询也不需要生成model。
+        db.CloneIfDifferentRoutine()
+        selectFunc := db.factory.GetSqlFunc(structs.Query)
+        sqlProtos := selectFunc(model)
+        return db.query(sqlProtos[0].PreparedSql, sqlProtos[0].Data, model)
+}</span>
+func (db DB) First(vs interface{}) (interface{}, error) <span class="cov8" title="1">{
+        return db.Page(0, 1).Select(vs)
+}</span>
+func (db DB) Insert(v interface{}, columns ...string) (int64, int64, error) <span class="cov8" title="1">{
+        return db.execute(structs.Insert, arrays.Of(v), columns...)
+
+}</span>
+func (db DB) Delete(vs ...interface{}) (int64, int64, error) <span class="cov8" title="1">{
+        return db.execute(structs.Delete, vs)
+
+}</span>
+func (db DB) Update(v interface{}, columns ...string) (int64, int64, error) <span class="cov8" title="1">{
+        return db.execute(structs.Update, arrays.Of(v), columns...)
+}</span>
+
+func (db DB) execute(sqlType structs.SqlType, v []interface{}, columns ...string) (int64, int64, error) <span class="cov8" title="1">{
+        var vs []interface{}
+        if v != nil &amp;&amp; len(v) &gt; 0 </span><span class="cov8" title="1">{
+                vs = append(vs, structs.UnZipSlice(v)...)
+        }</span>
+        <span class="cov8" title="1">if db.rawSql != nil &amp;&amp; len(*db.rawSql) &gt; 0 </span><span class="cov8" title="1">{
+                if vs != nil &amp;&amp; len(vs) &gt; 0 </span><span class="cov0" title="0">{
+                        return 0, 0, errors.New("when the RawSql is not nil or empty,data should be nil")
+                }</span>
+                <span class="cov8" title="1">return db.ExecuteRaw()</span>
+        }
+        <span class="cov8" title="1">if len(vs) == 0 &amp;&amp; db.table == nil &amp;&amp; db.cnd == nil </span><span class="cov8" title="1">{
+                return 0, 0, errors.New("there was nothing to do")
+        }</span> else<span class="cov8" title="1"> {
+                var vvs []structs.TableModel
+                if len(vs) == 0 </span><span class="cov8" title="1">{
+                        t, _ := structs.GetTableModel(nil, columns...)
+                        db.initTableModel(t)
+                        if sqlType == structs.Update &amp;&amp; t.Condition() == nil </span><span class="cov0" title="0">{
+                                return 0, 0, errors.New("can't update Database without Conditions")
+                        }</span>
+                        <span class="cov8" title="1">vvs = append(vvs, t)</span>
+                } else<span class="cov8" title="1"> {
+                        for _, v := range vs </span><span class="cov8" title="1">{
+                                t, er := structs.GetTableModel(v, columns...)
+                                if er != nil </span><span class="cov0" title="0">{
+                                        panic(er)</span>
+                                }
+                                <span class="cov8" title="1">db.initTableModel(t)
+                                if sqlType == structs.Update &amp;&amp; t.Condition() == nil </span><span class="cov8" title="1">{
+                                        return 0, 0, errors.New("can't update Database without Conditions")
+                                }</span>
+                                <span class="cov8" title="1">vvs = append(vvs, t)</span>
+                        }
+                }
+                <span class="cov8" title="1">return db.executeTableModel(sqlType, vvs)</span>
+        }
+}
+func (db DB) ExecuteRaw() (int64, int64, error) <span class="cov8" title="1">{
+        rs, er := db.ExecuteStatement(*db.rawSql, *db.rawData...)
+        if er != nil </span><span class="cov8" title="1">{
+                return 0, 0, er
+        }</span>
+        <span class="cov8" title="1">c, er := rs.RowsAffected()
+        return c, 0, er</span>
+}
+
+func (db DB) executeTableModel(sqlType structs.SqlType, models []structs.TableModel) (int64, int64, error) <span class="cov8" title="1">{
+        db.CloneIfDifferentRoutine()
+        var lastInsertId = int64(0)
+        genFunc := db.factory.GetSqlFunc(sqlType)
+        //此处应当判断是否已经在事物中，如果不在事务中才开启事物
+        count := int64(0)
+        sqlProtos := genFunc(models...)
+        for _, sqlProto := range sqlProtos </span><span class="cov8" title="1">{
+                if Debug </span><span class="cov0" title="0">{
+                        fmt.Println(sqlProto)
+                }</span>
+                <span class="cov8" title="1">rs, er := db.ExecuteStatement(sqlProto.PreparedSql, sqlProto.Data...)
+                if er != nil </span><span class="cov0" title="0">{
+                        return 0, 0, er
+                }</span>
+                <span class="cov8" title="1">cs, err := rs.RowsAffected()
+                if cs == 1 &amp;&amp; len(sqlProtos) == len(models) &amp;&amp; sqlType == structs.Insert </span><span class="cov8" title="1">{
+                        //
+                        id, er := rs.LastInsertId()
+                        if er == nil </span><span class="cov8" title="1">{
+                                lastInsertId = id
+                        }</span>
+                }
+                <span class="cov8" title="1">if err != nil </span><span class="cov0" title="0">{
+                        return cs, 0, err
+                }</span>
+                <span class="cov8" title="1">count += cs</span>
+        }
+        <span class="cov8" title="1">return count, lastInsertId, nil</span>
+}
+
+func (db DB) ExecuteStatement(statement string, data ...interface{}) (sql.Result, error) <span class="cov8" title="1">{
+        st, err := db.prepare(statement)
+        if err != nil </span><span class="cov8" title="1">{
+                return nil, err
+        }</span>
+        <span class="cov8" title="1">rs, er := st.Exec(data...)
+        if er != nil &amp;&amp; db.IsInTransaction() </span><span class="cov0" title="0">{
+                //如果是在事务中，则直接panic整个事务，从而使事务可以回滚尽早回滚事务，避免发生错误的Commit
+                db.Rollback()
+        }</span>
+        <span class="cov8" title="1">defer func() </span><span class="cov8" title="1">{
+                panics := recover()
+                if panics != nil &amp;&amp; db.IsInTransaction() </span><span class="cov0" title="0">{
+                        db.Rollback()
+                }</span>
+        }()
+        <span class="cov8" title="1">return rs, er</span>
+}
+
+func (db DB) prepare(query string) (*sql.Stmt, error) <span class="cov8" title="1">{
+        if db.IsInTransaction() </span><span class="cov8" title="1">{
+                st, er := db.tx.Prepare(query)
+                if er != nil </span><span class="cov8" title="1">{
+                        db.Rollback()
+                }</span>
+                <span class="cov8" title="1">return st, er</span>
+        }
+        <span class="cov8" title="1">return db.db.Prepare(query)</span>
+}
+
+func (db DB) getCnd() cnds.Condition <span class="cov8" title="1">{
+        if db.cnd != nil &amp;&amp; *db.cnd != nil </span><span class="cov8" title="1">{
+                return *db.cnd
+        }</span>
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (db DB) query(statement string, data []interface{}, model structs.TableModel) (interface{}, error) <span class="cov8" title="1">{
+        if Debug </span><span class="cov0" title="0">{
+                fmt.Println("executeTableModel query,PreparedSql:", statement, "data was:", data)
+        }</span>
+        <span class="cov8" title="1">st, err := db.prepare(statement)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+        <span class="cov8" title="1">defer func(st *sql.Stmt, err error) </span><span class="cov8" title="1">{
+                if err == nil </span><span class="cov8" title="1">{
+                        st.Close()
+                }</span>
+
+        }(st, err)
+        <span class="cov8" title="1">if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+        <span class="cov8" title="1">rows, errs := st.Query(data...)
+        if errs != nil </span><span class="cov0" title="0">{
+                return nil, errs
+        }</span>
+        <span class="cov8" title="1">defer func(rows *sql.Rows) </span><span class="cov8" title="1">{
+                err := rows.Close()
+                if err != nil </span><span class="cov0" title="0">{
+                        fmt.Println(err)
+                }</span>
+                <span class="cov8" title="1">result := recover()
+                if result != nil </span><span class="cov0" title="0">{
+                        db.Rollback()
+                }</span>
+        }(rows)
+        <span class="cov8" title="1">return model.Scan(rows)</span>
+
+}
+func (db *DB) Begin() error <span class="cov8" title="1">{
+        if db.tx != nil </span><span class="cov0" title="0">{
+                return errors.New(" there was a DoTransaction")
+        }</span>
+        <span class="cov8" title="1">tx, err := db.db.Begin()
+        db.tx = tx
+        return err</span>
+}
+func (db DB) IsInTransaction() bool <span class="cov8" title="1">{
+        return db.tx != nil
+}</span>
+func (db *DB) Commit() <span class="cov8" title="1">{
+        if db.IsInTransaction() </span><span class="cov8" title="1">{
+                db.tx.Commit()
+                db.tx = nil
+        }</span>
+}
+func (db *DB) Rollback() <span class="cov8" title="1">{
+        if db.tx != nil </span><span class="cov8" title="1">{
+                db.tx.Rollback()
+                db.tx = nil
+        }</span>
+}
+
+func (db DB) DoTransaction(work TransactionWork) (interface{}, error) <span class="cov8" title="1">{
+        //Create A New Db And set Tx for it
+        dbTx := db.Clone()
+        eb := dbTx.Begin()
+        if eb != nil </span><span class="cov0" title="0">{
+                return nil, eb
+        }</span>
+        <span class="cov8" title="1">defer func(dbTx *DB) </span><span class="cov8" title="1">{ //catch the panic of 'work' function
+                if r := recover(); r != nil </span><span class="cov0" title="0">{
+                        dbTx.Rollback()
+                }</span>
+        }(&amp;dbTx)
+        <span class="cov8" title="1">i, es := work(&amp;dbTx)
+        if es != nil </span><span class="cov8" title="1">{
+                dbTx.Rollback()
+        }</span> else<span class="cov8" title="1"> {
+                dbTx.Commit()
+        }</span>
+        <span class="cov8" title="1">return i, es</span>
+}
+
+func (db DB) getOrderBys() []structs.OrderBy <span class="cov8" title="1">{
+        if db.orderBys != nil &amp;&amp; *db.orderBys != nil </span><span class="cov8" title="1">{
+                return *db.orderBys
+        }</span>
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (db DB) getPage() structs.Page <span class="cov8" title="1">{
+        if db.page != nil &amp;&amp; *db.page != nil </span><span class="cov8" title="1">{
+                return *db.page
+        }</span>
+        <span class="cov8" title="1">return nil</span>
+}
+func (db *DB) initTableModel(t structs.TableModel) <span class="cov8" title="1">{
+        if db.table != nil </span><span class="cov8" title="1">{
+                t.SetTable(*db.table)
+        }</span>
+        <span class="cov8" title="1">if db.cnd != nil </span><span class="cov8" title="1">{
+                err := t.SetCondition(*db.cnd)
+                if err != nil </span><span class="cov0" title="0">{
+                        panic(err)</span>
+                }
+        }
+        <span class="cov8" title="1">if db.page != nil </span><span class="cov8" title="1">{
+                err := t.SetPage(*db.page)
+                if err != nil </span><span class="cov0" title="0">{
+                        panic(err)</span>
+                }
+        }
+        <span class="cov8" title="1">if db.orderBys != nil </span><span class="cov8" title="1">{
+                err := t.SetOrderBys(*db.orderBys)
+                if err != nil </span><span class="cov0" title="0">{
+                        panic(err)</span>
+                }
+        }
+
+}
+func (db *DB) CleanDb() *DB <span class="cov8" title="1">{
+        db.table = nil
+        db.page = nil
+        db.orderBys = nil
+        db.rawSql = nil
+        db.cnd = nil
+        return db
+}</span>
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package arrays
+
+func Of(i ...interface{}) []interface{} <span class="cov8" title="1">{
+        return i
+}</span>
+func Intersect(slice1, slice2 []string) []string <span class="cov8" title="1">{
+        m := make(map[string]int)
+        nn := make([]string, 0)
+        for _, v := range slice1 </span><span class="cov8" title="1">{
+                m[v]++
+        }</span>
+
+        <span class="cov8" title="1">for _, v := range slice2 </span><span class="cov8" title="1">{
+                times, _ := m[v]
+                if times == 1 </span><span class="cov8" title="1">{
+                        nn = append(nn, v)
+                }</span>
+        }
+        <span class="cov8" title="1">return nn</span>
+}
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">package cnds
+
+type Linker int
+
+const (
+        _ Linker = iota
+        And
+        Or
+)
+
+type Operation int
+
+const (
+        _ Operation = iota
+        Eq
+        NotEq
+        Ge
+        Gt
+        Le
+        Lt
+        Like
+        LikeIgnoreStart
+        LikeIgnoreEnd
+        In
+        NotIn
+        IsNull
+        IsNotNull
+        RawOperation
+)
+
+type Condition interface {
+        Depth() int64
+        Linker() Linker
+        Field() string
+        Operation() Operation
+        Values() []interface{}
+        SetValues([]interface{})
+        Items() []Condition
+        HasSubConditions() bool
+        RawExpression() string
+        Eq(field string, values interface{}) Condition
+        EqBool(b bool, field string, value interface{}) Condition
+        OrEq(field string, value interface{}) Condition
+        OrEqBool(b bool, field string, value interface{}) Condition
+        Ge(field string, value interface{}) Condition
+        GeBool(b bool, field string, value interface{}) Condition
+        OrGe(field string, value interface{}) Condition
+        OrGeBool(b bool, field string, value interface{}) Condition
+        Gt(field string, values interface{}) Condition
+        GtBool(b bool, field string, values interface{}) Condition
+        OrGt(field string, values interface{}) Condition
+        OrGtBool(b bool, field string, values interface{}) Condition
+        Le(field string, values interface{}) Condition
+        LeBool(b bool, field string, values interface{}) Condition
+        OrLe(field string, values interface{}) Condition
+        OrLeBool(b bool, field string, values interface{}) Condition
+        Lt(field string, values interface{}) Condition
+        LtBool(b bool, field string, values interface{}) Condition
+        OrLt(field string, values interface{}) Condition
+        OrLtBool(b bool, field string, values interface{}) Condition
+        NotEq(field string, values interface{}) Condition
+        NotEqBool(b bool, field string, values interface{}) Condition
+        OrNotEq(field string, values interface{}) Condition
+        OrNotEqBool(b bool, field string, values interface{}) Condition
+        In(field string, values ...interface{}) Condition
+        InBool(b bool, field string, values ...interface{}) Condition
+        OrIn(field string, values ...interface{}) Condition
+        OrInBool(b bool, field string, values ...interface{}) Condition
+        NotIn(field string, values ...interface{}) Condition
+        NotInBool(b bool, field string, values ...interface{}) Condition
+        OrNotIn(field string, values ...interface{}) Condition
+        OrNotInBool(b bool, field string, values ...interface{}) Condition
+        Like(field string, values interface{}) Condition
+        LikeBool(b bool, field string, values interface{}) Condition
+        OrLike(field string, values interface{}) Condition
+        OrLikeBool(b bool, field string, values interface{}) Condition
+        LikeIgnoreStart(field string, values interface{}) Condition
+        LikeIgnoreStartBool(b bool, field string, values interface{}) Condition
+        OrLikeIgnoreStart(field string, values interface{}) Condition
+        OrLikeIgnoreStartBool(b bool, field string, values interface{}) Condition
+        LikeIgnoreEnd(field string, values interface{}) Condition
+        LikeIgnoreEndBool(b bool, field string, values interface{}) Condition
+        OrLikeIgnoreEnd(field string, values interface{}) Condition
+        OrLikeIgnoreEndBool(b bool, field string, values interface{}) Condition
+        IsNull(filed string) Condition
+        IsNullBool(b bool, field string) Condition
+        IsNotNull(field string) Condition
+        IsNotNullBool(b bool, field string) Condition
+        OrIsNull(filed string) Condition
+        OrIsNullBool(b bool, field string) Condition
+        OrIsNotNull(field string) Condition
+        OrIsNotNullBool(b bool, field string) Condition
+        And(field string, operation Operation, value ...interface{}) Condition
+        AndBool(b bool, field string, operation Operation, value ...interface{}) Condition
+        And2(condition Condition) Condition
+        And3(rawExpresssion string, values ...interface{}) Condition
+        And3Bool(b bool, rawExpresssion string, values ...interface{}) Condition
+        Or(field string, operation Operation, value ...interface{}) Condition
+        OrBool(b bool, field string, operation Operation, value ...interface{}) Condition
+        Or2(condition Condition) Condition
+        Or3(rawExpresssion string, values ...interface{}) Condition
+        Or3Bool(b bool, rawExpresssion string, values ...interface{}) Condition
+}
+type CndImpl struct {
+        depth         int64
+        linker        Linker
+        field         string
+        operation     Operation
+        values        []interface{}
+        items         []Condition
+        rawExpression string
+}
+
+func (c *CndImpl) Depth() int64 <span class="cov8" title="1">{
+        return c.depth
+}</span>
+
+func (c *CndImpl) Linker() Linker <span class="cov8" title="1">{
+        return c.linker
+}</span>
+func (c *CndImpl) Field() string <span class="cov8" title="1">{
+        return c.field
+}</span>
+func (c *CndImpl) Operation() Operation <span class="cov8" title="1">{
+        return c.operation
+}</span>
+func (c *CndImpl) Values() []interface{} <span class="cov8" title="1">{
+        return c.values
+}</span>
+func (c *CndImpl) SetValues(values []interface{}) <span class="cov8" title="1">{
+        c.values = values
+}</span>
+func (c *CndImpl) Items() []Condition <span class="cov8" title="1">{
+        return c.items
+}</span>
+func (c *CndImpl) HasSubConditions() bool <span class="cov8" title="1">{
+        return len(c.items) &gt; 0
+}</span>
+func (c *CndImpl) RawExpression() string <span class="cov8" title="1">{
+        return c.rawExpression
+}</span>
+
+func (c *CndImpl) Eq(field string, values interface{}) Condition <span class="cov8" title="1">{
+        return c.EqBool(true, field, values)
+}</span>
+
+func (c *CndImpl) OrEq(field string, values interface{}) Condition <span class="cov8" title="1">{
+        return c.OrEqBool(true, field, values)
+}</span>
+
+func (c *CndImpl) Ge(field string, values interface{}) Condition <span class="cov8" title="1">{
+        return c.GeBool(true, field, values)
+}</span>
+
+func (c *CndImpl) OrGe(field string, values interface{}) Condition <span class="cov8" title="1">{
+        return c.OrGeBool(true, field, values)
+}</span>
+
+func (c *CndImpl) Gt(field string, values interface{}) Condition <span class="cov8" title="1">{
+        return c.GtBool(true, field, values)
+}</span>
+
+func (c *CndImpl) OrGt(field string, values interface{}) Condition <span class="cov8" title="1">{
+        return c.OrGtBool(true, field, values)
+}</span>
+
+func (c *CndImpl) Le(field string, values interface{}) Condition <span class="cov8" title="1">{
+        return c.LeBool(true, field, values)
+}</span>
+
+func (c *CndImpl) OrLe(field string, values interface{}) Condition <span class="cov8" title="1">{
+        return c.OrLeBool(true, field, values)
+}</span>
+
+func (c *CndImpl) Lt(field string, values interface{}) Condition <span class="cov8" title="1">{
+        return c.LtBool(true, field, values)
+}</span>
+
+func (c *CndImpl) OrLt(field string, values interface{}) Condition <span class="cov8" title="1">{
+        return c.OrLtBool(true, field, values)
+}</span>
+
+func (c *CndImpl) NotEq(field string, values interface{}) Condition <span class="cov8" title="1">{
+        return c.NotEqBool(true, field, values)
+}</span>
+
+func (c *CndImpl) OrNotEq(field string, values interface{}) Condition <span class="cov8" title="1">{
+        return c.OrNotEqBool(true, field, values)
+}</span>
+
+func (c *CndImpl) In(field string, values ...interface{}) Condition <span class="cov8" title="1">{
+        return c.InBool(true, field, values...)
+}</span>
+
+func (c *CndImpl) OrIn(field string, values ...interface{}) Condition <span class="cov8" title="1">{
+        return c.OrInBool(true, field, values...)
+
+}</span>
+
+func (c *CndImpl) NotIn(field string, values ...interface{}) Condition <span class="cov8" title="1">{
+        return c.NotInBool(true, field, values...)
+}</span>
+
+func (c *CndImpl) OrNotIn(field string, values ...interface{}) Condition <span class="cov8" title="1">{
+        return c.OrNotInBool(true, field, values...)
+}</span>
+
+func (c *CndImpl) Like(field string, values interface{}) Condition <span class="cov8" title="1">{
+        return c.LikeBool(true, field, values)
+}</span>
+
+func (c *CndImpl) OrLike(field string, values interface{}) Condition <span class="cov8" title="1">{
+        return c.OrLikeBool(true, field, values)
+}</span>
+
+func (c *CndImpl) LikeIgnoreStart(field string, values interface{}) Condition <span class="cov8" title="1">{
+        return c.LikeIgnoreStartBool(true, field, values)
+}</span>
+
+func (c *CndImpl) OrLikeIgnoreStart(field string, values interface{}) Condition <span class="cov8" title="1">{
+        return c.OrLikeIgnoreStartBool(true, field, values)
+}</span>
+
+func (c *CndImpl) LikeIgnoreEnd(field string, values interface{}) Condition <span class="cov8" title="1">{
+        return c.LikeIgnoreEndBool(true, field, values)
+}</span>
+
+func (c *CndImpl) OrLikeIgnoreEnd(field string, values interface{}) Condition <span class="cov8" title="1">{
+        return c.OrLikeIgnoreEndBool(true, field, values)
+}</span>
+
+func (c *CndImpl) IsNull(filed string) Condition <span class="cov8" title="1">{
+        return c.IsNullBool(true, filed)
+}</span>
+
+func (c *CndImpl) IsNotNull(field string) Condition <span class="cov8" title="1">{
+        return c.IsNotNullBool(true, field)
+}</span>
+
+func (c *CndImpl) And(field string, operation Operation, value ...interface{}) Condition <span class="cov8" title="1">{
+        return c.AndBool(true, field, operation, value)
+}</span>
+func (c *CndImpl) And2(condition Condition) Condition <span class="cov8" title="1">{
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        cc.linker = And
+        c.items = append(c.items, cc)
+        return c
+}</span>
+
+func (c *CndImpl) And3(rawExpresssion string, values ...interface{}) Condition <span class="cov8" title="1">{
+        return c.And3Bool(true, rawExpresssion, values...)
+}</span>
+
+func (c *CndImpl) EqBool(b bool, field string, values interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := New(field, Eq, values)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) OrEqBool(b bool, field string, values interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := NewFull(Or, field, Eq, "", values)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) GeBool(b bool, field string, values interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := New(field, Ge, values)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) OrGeBool(b bool, field string, values interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := NewFull(Or, field, Ge, "", values)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) GtBool(b bool, field string, values interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := New(field, Eq, values)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) OrGtBool(b bool, field string, values interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := NewFull(Or, field, Gt, "", values)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) LeBool(b bool, field string, values interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := New(field, Le, values)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) OrLeBool(b bool, field string, values interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := NewFull(Or, field, Le, "", values)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) LtBool(b bool, field string, values interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := New(field, Lt, values)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) OrLtBool(b bool, field string, values interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := NewFull(Or, field, Lt, "", values)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) NotEqBool(b bool, field string, values interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := New(field, NotEq, values)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) OrNotEqBool(b bool, field string, values interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := NewFull(Or, field, NotEq, "", values)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) InBool(b bool, field string, values ...interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := New(field, In, values...)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) OrInBool(b bool, field string, values ...interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := NewFull(Or, field, NotEq, "", values...)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) NotInBool(b bool, field string, values ...interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := New(field, NotIn, values...)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) OrNotInBool(b bool, field string, values ...interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := NewFull(Or, field, NotIn, "", values...)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) LikeBool(b bool, field string, values interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := New(field, Like, values)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) OrLikeBool(b bool, field string, values interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := NewFull(Or, field, Like, "", values)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) LikeIgnoreStartBool(b bool, field string, values interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := New(field, LikeIgnoreStart, "", values)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) OrLikeIgnoreStartBool(b bool, field string, values interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := NewFull(Or, field, LikeIgnoreStart, "", values)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) LikeIgnoreEndBool(b bool, field string, values interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := New(field, Like, values)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) IsNullBool(b bool, field string) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := New(field, IsNull, nil)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) IsNotNullBool(b bool, filed string) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := New(filed, IsNotNull, nil)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+
+func (c *CndImpl) OrIsNull(field string) Condition <span class="cov8" title="1">{
+        return c.OrIsNullBool(true, field)
+}</span>
+
+func (c *CndImpl) OrIsNullBool(b bool, field string) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := New(field, IsNull, nil)
+        cc := condition.(*CndImpl)
+        cc.linker = Or
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+
+func (c *CndImpl) OrIsNotNull(field string) Condition <span class="cov8" title="1">{
+        return c.OrIsNotNullBool(true, field)
+}</span>
+
+func (c *CndImpl) OrIsNotNullBool(b bool, field string) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := New(field, IsNotNull, nil)
+        cc := condition.(*CndImpl)
+        cc.linker = Or
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c</span>
+}
+
+func (c *CndImpl) OrLikeIgnoreEndBool(b bool, field string, values interface{}) Condition <span class="cov8" title="1">{
+        condition := NewFull(Or, field, LikeIgnoreEnd, "", values)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        c.items = append(c.items, cc)
+        return c
+}</span>
+
+func (c *CndImpl) AndBool(b bool, field string, operation Operation, values ...interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">cc := New(field, operation, values...).(*CndImpl)
+        cc.depth = c.depth + 1
+        cc.linker = And
+        c.items = append(c.items, cc)
+        return c</span>
+}
+
+func (c *CndImpl) And3Bool(b bool, rawExpresssion string, values ...interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := NewRaw(rawExpresssion, values...)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        cc.linker = Or
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) Or(field string, operation Operation, values ...interface{}) Condition <span class="cov8" title="1">{
+        return c.OrBool(true, field, operation, values...)
+}</span>
+func (c *CndImpl) OrBool(b bool, field string, operation Operation, values ...interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">cc := New(field, operation, values...).(*CndImpl)
+        cc.depth = c.depth + 1
+        cc.linker = And
+        c.items = append(c.items, cc)
+        return c</span>
+}
+func (c *CndImpl) Or2(condition Condition) Condition <span class="cov8" title="1">{
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        cc.linker = Or
+        c.items = append(c.items, cc)
+        return c
+}</span>
+func (c *CndImpl) Or3(rawExpresssion string, values ...interface{}) Condition <span class="cov8" title="1">{
+        return c.Or3Bool(true, rawExpresssion, values...)
+}</span>
+func (c *CndImpl) Or3Bool(b bool, rawExpresssion string, values ...interface{}) Condition <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return c
+        }</span>
+        <span class="cov8" title="1">condition := NewRaw(rawExpresssion, values...)
+        cc := condition.(*CndImpl)
+        cc.depth = c.depth + 1
+        cc.linker = Or
+        c.items = append(c.items, cc)
+        return c</span>
+}
+
+func NewEq(field string, value interface{}) Condition <span class="cov8" title="1">{
+        return New(field, Eq, value)
+}</span>
+func NewNotEq(field string, value interface{}) Condition <span class="cov8" title="1">{
+        return New(field, NotEq, value)
+}</span>
+func NewGe(field string, value interface{}) Condition <span class="cov8" title="1">{
+        return New(field, Ge, value)
+}</span>
+func NewGt(field string, value interface{}) Condition <span class="cov8" title="1">{
+        return New(field, Gt, value)
+}</span>
+func NewLe(field string, value interface{}) Condition <span class="cov8" title="1">{
+        return New(field, Le, value)
+}</span>
+func NewLt(field string, value interface{}) Condition <span class="cov8" title="1">{
+        return New(field, Lt, value)
+}</span>
+func NewLike(field string, value interface{}) Condition <span class="cov8" title="1">{
+        return New(field, Like, value)
+}</span>
+func NewLikeIgnoreStart(field string, value interface{}) Condition <span class="cov8" title="1">{
+        return New(field, LikeIgnoreStart, value)
+}</span>
+func NewLikeIgnoreEnd(field string, value interface{}) Condition <span class="cov8" title="1">{
+        return New(field, LikeIgnoreEnd, value)
+}</span>
+func NewIn(field string, values ...interface{}) Condition <span class="cov8" title="1">{
+        return New(field, In, values...)
+}</span>
+func NewNotIn(field string, values ...interface{}) Condition <span class="cov8" title="1">{
+        return New(field, NotIn, values...)
+}</span>
+func NewIsNull(field string) Condition <span class="cov8" title="1">{
+        return New(field, IsNull)
+}</span>
+func NewIsNotNull(field string) Condition <span class="cov8" title="1">{
+        return New(field, IsNotNull)
+}</span>
+
+func New(field string, operation Operation, values ...interface{}) Condition <span class="cov8" title="1">{
+        return NewFull(And, field, operation, "", values...)
+}</span>
+
+func NewRaw(rawExpresssion string, values ...interface{}) Condition <span class="cov8" title="1">{
+        return &amp;CndImpl{depth: 0, linker: And, rawExpression: rawExpresssion, values: values, operation: RawOperation}
+}</span>
+
+func NewFull(linker Linker, field string, operation Operation, rawExpression string, values ...interface{}) Condition <span class="cov8" title="1">{
+        return &amp;CndImpl{
+                0,
+                linker,
+                field,
+                operation,
+                values,
+                nil,
+                rawExpression,
+        }
+}</span>
+</pre>
+		
+		<pre class="file" id="file3" style="display: none">package mysql
+
+import (
+        "errors"
+        _ "github.com/go-sql-driver/mysql"
+        "github.com/kmlixh/gom/v2/cnds"
+        "github.com/kmlixh/gom/v2/register"
+        "github.com/kmlixh/gom/v2/structs"
+
+        "strings"
+)
+
+type MyCndStruct struct {
+        Linker     string
+        Expression string
+        Data       []interface{}
+}
+
+var funcMap map[structs.SqlType]structs.GenerateSQLFunc
+
+type Factory struct {
+}
+
+func (m Factory) GetSqlFunc(sqlType structs.SqlType) structs.GenerateSQLFunc <span class="cov8" title="1">{
+        return funcMap[sqlType]
+}</span>
+func (m Factory) ConditionToSql(cnd cnds.Condition) (string, []interface{}) <span class="cov8" title="1">{
+        if cnd == nil </span><span class="cov8" title="1">{
+                return "", nil
+        }</span>
+        <span class="cov8" title="1">myCnd := cndToMyCndStruct(cnd)
+        var data []interface{}
+        data = append(data, cnd.Values()...)
+        var sql string
+        if cnd.Depth() &gt; 0 </span><span class="cov8" title="1">{
+                sql += myCnd.Linker
+        }</span>
+
+        <span class="cov8" title="1">if cnd.HasSubConditions() &amp;&amp; cnd.Depth() &gt; 0 </span><span class="cov8" title="1">{
+                sql += " ("
+        }</span>
+        <span class="cov8" title="1">sql += myCnd.Expression
+        if cnd.HasSubConditions() </span><span class="cov8" title="1">{
+                for _, v := range cnd.Items() </span><span class="cov8" title="1">{
+                        s, dd := m.ConditionToSql(v)
+                        sql += s
+                        data = append(data, dd...)
+                }</span>
+        }
+
+        <span class="cov8" title="1">if cnd.HasSubConditions() &amp;&amp; cnd.Depth() &gt; 0 </span><span class="cov8" title="1">{
+                sql += ")"
+        }</span>
+
+        <span class="cov8" title="1">return sql, data</span>
+
+}
+
+func init() <span class="cov8" title="1">{
+        m := Factory{}
+        register.Register("mysql", &amp;m)
+        funcMap = make(map[structs.SqlType]structs.GenerateSQLFunc)
+        funcMap[structs.Query] = func(models ...structs.TableModel) []structs.SqlProto </span><span class="cov8" title="1">{
+                model := models[0]
+                var datas []interface{}
+                sql := "SELECT "
+                counts := len(model.Columns())
+                if counts == 0 </span><span class="cov0" title="0">{
+                        panic(errors.New("columns is null or empty"))</span>
+                } else<span class="cov8" title="1"> {
+                        for i := 0; i &lt; len(model.Columns()); i++ </span><span class="cov8" title="1">{
+                                if i == 0 </span><span class="cov8" title="1">{
+                                        sql += wrapperName(model.Columns()[i]) + " "
+                                }</span> else<span class="cov8" title="1"> {
+                                        sql += ", " + wrapperName(model.Columns()[i]) + " "
+                                }</span>
+                        }
+                }
+                <span class="cov8" title="1">sql += " FROM " + model.Table() + " "
+                cndString, cndData := m.ConditionToSql(model.Condition())
+                if len(cndString) &gt; 0 </span><span class="cov8" title="1">{
+                        sql += " WHERE " + cndString
+                }</span>
+                <span class="cov8" title="1">datas = append(datas, cndData...)
+                if len(model.OrderBys()) &gt; 0 </span><span class="cov8" title="1">{
+                        sql += " ORDER BY"
+                        for i := 0; i &lt; len(model.OrderBys()); i++ </span><span class="cov8" title="1">{
+                                if i &gt; 0 </span><span class="cov0" title="0">{
+                                        sql += ","
+                                }</span>
+                                <span class="cov8" title="1">t := ""
+                                if model.OrderBys()[i].Type() == structs.Asc </span><span class="cov0" title="0">{
+                                        t = " ASC"
+                                }</span> else<span class="cov8" title="1"> {
+                                        t = " DESC"
+                                }</span>
+                                <span class="cov8" title="1">sql += " " + wrapperName(model.OrderBys()[i].Name()) + t</span>
+                        }
+                }
+                <span class="cov8" title="1">if model.Page() != nil </span><span class="cov8" title="1">{
+                        idx, size := model.Page().Page()
+                        datas = append(datas, idx, size)
+                        sql += " LIMIT ?,?"
+                }</span>
+                <span class="cov8" title="1">sql += ";"
+                var result []structs.SqlProto
+                result = append(result, structs.SqlProto{PreparedSql: sql, Data: datas})
+                return result</span>
+        }
+        <span class="cov8" title="1">funcMap[structs.Update] = func(models ...structs.TableModel) []structs.SqlProto </span><span class="cov8" title="1">{
+                if models == nil || len(models) == 0 </span><span class="cov0" title="0">{
+                        panic(errors.New("model was nil or empty"))</span>
+                }
+                <span class="cov8" title="1">var result []structs.SqlProto
+                for _, model := range models </span><span class="cov8" title="1">{
+                        if model.ColumnDataMap() == nil </span><span class="cov0" title="0">{
+                                panic(errors.New("nothing to update"))</span>
+                        }
+                        <span class="cov8" title="1">var datas []interface{}
+                        sql := "UPDATE "
+                        sql += " " + model.Table() + " SET "
+                        i := 0
+                        for j, k := range model.Columns() </span><span class="cov8" title="1">{
+                                if j &gt; 0 </span><span class="cov8" title="1">{ //默认第一个是主键，需要去掉
+                                        if i &gt; 0 </span><span class="cov8" title="1">{
+                                                sql += ", "
+                                        }</span>
+                                        <span class="cov8" title="1">sql += wrapperName(k) + " = ? "
+                                        datas = append(datas, model.ColumnDataMap()[k])
+                                        i++</span>
+                                }
+                        }
+                        <span class="cov8" title="1">conditionSql, dds := m.ConditionToSql(model.Condition())
+                        if len(conditionSql) &gt; 0 </span><span class="cov8" title="1">{
+                                sql += " WHERE " + conditionSql + ";"
+                        }</span>
+                        <span class="cov8" title="1">datas = append(datas, dds...)
+                        result = append(result, structs.SqlProto{sql, datas})</span>
+                }
+
+                <span class="cov8" title="1">return result</span>
+        }
+        <span class="cov8" title="1">funcMap[structs.Insert] = func(models ...structs.TableModel) []structs.SqlProto </span><span class="cov8" title="1">{
+                var result []structs.SqlProto
+                for _, model := range models </span><span class="cov8" title="1">{
+                        var datas []interface{}
+
+                        sql := "INSERT INTO " + model.Table() + " ("
+                        valuesPattern := "VALUES("
+                        i := 0
+                        for j, c := range model.Columns() </span><span class="cov8" title="1">{
+                                if !model.PrimaryAuto() || j &gt; 0 </span><span class="cov8" title="1">{
+                                        if i &gt; 0 </span><span class="cov8" title="1">{
+                                                sql += ","
+                                                valuesPattern += ","
+                                        }</span>
+                                        <span class="cov8" title="1">sql += c
+                                        valuesPattern += "?"
+                                        datas = append(datas, model.ColumnDataMap()[c])
+                                        i++</span>
+                                }
+                        }
+                        <span class="cov8" title="1">sql += ")"
+                        valuesPattern += ");"
+                        sql += valuesPattern
+                        result = append(result, structs.SqlProto{sql, datas})</span>
+                }
+                <span class="cov8" title="1">return result</span>
+        }
+        <span class="cov8" title="1">funcMap[structs.Delete] = func(models ...structs.TableModel) []structs.SqlProto </span><span class="cov8" title="1">{
+                var result []structs.SqlProto
+                for _, model := range models </span><span class="cov8" title="1">{
+                        var datas []interface{}
+                        sql := "DELETE FROM "
+                        sql += " " + model.Table()
+                        conditionSql, dds := m.ConditionToSql(model.Condition())
+                        if len(conditionSql) &gt; 0 </span><span class="cov8" title="1">{
+                                sql += " WHERE " + conditionSql + ";"
+                        }</span>
+                        <span class="cov8" title="1">datas = append(datas, dds...)
+                        result = append(result, structs.SqlProto{sql, datas})</span>
+                }
+                <span class="cov8" title="1">return result</span>
+        }
+}
+
+func wrapperName(name string) string <span class="cov8" title="1">{
+        if strings.Contains(name, " ") </span><span class="cov0" title="0">{
+                return name
+        }</span> else<span class="cov8" title="1"> {
+                return "`" + name + "`"
+        }</span>
+}
+
+func cndToMyCndStruct(cnd cnds.Condition) MyCndStruct <span class="cov8" title="1">{
+        if len(cnd.RawExpression()) &gt; 0 </span><span class="cov8" title="1">{
+                return MyCndStruct{linkerToString(cnd), cnd.RawExpression(), cnd.Values()}
+        }</span>
+        <span class="cov8" title="1">opers := cnd.Field()
+        switch cnd.Operation() </span>{
+        case cnds.Eq:<span class="cov8" title="1">
+                opers += " = ? "</span>
+        case cnds.NotEq:<span class="cov8" title="1">
+                opers += " &lt;&gt; ? "</span>
+        case cnds.Ge:<span class="cov8" title="1">
+                opers += " &gt;= ? "</span>
+        case cnds.Gt:<span class="cov8" title="1">
+                opers += " &gt; ? "</span>
+        case cnds.Le:<span class="cov8" title="1">
+                opers += " &lt;= ? "</span>
+        case cnds.Lt:<span class="cov8" title="1">
+                opers += " &lt; ? "</span>
+        case cnds.In:<span class="cov8" title="1">
+                opers += " IN " + valueSpace(len(cnd.Values()))</span>
+        case cnds.NotIn:<span class="cov8" title="1">
+                opers += " NOT IN " + valueSpace(len(cnd.Values()))</span>
+        case cnds.Like:<span class="cov8" title="1">
+                opers += " LIKE ? "
+                vals := cnd.Values()
+                vals[0] = "%" + vals[0].(string) + "%"
+                cnd.SetValues(vals)</span>
+        case cnds.LikeIgnoreStart:<span class="cov8" title="1">
+                opers += " LIKE ? "
+                vals := cnd.Values()
+                vals[0] = "%" + vals[0].(string)
+                cnd.SetValues(vals)</span>
+        case cnds.LikeIgnoreEnd:<span class="cov8" title="1">
+                opers += " LIKE ? "
+                vals := cnd.Values()
+                vals[0] = vals[0].(string) + "%"
+                cnd.SetValues(vals)</span>
+        case cnds.IsNull:<span class="cov8" title="1">
+                opers += " IS NULL "</span>
+        case cnds.IsNotNull:<span class="cov8" title="1">
+                opers += " IS NOT NULL "</span>
+        }
+        <span class="cov8" title="1">return MyCndStruct{linkerToString(cnd), opers, cnd.Values()}</span>
+}
+
+func linkerToString(cnd cnds.Condition) string <span class="cov8" title="1">{
+        switch cnd.Linker() </span>{
+        case cnds.And:<span class="cov8" title="1">
+                return " AND "</span>
+        case cnds.Or:<span class="cov8" title="1">
+                return " OR "</span>
+        default:<span class="cov0" title="0">
+                return " AND "</span>
+        }
+}
+
+func valueSpace(count int) string <span class="cov8" title="1">{
+        if count == 1 </span><span class="cov8" title="1">{
+                return " ? "
+        }</span> else<span class="cov8" title="1"> {
+                str := "("
+                for i := 0; i &lt; count-1; i++ </span><span class="cov8" title="1">{
+                        str += "?,"
+                }</span>
+                <span class="cov8" title="1">str += "?)"
+                return str</span>
+        }
+}
+</pre>
+		
+		<pre class="file" id="file4" style="display: none">package gom
+
+import (
+        "database/sql"
+        "errors"
+        "fmt"
+        "github.com/kmlixh/gom/v2/register"
+        "time"
+)
+
+var Debug bool
+
+const defaultDBId = -1000
+
+func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int, debugs bool) (*DB, error) <span class="cov8" title="1">{
+        Debug = debugs
+        db, err := sql.Open(driverName, dsn)
+        if err != nil </span><span class="cov8" title="1">{
+                return nil, err
+        }</span> else<span class="cov8" title="1"> {
+                db.SetMaxOpenConns(maxOpen)
+                db.SetMaxIdleConns(maxIdle)
+                factory, ok := register.Get(driverName)
+                if !ok </span><span class="cov0" title="0">{
+                        return nil, errors.New(fmt.Sprintf("can't find '%s' SqlFactory", driverName))
+                }</span>
+                <span class="cov8" title="1">return &amp;DB{id: defaultDBId, db: db, factory: factory}, nil</span>
+        }
+}
+
+func Open(driverName string, dsn string, debugs bool) (*DB, error) <span class="cov8" title="1">{
+        Debug = debugs
+        db, err := sql.Open(driverName, dsn)
+        if err != nil </span><span class="cov8" title="1">{
+                return nil, err
+        }</span> else<span class="cov8" title="1"> {
+                db.SetConnMaxLifetime(time.Minute * 1)
+                factory, ok := register.Get(driverName)
+                if !ok </span><span class="cov0" title="0">{
+                        return nil, errors.New(fmt.Sprintf("can't find '%s' SqlFactory", driverName))
+                }</span>
+                <span class="cov8" title="1">return &amp;DB{id: defaultDBId, db: db, factory: factory}, nil</span>
+        }
+}
+</pre>
+		
+		<pre class="file" id="file5" style="display: none">package register
+
+import (
+        "github.com/kmlixh/gom/v2/structs"
+        "sync"
+)
+
+var (
+        mux       sync.RWMutex
+        factories = make(map[string]structs.SqlFactory)
+)
+
+func Register(name string, inter structs.SqlFactory) <span class="cov8" title="1">{
+        mux.Lock()
+        defer mux.Unlock()
+        if inter == nil </span><span class="cov0" title="0">{
+                panic("PreparedSql: Register driver is nil")</span>
+        }
+        <span class="cov8" title="1">if _, dup := factories[name]; dup </span><span class="cov0" title="0">{
+                panic("PreparedSql: Register called twice for factory " + name)</span>
+        }
+        <span class="cov8" title="1">factories[name] = inter</span>
+}
+func Get(name string) (structs.SqlFactory, bool) <span class="cov8" title="1">{
+        data, ok := factories[name]
+        return data, ok
+}</span>
+</pre>
+		
+		<pre class="file" id="file6" style="display: none">package structs
+
+import "strings"
+
+func CamelToSnakeString(s string) string <span class="cov8" title="1">{
+        data := make([]byte, 0, len(s)*2)
+        j := false
+        num := len(s)
+        for i := 0; i &lt; num; i++ </span><span class="cov8" title="1">{
+                d := s[i]
+                // or通过ASCII码进行大小写的转化
+                // 65-90（A-Z），97-122（a-z）
+                //判断如果字母为大写的A-Z就在前面拼接一个_
+                if i &gt; 0 &amp;&amp; d &gt;= 'A' &amp;&amp; d &lt;= 'Z' &amp;&amp; j </span><span class="cov8" title="1">{
+                        data = append(data, '_')
+                }</span>
+                <span class="cov8" title="1">if d != '_' </span><span class="cov8" title="1">{
+                        j = true
+                }</span>
+                <span class="cov8" title="1">data = append(data, d)</span>
+        }
+        //ToLower把大写字母统一转小写
+        <span class="cov8" title="1">return strings.ToLower(string(data[:]))</span>
+}
+
+///**
+// * 蛇形转驼峰
+// * @description xx_yy to XxYx  xx_y_y to XxYY
+// * @date 2020/7/30
+// * @param s要转换的字符串
+// * @return string
+// **/
+//func snakeToCamelString(s string) string {
+//        data := make([]byte, 0, len(s))
+//        j := false
+//        k := false
+//        num := len(s) - 1
+//        for i := 0; i &lt;= num; i++ {
+//                d := s[i]
+//                if k == false &amp;&amp; d &gt;= 'A' &amp;&amp; d &lt;= 'Z' {
+//                        k = true
+//                }
+//                if d &gt;= 'a' &amp;&amp; d &lt;= 'z' &amp;&amp; (j || k == false) {
+//                        d = d - 32
+//                        j = false
+//                        k = true
+//                }
+//                if k &amp;&amp; d == '_' &amp;&amp; num &gt; i &amp;&amp; s[i+1] &gt;= 'a' &amp;&amp; s[i+1] &lt;= 'z' {
+//                        j = true
+//                        continue
+//                }
+//                data = append(data, d)
+//        }
+//        return string(data[:])
+//}
+</pre>
+		
+		<pre class="file" id="file7" style="display: none">package structs
+
+import (
+        "database/sql"
+        "database/sql/driver"
+        "time"
+)
+
+type ScannerGenerateFunc func(colName string, col interface{}) IScanner
+
+type ScanFunc func(src interface{}) (interface{}, error)
+
+var EMPTY_SCANNER *EmptyScanner = &amp;EmptyScanner{}
+
+type IScanner interface {
+        Value() (driver.Value, error)
+        Scan(src interface{}) error
+}
+
+type ScannerImpl struct {
+        Object driver.Value
+        ScanFunc
+}
+
+func (scanner *ScannerImpl) Scan(src interface{}) error <span class="cov8" title="1">{
+        result, er := scanner.ScanFunc(src)
+        if er != nil </span><span class="cov0" title="0">{
+                return er
+        }</span>
+        <span class="cov8" title="1">scanner.Object = result
+        return nil</span>
+}
+func (scanner ScannerImpl) Value() (driver.Value, error) <span class="cov8" title="1">{
+        return scanner.Object, nil
+}</span>
+
+type EmptyScanner struct {
+        ColName string
+}
+
+func (e EmptyScanner) Scan(_ interface{}) error <span class="cov8" title="1">{
+        return nil
+}</span>
+func (e EmptyScanner) Value() (driver.Value, error) <span class="cov8" title="1">{
+        return nil, nil
+}</span>
+
+func IntScan(src interface{}) (interface{}, error) <span class="cov8" title="1">{
+        if src == nil </span><span class="cov8" title="1">{
+                return nil, nil
+        }</span>
+        <span class="cov8" title="1">var result = 0
+        var err error
+        switch src.(type) </span>{
+        case int:<span class="cov0" title="0">
+                result = src.(int)</span>
+        case int32:<span class="cov0" title="0">
+                result = (int)(src.(int32))</span>
+        case int64:<span class="cov8" title="1">
+                result = (int)(src.(int64))</span>
+        }
+        <span class="cov8" title="1">return result, err</span>
+
+}
+func Float32Scan(src interface{}) (interface{}, error) <span class="cov8" title="1">{
+        if src == nil </span><span class="cov0" title="0">{
+                return nil, nil
+        }</span>
+        <span class="cov8" title="1">var result float32 = 0
+        var err error
+        switch src.(type) </span>{
+        case float64:<span class="cov0" title="0">
+                result = float32(src.(float64))</span>
+        case float32:<span class="cov8" title="1">
+                result = src.(float32)</span>
+        }
+        <span class="cov8" title="1">return result, err</span>
+
+}
+func ByteArrayScan(src interface{}) (interface{}, error) <span class="cov8" title="1">{
+        if src == nil </span><span class="cov0" title="0">{
+                return nil, nil
+        }</span>
+        <span class="cov8" title="1">var result = []byte{}
+        switch src.(type) </span>{
+        case string:<span class="cov0" title="0">
+                result = []byte(src.(string))</span>
+        case []byte:<span class="cov8" title="1">
+                result = src.([]byte)</span>
+        }
+        <span class="cov8" title="1">return result, nil</span>
+
+}
+func GetIScannerOfColumn(col interface{}) IScanner <span class="cov8" title="1">{
+        scanner, ok := col.(IScanner)
+        if ok </span><span class="cov0" title="0">{
+                return scanner
+        }</span>
+        <span class="cov8" title="1">switch col.(type) </span>{
+        case int:<span class="cov8" title="1">
+                return &amp;ScannerImpl{0, IntScan}</span>
+        case int16:<span class="cov0" title="0">
+                return &amp;sql.NullInt16{}</span>
+        case int32:<span class="cov0" title="0">
+                return &amp;sql.NullInt32{}</span>
+        case int64:<span class="cov8" title="1">
+                return &amp;sql.NullInt64{}</span>
+        case float32:<span class="cov8" title="1">
+                return &amp;ScannerImpl{float32(0), Float32Scan}</span>
+        case float64:<span class="cov8" title="1">
+                return &amp;sql.NullFloat64{}</span>
+        case string:<span class="cov8" title="1">
+                return &amp;sql.NullString{}</span>
+        case []byte:<span class="cov8" title="1">
+                return &amp;ScannerImpl{[]byte{}, ByteArrayScan}</span>
+        case time.Time:<span class="cov8" title="1">
+                return &amp;sql.NullTime{}</span>
+        case bool:<span class="cov8" title="1">
+                return &amp;sql.NullBool{}</span>
+        default:<span class="cov8" title="1">
+                return nil</span>
+        }
+}
+</pre>
+		
+		<pre class="file" id="file8" style="display: none">package structs
+
+import (
+        "database/sql"
+        "github.com/kmlixh/gom/v2/arrays"
+        "github.com/kmlixh/gom/v2/cnds"
+        "reflect"
+)
+
+var Debug bool
+
+type DefaultStruct struct {
+}
+
+type RawTableInfo struct {
+        reflect.Type
+        RawTableName string
+        IsSlice      bool
+        IsPtr        bool
+        IsStruct     bool
+}
+
+type SqlProto struct {
+        PreparedSql string
+        Data        []interface{}
+}
+type Column struct {
+        Data        interface{}
+        ColumnName  string
+        FieldName   string
+        Primary     bool
+        PrimaryAuto bool //If Primary Key Auto Generate Or2 Not
+}
+type GenerateSQLFunc func(model ...TableModel) []SqlProto
+type SqlFactory interface {
+        GetSqlFunc(sqlType SqlType) GenerateSQLFunc
+        ConditionToSql(condition cnds.Condition) (string, []interface{})
+}
+
+type OrderType int
+
+type SqlType int
+
+const (
+        _ SqlType = iota
+        Query
+        Insert
+        Update
+        Delete
+)
+
+const (
+        _ OrderType = iota
+        Asc
+        Desc
+)
+
+type OrderBy interface {
+        Name() string
+        Type() OrderType
+}
+
+type OrderByImpl struct {
+        name      string
+        orderType OrderType
+}
+
+func MakeOrderBy(name string, orderType OrderType) OrderBy <span class="cov8" title="1">{
+        return OrderByImpl{name, orderType}
+}</span>
+func (o OrderByImpl) Name() string <span class="cov8" title="1">{
+        return o.name
+}</span>
+func (o OrderByImpl) Type() OrderType <span class="cov8" title="1">{
+        return o.orderType
+}</span>
+
+type Page interface {
+        Page() (int, int)
+}
+
+type PageImpl struct {
+        index int
+        size  int
+}
+
+func MakePage(index int, size int) Page <span class="cov8" title="1">{
+        return PageImpl{index, size}
+}</span>
+
+func (p PageImpl) Page() (int, int) <span class="cov8" title="1">{
+        return p.index, p.size
+}</span>
+
+type CountResult struct {
+        Count int64
+        Error error
+}
+
+type TableModel interface {
+        Table() string
+        SetTable(tableName string)
+        Columns() []string
+        SetColumns([]string) error
+        SetData(data interface{}, valueOfData reflect.Value, isStruct bool, isPtr bool, isSlice bool)
+        GetScanners(columns []string) ([]interface{}, int, error)
+        PrimaryAuto() bool
+        ColumnDataMap() map[string]interface{}
+        Condition() cnds.Condition
+        SetCondition(c cnds.Condition) error
+        OrderBys() []OrderBy
+        SetOrderBys(orders []OrderBy) error
+        Page() Page
+        SetPage(p Page) error
+        Scan(rows *sql.Rows) (interface{}, error)
+        Clone() TableModel
+}
+
+type DefaultModel struct {
+        rawType         reflect.Type
+        rawTable        string
+        rawColumnNames  []string
+        rawColumns      []Column
+        rawScanners     []IScanner
+        rawColumnIdxMap map[string]int
+        primaryAuto     bool
+        isStruct        bool
+
+        //以下内容动态添加
+        data          reflect.Value
+        isSlice       bool
+        isPtr         bool
+        table         string
+        columns       []string
+        columnsIdx    []int8
+        columnDataMap map[string]interface{}
+        condition     cnds.Condition
+        orderBys      []OrderBy
+        page          Page
+}
+
+func (d DefaultModel) GetScanners(columns []string) ([]interface{}, int, error) <span class="cov8" title="1">{
+        var scanners []interface{}
+        simpleIdx := 0
+        if d.isStruct </span><span class="cov8" title="1">{
+                for _, column := range columns </span><span class="cov8" title="1">{
+                        idx, ok := d.rawColumnIdxMap[column]
+                        if ok </span><span class="cov8" title="1">{
+                                scanners = append(scanners, d.rawScanners[idx])
+                        }</span> else<span class="cov8" title="1"> {
+                                scanners = append(scanners, EMPTY_SCANNER)
+                        }</span>
+                }
+        } else<span class="cov8" title="1"> if d.columns == nil || len(d.Columns()) &lt;= 1 </span><span class="cov8" title="1">{
+                colName := ""
+                if d.columns == nil </span><span class="cov0" title="0">{
+                        colName = columns[0]
+                }</span> else<span class="cov8" title="1"> {
+                        colName = d.columns[0]
+                }</span>
+                <span class="cov8" title="1">for i, column := range columns </span><span class="cov8" title="1">{
+                        if column == colName </span><span class="cov8" title="1">{
+                                simpleIdx = i
+                                scanners = append(scanners, d.rawScanners[0])
+                        }</span> else<span class="cov8" title="1"> {
+                                scanners = append(scanners, EMPTY_SCANNER)
+                        }</span>
+                }
+        }
+        <span class="cov8" title="1">return scanners, simpleIdx, nil</span>
+}
+
+func (d DefaultModel) Scan(rows *sql.Rows) (interface{}, error) <span class="cov8" title="1">{
+        columns, er := rows.Columns()
+        if er != nil </span><span class="cov0" title="0">{
+                return nil, er
+        }</span>
+        //解析查询结果列与原始column的对应关系
+        <span class="cov8" title="1">var scanners, simpleIdx, err = d.GetScanners(columns)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, er
+        }</span>
+        <span class="cov8" title="1">results := d.data
+        if d.isSlice </span><span class="cov8" title="1">{
+                for rows.Next() </span><span class="cov8" title="1">{
+                        err := rows.Scan(scanners...)
+                        if err != nil </span><span class="cov0" title="0">{
+                                panic(err)</span>
+                        }
+                        <span class="cov8" title="1">var val reflect.Value
+                        if d.isStruct </span><span class="cov8" title="1">{
+                                val = ScannerResultToStruct(d.rawType, scanners, columns, d.rawColumnIdxMap)
+                        }</span> else<span class="cov8" title="1"> {
+                                vv, er := (scanners[simpleIdx].(IScanner)).Value()
+                                if er != nil </span><span class="cov0" title="0">{
+                                        panic(er)</span>
+                                }
+                                <span class="cov8" title="1">val = reflect.ValueOf(vv)</span>
+                        }
+                        <span class="cov8" title="1">results.Set(reflect.Append(results, val))</span>
+                }
+        } else<span class="cov8" title="1"> {
+                if rows.Next() </span><span class="cov8" title="1">{
+                        er := rows.Scan(scanners...)
+                        if er != nil </span><span class="cov0" title="0">{
+                                panic(er)</span>
+                        }
+                        <span class="cov8" title="1">var val reflect.Value
+                        if d.isStruct </span><span class="cov8" title="1">{
+                                val = ScannerResultToStruct(d.rawType, scanners, columns, d.rawColumnIdxMap)
+                        }</span> else<span class="cov8" title="1"> {
+                                vv, er := (scanners[0].(IScanner)).Value()
+                                if er != nil </span><span class="cov0" title="0">{
+                                        panic(er)</span>
+                                }
+                                <span class="cov8" title="1">val = reflect.ValueOf(vv)</span>
+                        }
+                        <span class="cov8" title="1">results.Set(val)</span>
+                }
+        }
+        <span class="cov8" title="1">return results.Interface(), nil</span>
+
+}
+func (d DefaultModel) Table() string <span class="cov8" title="1">{
+        if d.table != "" &amp;&amp; len(d.table) &gt; 0 </span><span class="cov8" title="1">{
+                return d.table
+        }</span>
+        <span class="cov8" title="1">return d.rawTable</span>
+}
+
+func (d *DefaultModel) SetTable(tableName string) <span class="cov8" title="1">{
+        d.table = tableName
+}</span>
+
+func (d DefaultModel) Columns() []string <span class="cov8" title="1">{
+        if d.columns != nil &amp;&amp; len(d.columns) &gt; 0 </span><span class="cov8" title="1">{
+                return d.columns
+        }</span>
+        <span class="cov8" title="1">return d.rawColumnNames</span>
+}
+
+func (d *DefaultModel) SetColumns(columns []string) error <span class="cov8" title="1">{
+        if columns != nil &amp;&amp; len(columns) &gt; 0 </span><span class="cov8" title="1">{
+                if d.isStruct </span><span class="cov8" title="1">{
+                        d.columns = arrays.Intersect(d.rawColumnNames, append([]string{d.rawColumnNames[0]}, columns...))
+                }</span> else<span class="cov8" title="1"> {
+                        d.columns = columns
+                }</span>
+        }
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (d *DefaultModel) SetData(_ interface{}, valueOfData reflect.Value, isStruct bool, isPtr bool, isSlice bool) <span class="cov8" title="1">{
+        d.data = valueOfData
+        d.isStruct = isStruct
+        d.isPtr = isPtr
+        d.isSlice = isSlice
+        if isStruct &amp;&amp; !isSlice </span><span class="cov8" title="1">{ //为结构体并且非数组或切片的情况
+                dataMap := make(map[string]interface{})
+                _, columns, _ := getColumns(valueOfData)
+                for _, column := range columns </span><span class="cov8" title="1">{
+                        dataMap[column.ColumnName] = column.Data
+                }</span>
+                <span class="cov8" title="1">d.columnDataMap = dataMap</span>
+        }
+}
+
+func (d DefaultModel) PrimaryAuto() bool <span class="cov8" title="1">{
+        return d.primaryAuto
+}</span>
+
+func (d DefaultModel) ColumnDataMap() map[string]interface{} <span class="cov8" title="1">{
+        if d.columns == nil || len(d.columns) == 0 </span><span class="cov8" title="1">{ //如果列过滤器为空，则直接返回
+                return d.columnDataMap
+        }</span> else<span class="cov8" title="1"> {
+                maps := make(map[string]interface{})
+                for _, colName := range d.columns </span><span class="cov8" title="1">{
+                        maps[colName] = d.columnDataMap[colName]
+                }</span>
+                <span class="cov8" title="1">return maps</span>
+        }
+}
+
+func (d DefaultModel) Condition() cnds.Condition <span class="cov8" title="1">{
+        if d.condition != nil </span><span class="cov8" title="1">{
+                return d.condition
+        }</span>
+        <span class="cov8" title="1">if d.columnDataMap != nil </span><span class="cov8" title="1">{
+                col, ok := d.columnDataMap[d.rawColumnNames[0]] //默认第一个为主键
+                v := reflect.ValueOf(col)
+                //TODO 此处逻辑不够完备，需要判断列本身是否为空
+                if ok &amp;&amp; !v.IsZero() </span><span class="cov8" title="1">{
+                        d.condition = cnds.New(d.rawColumnNames[0], cnds.Eq, col)
+                }</span>
+        }
+        <span class="cov8" title="1">return d.condition</span>
+}
+
+func (d *DefaultModel) SetCondition(c cnds.Condition) error <span class="cov8" title="1">{
+        d.condition = c
+        return nil
+}</span>
+
+func (d DefaultModel) OrderBys() []OrderBy <span class="cov8" title="1">{
+        return d.orderBys
+}</span>
+
+func (d *DefaultModel) SetOrderBys(orders []OrderBy) error <span class="cov8" title="1">{
+        d.orderBys = orders
+        return nil
+}</span>
+
+func (d DefaultModel) Page() Page <span class="cov8" title="1">{
+        return d.page
+}</span>
+
+func (d *DefaultModel) SetPage(p Page) error <span class="cov8" title="1">{
+        d.page = p
+        return nil
+}</span>
+func (d DefaultModel) Clone() TableModel <span class="cov8" title="1">{
+        return &amp;DefaultModel{
+                rawScanners:     d.rawScanners,
+                rawType:         d.rawType,
+                rawTable:        d.rawTable,
+                rawColumnNames:  d.rawColumnNames,
+                rawColumns:      d.rawColumns,
+                rawColumnIdxMap: d.rawColumnIdxMap,
+                primaryAuto:     d.primaryAuto,
+        }
+}</span>
+</pre>
+		
+		<pre class="file" id="file9" style="display: none">package structs
+
+import (
+        "errors"
+        "fmt"
+        "github.com/kmlixh/gom/v2/arrays"
+        "github.com/kmlixh/gom/v2/cnds"
+        "reflect"
+        "runtime"
+        "strconv"
+        "strings"
+        "time"
+)
+
+func GetRawTableInfo(v interface{}) RawTableInfo <span class="cov8" title="1">{
+        tt := reflect.TypeOf(v)
+        isStruct := false
+        isPtr := false
+        isSlice := false
+        if tt.Kind() == reflect.Ptr </span><span class="cov8" title="1">{
+                tt = tt.Elem()
+                isPtr = true
+        }</span>
+        <span class="cov8" title="1">if tt.Kind() == reflect.Slice || tt.Kind() == reflect.Array </span><span class="cov8" title="1">{
+                tt = tt.Elem()
+                isSlice = true
+        }</span>
+        <span class="cov8" title="1">isStruct = tt.Kind() == reflect.Struct
+
+        if Debug </span><span class="cov0" title="0">{
+                fmt.Println("Test GetRawTableInfo, result:", tt, isPtr, isSlice)
+        }</span>
+        <span class="cov8" title="1">tableName := ""
+        if isStruct </span><span class="cov8" title="1">{
+                tableName = CamelToSnakeString(tt.Name())
+        }</span>
+
+        <span class="cov8" title="1">return RawTableInfo{tt, tableName, isSlice, isPtr, isStruct}</span>
+}
+
+var tableModelCache = make(map[string]TableModel)
+
+func GetTableModel(v interface{}, choosedColumns ...string) (TableModel, error) <span class="cov8" title="1">{
+        //防止重复创建map，需要对map创建过程加锁
+        if v == nil </span><span class="cov8" title="1">{
+                return &amp;DefaultModel{}, nil
+        }</span>
+        <span class="cov8" title="1">rawTableInfo := GetRawTableInfo(v)
+        if !rawTableInfo.IsStruct &amp;&amp; (choosedColumns == nil || len(choosedColumns) != 1) </span><span class="cov8" title="1">{
+                return nil, errors.New("basic Type Only Support [1] Column Or2 nil")
+        }</span>
+
+        <span class="cov8" title="1">var model TableModel
+        cachedModel, ok := tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()]
+        if ok </span><span class="cov8" title="1">{
+                model = cachedModel.Clone()
+        }</span> else<span class="cov8" title="1"> {
+
+                var temp TableModel
+                var scanners []IScanner
+                tempVal := reflect.Indirect(reflect.New(rawTableInfo.Type))
+                if rawTableInfo.IsStruct </span><span class="cov8" title="1">{
+                        if rawTableInfo.IsStruct &amp;&amp; rawTableInfo.Type.NumField() == 0 </span><span class="cov8" title="1">{
+                                _, ok := reflect.Indirect(reflect.New(rawTableInfo.Type)).Interface().(DefaultStruct)
+                                if !ok </span><span class="cov8" title="1">{
+                                        return nil, errors.New(fmt.Sprintf("[%s] was a \"empty struct\",it has no field or All fields has been ignored", rawTableInfo.Type.Name()))
+                                }</span> else<span class="cov0" title="0"> {
+                                        return &amp;DefaultModel{}, nil
+                                }</span>
+                        }
+                        <span class="cov8" title="1">columnNames, columns, columnIdxMap := getColumns(tempVal)
+                        for _, column := range columns </span><span class="cov8" title="1">{
+                                scanners = append(scanners, GetIScannerOfColumn(column.Data))
+                        }</span>
+                        <span class="cov8" title="1">temp = &amp;DefaultModel{rawScanners: scanners, rawType: rawTableInfo.Type, rawTable: rawTableInfo.RawTableName, rawColumns: columns, rawColumnNames: columnNames, rawColumnIdxMap: columnIdxMap, primaryAuto: columns[0].PrimaryAuto}</span>
+                } else<span class="cov8" title="1"> {
+                        scanners = append(scanners, GetIScannerOfColumn(reflect.Indirect(reflect.New(rawTableInfo.Type)).Interface()))
+                        temp = &amp;DefaultModel{rawScanners: scanners, rawType: rawTableInfo.Type, rawTable: "", primaryAuto: false}
+                }</span>
+                <span class="cov8" title="1">tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()] = temp
+                model = temp.Clone()</span>
+        }
+        <span class="cov8" title="1">model.SetData(v, reflect.Indirect(reflect.ValueOf(v)), rawTableInfo.IsStruct, rawTableInfo.IsPtr, rawTableInfo.IsSlice)
+        er := model.SetColumns(choosedColumns)
+        return model, er</span>
+}
+
+func getColumns(v reflect.Value) ([]string, []Column, map[string]int) <span class="cov8" title="1">{
+        var columnNames []string
+        var columns []Column
+        var columnIdxMap = make(map[string]int)
+        oo := v.Type()
+
+        for i := 0; i &lt; oo.NumField(); i++ </span><span class="cov8" title="1">{
+                field := oo.Field(i)
+                col, tps := getColumnFromField(v.Field(i), field)
+                columns = append(columns, col) //默认都插入一个
+                columnIdxMap[col.ColumnName] = i
+                if tps != -1 </span><span class="cov8" title="1">{
+                        columnNames = append(columnNames, col.ColumnName)
+                }</span>
+        }
+        <span class="cov8" title="1">if Debug </span><span class="cov0" title="0">{
+                fmt.Println("columns are:", columns)
+        }</span>
+        <span class="cov8" title="1">return columnNames, columns, columnIdxMap</span>
+}
+
+//func Md5Text(str string) string {
+//        h := md5.New()
+//        h.Write([]byte(str))
+//        return hex.EncodeToString(h.Sum(nil))
+//}
+func getColumnFromField(v reflect.Value, filed reflect.StructField) (Column, int) <span class="cov8" title="1">{
+        colName, tps := getColumnNameAndTypeFromField(filed)
+        if Debug </span><span class="cov0" title="0">{
+                fmt.Println("Tag is:", colName, "type is:", tps)
+        }</span>
+        <span class="cov8" title="1">return Column{Data: v.Interface(), ColumnName: colName, FieldName: filed.Name, PrimaryAuto: tps == 2, Primary: tps == 1 || tps == 2}, tps</span>
+
+}
+func getColumnNameAndTypeFromField(field reflect.StructField) (string, int) <span class="cov8" title="1">{
+        tag, hasTag := field.Tag.Lookup("gom")
+        if !hasTag </span><span class="cov8" title="1">{
+                tag = CamelToSnakeString(field.Name)
+        }</span>
+        <span class="cov8" title="1">if strings.EqualFold(tag, "-") </span><span class="cov8" title="1">{
+                return "", -1
+        }</span> else<span class="cov8" title="1"> if len(tag) == 1 </span><span class="cov8" title="1">{
+                tps := 0
+                if strings.EqualFold(tag, "@") </span><span class="cov8" title="1">{
+                        tps = 2
+                }</span>
+                <span class="cov8" title="1">if strings.EqualFold(tag, "!") </span><span class="cov8" title="1">{
+                        tps = 1
+                }</span>
+                <span class="cov8" title="1">return CamelToSnakeString(field.Name), tps</span>
+        } else<span class="cov8" title="1"> {
+                if strings.Contains(tag, ",") </span><span class="cov8" title="1">{
+                        tags := strings.Split(tag, ",")
+                        if len(tags) == 2 </span><span class="cov8" title="1">{
+                                if strings.EqualFold(tags[0], "!") || strings.EqualFold(tags[0], "primary") </span><span class="cov8" title="1">{
+                                        return tags[1], 1
+                                }</span> else<span class="cov8" title="1"> if strings.EqualFold(tags[0], "@") || strings.EqualFold(tags[0], "auto") </span><span class="cov8" title="1">{
+                                        return tags[1], 2
+                                }</span> else<span class="cov8" title="1"> if strings.EqualFold(tags[0], "#") || strings.EqualFold(tags[0], "column") </span><span class="cov8" title="1">{
+                                        return tags[1], 0
+                                }</span> else<span class="cov0" title="0"> {
+                                        return "", -1
+                                }</span>
+                        } else<span class="cov0" title="0"> {
+                                return "", -1
+                        }</span>
+                } else<span class="cov8" title="1"> {
+                        return tag, 0
+                }</span>
+        }
+}
+
+func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, []string, error) <span class="cov8" title="1">{
+        if vs == nil </span><span class="cov8" title="1">{
+                return nil, nil, errors.New("nil can't be used to create Map")
+        }</span>
+        <span class="cov8" title="1">rawInfo := GetRawTableInfo(vs)
+        if rawInfo.IsSlice </span><span class="cov8" title="1">{
+                return nil, nil, errors.New("can't convert slice or array to map")
+        }</span>
+        <span class="cov8" title="1">if rawInfo.Kind() == reflect.Struct </span><span class="cov8" title="1">{
+                if rawInfo.Type.NumField() == 0 </span><span class="cov8" title="1">{
+                        //
+                        return nil, nil, errors.New(fmt.Sprintf("[%s] was a \"empty struct\",it has no field or All fields has been ignored", rawInfo.Type.Name()))
+                }</span>
+                //TODO 下面的方法过于复杂
+                <span class="cov8" title="1">colNames, cols, _ := getColumns(reflect.ValueOf(vs))
+                if colNames == nil || len(colNames) == 0 </span><span class="cov0" title="0">{
+                        panic(fmt.Sprintf("can't get any data from Type [%s]", rawInfo.Name()))</span>
+                }
+                <span class="cov8" title="1">columns = arrays.Intersect(columns, colNames)
+                newMap := make(map[string]interface{})
+                for i, column := range columns </span><span class="cov0" title="0">{
+                        newMap[column] = cols[i].Data
+                }</span>
+                <span class="cov8" title="1">return newMap, columns, nil</span>
+        }
+        <span class="cov8" title="1">return nil, nil, errors.New(fmt.Sprintf("can't convert %s to map", rawInfo.Name()))</span>
+
+}
+func StructToCondition(vs interface{}, columns ...string) cnds.Condition <span class="cov8" title="1">{
+        maps, _, err := StructToMap(vs, columns...)
+        if err != nil </span><span class="cov0" title="0">{
+                panic(err)</span>
+        }
+        <span class="cov8" title="1">return MapToCondition(maps)</span>
+}
+func MapToCondition(maps map[string]interface{}) cnds.Condition <span class="cov8" title="1">{
+        if maps == nil </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">var cnd cnds.Condition
+        for k, v := range maps </span><span class="cov8" title="1">{
+                t := reflect.TypeOf(v)
+                if t.Kind() == reflect.Ptr </span><span class="cov0" title="0">{
+                        t = t.Elem()
+                }</span>
+                <span class="cov8" title="1">if (t.Kind() != reflect.Struct &amp;&amp; t.Kind() != reflect.Slice) || t.Kind() == reflect.TypeOf(time.Now()).Kind() </span><span class="cov8" title="1">{
+                        value := v
+                        if cnd == nil </span><span class="cov8" title="1">{
+                                cnd = cnds.New(k, cnds.Eq, value)
+                        }</span> else<span class="cov8" title="1"> {
+                                cnd.And(k, cnds.Eq, arrays.Of(value))
+                        }</span>
+                }
+        }
+        <span class="cov8" title="1">return cnd</span>
+}
+func UnZipSlice(vs interface{}) []interface{} <span class="cov8" title="1">{
+        var result = make([]interface{}, 0)
+        t := reflect.TypeOf(vs)
+        if t.Kind() == reflect.Ptr </span><span class="cov0" title="0">{
+                t = t.Elem()
+        }</span>
+        <span class="cov8" title="1">if t.Kind() == reflect.Slice </span><span class="cov8" title="1">{
+                v := reflect.ValueOf(vs)
+
+                if v.Len() &gt; 0 </span><span class="cov8" title="1">{
+                        for i := 0; i &lt; v.Len(); i++ </span><span class="cov8" title="1">{ //m为上述切片
+                                item := v.Index(i)
+                                if item.Interface() != nil </span><span class="cov8" title="1">{
+                                        result = append(result, UnZipSlice(item.Interface())...)
+                                }</span>
+                        }
+
+                }
+        } else<span class="cov8" title="1"> {
+                result = append(result, vs)
+        }</span>
+        <span class="cov8" title="1">return result</span>
+}
+func SliceToGroupSlice(vs interface{}) map[string][]interface{} <span class="cov8" title="1">{
+        result := make(map[string][]interface{})
+        slice := UnZipSlice(vs)
+        for _, v := range slice </span><span class="cov8" title="1">{
+                t := reflect.TypeOf(v).Name()
+                lst, ok := result[t]
+                if !ok </span><span class="cov8" title="1">{
+                        lst = make([]interface{}, 0)
+                }</span>
+                <span class="cov8" title="1">lst = append(lst, v)
+                result[t] = lst</span>
+        }
+        <span class="cov8" title="1">return result</span>
+}
+
+func GetGoid() int64 <span class="cov8" title="1">{
+        var (
+                buf [64]byte
+                n   = runtime.Stack(buf[:], false)
+                stk = strings.TrimPrefix(string(buf[:n]), "goroutine ")
+        )
+
+        idField := strings.Fields(stk)[0]
+        id, err := strconv.Atoi(idField)
+        if err != nil </span><span class="cov0" title="0">{
+                panic(fmt.Errorf("can not get goroutine id: %v", err))</span>
+        }
+
+        <span class="cov8" title="1">return int64(id)</span>
+}
+
+func ScannerResultToStruct(t reflect.Type, scanners []interface{}, columnNames []string, columnIdxMap map[string]int) reflect.Value <span class="cov8" title="1">{
+        v := reflect.Indirect(reflect.New(t))
+        for i, name := range columnNames </span><span class="cov8" title="1">{
+                if _, ok := scanners[i].(EmptyScanner); !ok </span><span class="cov8" title="1">{ //不能时空扫描器
+                        val, er := scanners[i].(IScanner).Value()
+                        if er != nil </span><span class="cov0" title="0">{
+                                panic(er)</span>
+                        }
+                        <span class="cov8" title="1">idx, ok := columnIdxMap[name]
+                        if ok &amp;&amp; val != nil </span><span class="cov8" title="1">{
+                                v.Field(idx).Set(reflect.ValueOf(val))
+                        }</span>
+                }
+
+        }
+        <span class="cov8" title="1">return v</span>
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>
