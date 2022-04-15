@@ -43,7 +43,7 @@ var tableModelCache = make(map[string]TableModel)
 func GetTableModel(v interface{}, choosedColumns ...string) (TableModel, error) {
 	//防止重复创建map，需要对map创建过程加锁
 	if v == nil {
-		return &DefaultTableModel{}, nil
+		return &DefaultModel{}, nil
 	}
 	rawTableInfo := GetRawTableInfo(v)
 	if !rawTableInfo.IsStruct && (choosedColumns == nil || len(choosedColumns) != 1) {
@@ -65,17 +65,17 @@ func GetTableModel(v interface{}, choosedColumns ...string) (TableModel, error) 
 				if !ok {
 					return nil, errors.New(fmt.Sprintf("[%s] was a \"empty struct\",it has no field or All fields has been ignored", rawTableInfo.Type.Name()))
 				} else {
-					return &DefaultTableModel{}, nil
+					return &DefaultModel{}, nil
 				}
 			}
 			columnNames, columns, columnIdxMap := getColumns(tempVal)
 			for _, column := range columns {
 				scanners = append(scanners, GetIScannerOfColumn(column.Data))
 			}
-			temp = &DefaultTableModel{rawScanners: scanners, rawType: rawTableInfo.Type, rawTable: rawTableInfo.RawTableName, rawColumns: columns, rawColumnNames: columnNames, rawColumnIdxMap: columnIdxMap, primaryAuto: columns[0].PrimaryAuto}
+			temp = &DefaultModel{rawScanners: scanners, rawType: rawTableInfo.Type, rawTable: rawTableInfo.RawTableName, rawColumns: columns, rawColumnNames: columnNames, rawColumnIdxMap: columnIdxMap, primaryAuto: columns[0].PrimaryAuto}
 		} else {
 			scanners = append(scanners, GetIScannerOfColumn(reflect.Indirect(reflect.New(rawTableInfo.Type)).Interface()))
-			temp = &DefaultTableModel{rawScanners: scanners, rawType: rawTableInfo.Type, rawTable: "", primaryAuto: false}
+			temp = &DefaultModel{rawScanners: scanners, rawType: rawTableInfo.Type, rawTable: "", primaryAuto: false}
 		}
 		tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()] = temp
 		model = temp.Clone()

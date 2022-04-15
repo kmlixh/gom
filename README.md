@@ -1,32 +1,28 @@
 # gom
 
 gom - An Easy ORM library for Golang
-================
+====================================
 
 [![golang](https://img.shields.io/badge/Language-Go-green.svg?style=flat)](https://golang.org)
-[![Build Status](https://travis-ci.org/zouyx/agollo.svg?branch=master)](https://travis-ci.org/zouyx/agollo)
-[![Go Report Card](https://goreportcard.com/badge/github.com/zouyx/agollo)](https://goreportcard.com/report/github.com/zouyx/agollo)
-[![codebeat badge](https://codebeat.co/badges/bc2009d6-84f1-4f11-803e-fc571a12a1c0)](https://codebeat.co/projects/github-com-zouyx-agollo-master)
-[![Coverage Status](https://coveralls.io/repos/github/zouyx/agollo/badge.svg?branch=master)](https://coveralls.io/github/zouyx/agollo?branch=master)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![GoDoc](http://godoc.org/github.com/zouyx/agollo?status.svg)](http://godoc.org/github.com/zouyx/agollo)
-[![GitHub release](https://img.shields.io/github/release/zouyx/agollo.svg)](https://github.com/zouyx/agollo/releases)
+[![Go Report Card](https://goreportcard.com/badge/github.com/kmlixh/gom/v2)](https://goreportcard.com/report/github.com/kmlixh/gom/v2)
+![GitHub](https://img.shields.io/github/license/kmlixh/gom)
+[![GoDoc](http://godoc.org/github.com/kmlixh/gom?status.svg)](http://godoc.org/github.com/kmlixh/gom)
+
 ## 基本介绍&特性
+
 gom是一个基于golang语言的关系型数据库ORM框架（CRUD工具库，支持事务）
 
 目前最新版本为v2.0，于2022年4月15 发布
 
-**当前支持的数据库类型仅为*`mysql`*及其衍生品*`mariadb`*
+**当前支持的数据库类型仅为* `mysql`*及其衍生品* `mariadb`*
 
 数据库类型支持自定义扩展（参考factory/mysql/mysql.go）
 
 gom是goroutine安全的（自认为的安全）
 
-
-
 ## 稳定性及性能
 
-和原生查询接近的查询性能（甚至更好），增删改性能略比原生差一些。 
+和原生查询接近的查询性能（甚至更好），增删改性能略比原生差一些。
 
 单元测试覆盖率93%，稳定性应该有保证。
 
@@ -37,14 +33,18 @@ gom是goroutine安全的（自认为的安全）
 ## 快速入门
 
 使用go mod的情况下：
+
 ```go
 require github.com/kmlixh/gom/v2 v2.0.0
 require github.com/go-sql-driver/mysql v1.6.0 // indirect,
 ```
+
 或者
+
 ```shell
 go get github.com/kmlixh/gom/v2
 ```
+
 ### 一个简单的CRUD示例
 
 ```go
@@ -101,8 +101,6 @@ func main() {
 	db.Insert(tt)
 
 }
-
-
 ```
 
 ### DB结构体具有的方法（函数）如下：
@@ -139,12 +137,17 @@ CleanDb
 ```
 
 ## 迭代注记
+
 #### 2022年4月15日 01:56:50
-    v2.0
-    代码几乎全部重构，你大概可以认为这是一个全新的东西，API全变了（不过也没事，之前的版本也就我一个人在用^_^自嗨锅）
-    代码测试覆盖率93.0%(相关的测试覆盖率结果可以看test_cover.html以及cover.out)
+
+```
+v2.0
+代码几乎全部重构，你大概可以认为这是一个全新的东西，API全变了（不过也没事，之前的版本也就我一个人在用^_^自嗨锅）
+代码测试覆盖率93.0%(相关的测试覆盖率结果可以看test_cover.html以及cover.out)
+```
 
 此处略作测试摘录证明一下我真的做过测试了：
+
 ```shell
 go test  -cover -coverprofile=cover.out -coverpkg=./...
 
@@ -152,12 +155,13 @@ init DB.............
 PASS
 coverage: 93.0% of statements in ./...
 ok      github.com/kmlixh/gom   9.112s
-
 ```
+
 然后Benchmark也顺手写了粗糙的两个：
+
 ```shell
 go test -bench="." -benchmem -run="TestNothing" 
-       
+   
 init DB.............
 goos: darwin
 goarch: amd64
@@ -169,39 +173,54 @@ BenchmarkDB_InsertSingle-16                   74          19828957 ns/op        
 BenchmarkRaw_InsertSingle-16                  66          17606781 ns/op            1175 B/op         22 allocs/op
 PASS
 ok      github.com/kmlixh/gom   6.176s
+```
+
+查询的性能比原始查询是差了一些的，这个需要承认
+
+#### 2019年6月19日 17:44:18
 
 ```
-查询的性能比原始查询是差了一些的，这个需要承认
-#### 2019年6月19日 17:44:18
-    v1.1.2
-    修复CreateSingleTable的一些bug
-    
+v1.1.2
+修复CreateSingleTable的一些bug
+```
 
 #### 2019年6月15日 08:18:25
-    v1.1.1
-    修复一些bug；
-    增加NotIn模式
+
+```
+v1.1.1
+修复一些bug；
+增加NotIn模式
+```
 
 #### 2019年5月15日 09:18:06
-    v1.0.8
-    截止1.0.8又修复了若干bug，详细请看commit
-    
+
+```
+v1.0.8
+截止1.0.8又修复了若干bug，详细请看commit
+```
 
 #### 2019年4月30日 11:15:38
 
-    1.修复了大量的bug；（具体可以看提交记录）
-    2.改造了数据获取的方式，从原来的固定格式转换，变成了接近于数据库底层的Scanner模式的性能
-    3.优化了自定义类型的查询和存储
+```
+1.修复了大量的bug；（具体可以看提交记录）
+2.改造了数据获取的方式，从原来的固定格式转换，变成了接近于数据库底层的Scanner模式的性能
+3.优化了自定义类型的查询和存储
+```
 
 #### 2017年6月22日 12:54:36
 
-    1.修复若干bug(具体修复哪些bug记不清了 ^_^)
-    2.修复Update,Insert,Delete方法传入不定参数时的bug（无法解析，或者解析不正确，使用递归解决）
-    3.修复Condition为空的情况下会莫名注入一个“where”进入sql语句的bug 
-    4.Db对象增加了一个Count函数，故名思议，用来做count的
+```
+1.修复若干bug(具体修复哪些bug记不清了 ^_^)
+2.修复Update,Insert,Delete方法传入不定参数时的bug（无法解析，或者解析不正确，使用递归解决）
+3.修复Condition为空的情况下会莫名注入一个“where”进入sql语句的bug 
+4.Db对象增加了一个Count函数，故名思议，用来做count的
+```
 
 #### 2017年6月18日22:47:53
 
-    1.修复无法使用事务的bug
-    2.修改了数据库操作的一些基础逻辑，每次操作前都会进行Prepare操作，以提高一些“性能”
-    3.为了修复上面的bug，修改了整体的gom.Db结构
+```
+1.修复无法使用事务的bug
+2.修改了数据库操作的一些基础逻辑，每次操作前都会进行Prepare操作，以提高一些“性能”
+3.为了修复上面的bug，修改了整体的gom.Db结构
+```
+

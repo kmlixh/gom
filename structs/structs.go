@@ -116,7 +116,7 @@ type TableModel interface {
 	Clone() TableModel
 }
 
-type DefaultTableModel struct {
+type DefaultModel struct {
 	rawType         reflect.Type
 	rawTable        string
 	rawColumnNames  []string
@@ -139,7 +139,7 @@ type DefaultTableModel struct {
 	page          Page
 }
 
-func (d DefaultTableModel) GetScanners(columns []string) ([]interface{}, int, error) {
+func (d DefaultModel) GetScanners(columns []string) ([]interface{}, int, error) {
 	var scanners []interface{}
 	simpleIdx := 0
 	if d.isStruct {
@@ -170,7 +170,7 @@ func (d DefaultTableModel) GetScanners(columns []string) ([]interface{}, int, er
 	return scanners, simpleIdx, nil
 }
 
-func (d DefaultTableModel) Scan(rows *sql.Rows) (interface{}, error) {
+func (d DefaultModel) Scan(rows *sql.Rows) (interface{}, error) {
 	columns, er := rows.Columns()
 	if er != nil {
 		return nil, er
@@ -221,25 +221,25 @@ func (d DefaultTableModel) Scan(rows *sql.Rows) (interface{}, error) {
 	return results.Interface(), nil
 
 }
-func (d DefaultTableModel) Table() string {
+func (d DefaultModel) Table() string {
 	if d.table != "" && len(d.table) > 0 {
 		return d.table
 	}
 	return d.rawTable
 }
 
-func (d *DefaultTableModel) SetTable(tableName string) {
+func (d *DefaultModel) SetTable(tableName string) {
 	d.table = tableName
 }
 
-func (d DefaultTableModel) Columns() []string {
+func (d DefaultModel) Columns() []string {
 	if d.columns != nil && len(d.columns) > 0 {
 		return d.columns
 	}
 	return d.rawColumnNames
 }
 
-func (d *DefaultTableModel) SetColumns(columns []string) error {
+func (d *DefaultModel) SetColumns(columns []string) error {
 	if columns != nil && len(columns) > 0 {
 		if d.isStruct {
 			d.columns = arrays.Intersect(d.rawColumnNames, append([]string{d.rawColumnNames[0]}, columns...))
@@ -250,7 +250,7 @@ func (d *DefaultTableModel) SetColumns(columns []string) error {
 	return nil
 }
 
-func (d *DefaultTableModel) SetData(_ interface{}, valueOfData reflect.Value, isStruct bool, isPtr bool, isSlice bool) {
+func (d *DefaultModel) SetData(_ interface{}, valueOfData reflect.Value, isStruct bool, isPtr bool, isSlice bool) {
 	d.data = valueOfData
 	d.isStruct = isStruct
 	d.isPtr = isPtr
@@ -265,11 +265,11 @@ func (d *DefaultTableModel) SetData(_ interface{}, valueOfData reflect.Value, is
 	}
 }
 
-func (d DefaultTableModel) PrimaryAuto() bool {
+func (d DefaultModel) PrimaryAuto() bool {
 	return d.primaryAuto
 }
 
-func (d DefaultTableModel) ColumnDataMap() map[string]interface{} {
+func (d DefaultModel) ColumnDataMap() map[string]interface{} {
 	if d.columns == nil || len(d.columns) == 0 { //如果列过滤器为空，则直接返回
 		return d.columnDataMap
 	} else {
@@ -281,7 +281,7 @@ func (d DefaultTableModel) ColumnDataMap() map[string]interface{} {
 	}
 }
 
-func (d DefaultTableModel) Condition() cnds.Condition {
+func (d DefaultModel) Condition() cnds.Condition {
 	if d.condition != nil {
 		return d.condition
 	}
@@ -296,30 +296,30 @@ func (d DefaultTableModel) Condition() cnds.Condition {
 	return d.condition
 }
 
-func (d *DefaultTableModel) SetCondition(c cnds.Condition) error {
+func (d *DefaultModel) SetCondition(c cnds.Condition) error {
 	d.condition = c
 	return nil
 }
 
-func (d DefaultTableModel) OrderBys() []OrderBy {
+func (d DefaultModel) OrderBys() []OrderBy {
 	return d.orderBys
 }
 
-func (d *DefaultTableModel) SetOrderBys(orders []OrderBy) error {
+func (d *DefaultModel) SetOrderBys(orders []OrderBy) error {
 	d.orderBys = orders
 	return nil
 }
 
-func (d DefaultTableModel) Page() Page {
+func (d DefaultModel) Page() Page {
 	return d.page
 }
 
-func (d *DefaultTableModel) SetPage(p Page) error {
+func (d *DefaultModel) SetPage(p Page) error {
 	d.page = p
 	return nil
 }
-func (d DefaultTableModel) Clone() TableModel {
-	return &DefaultTableModel{
+func (d DefaultModel) Clone() TableModel {
+	return &DefaultModel{
 		rawScanners:     d.rawScanners,
 		rawType:         d.rawType,
 		rawTable:        d.rawTable,
