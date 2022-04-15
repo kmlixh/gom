@@ -6,22 +6,22 @@ import (
 )
 
 var (
-	factorysMux sync.RWMutex
-	factorys    = make(map[string]structs.SqlFactory)
+	mux       sync.RWMutex
+	factories = make(map[string]structs.SqlFactory)
 )
 
 func Register(name string, inter structs.SqlFactory) {
-	factorysMux.Lock()
-	defer factorysMux.Unlock()
+	mux.Lock()
+	defer mux.Unlock()
 	if inter == nil {
 		panic("PreparedSql: Register driver is nil")
 	}
-	if _, dup := factorys[name]; dup {
+	if _, dup := factories[name]; dup {
 		panic("PreparedSql: Register called twice for factory " + name)
 	}
-	factorys[name] = inter
+	factories[name] = inter
 }
 func Get(name string) (structs.SqlFactory, bool) {
-	data, ok := factorys[name]
+	data, ok := factories[name]
 	return data, ok
 }

@@ -1,9 +1,16 @@
 # gom
 
+gom - An Easy ORM library for Golang
+================
 
-[![GoDoc](https://godoc.org/github.com/kmlixh/gom?status.svg)](https://godoc.org/github.com/kmlixh/gom)
-[![wercker status](https://app.wercker.com/status/56931116573ad6b913d0c7176e72e759/s/master "wercker status")](https://app.wercker.com/project/byKey/56931116573ad6b913d0c7176e72e759)
-
+[![golang](https://img.shields.io/badge/Language-Go-green.svg?style=flat)](https://golang.org)
+[![Build Status](https://travis-ci.org/zouyx/agollo.svg?branch=master)](https://travis-ci.org/zouyx/agollo)
+[![Go Report Card](https://goreportcard.com/badge/github.com/zouyx/agollo)](https://goreportcard.com/report/github.com/zouyx/agollo)
+[![codebeat badge](https://codebeat.co/badges/bc2009d6-84f1-4f11-803e-fc571a12a1c0)](https://codebeat.co/projects/github-com-zouyx-agollo-master)
+[![Coverage Status](https://coveralls.io/repos/github/zouyx/agollo/badge.svg?branch=master)](https://coveralls.io/github/zouyx/agollo?branch=master)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![GoDoc](http://godoc.org/github.com/zouyx/agollo?status.svg)](http://godoc.org/github.com/zouyx/agollo)
+[![GitHub release](https://img.shields.io/github/release/zouyx/agollo.svg)](https://github.com/zouyx/agollo/releases)
 ## 基本介绍&特性
 gom是一个基于golang语言的关系型数据库ORM框架（CRUD工具库，支持事务）
 

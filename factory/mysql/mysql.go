@@ -67,8 +67,7 @@ func init() {
 		counts := len(model.Columns())
 		if counts == 0 {
 			panic(errors.New("columns is null or empty"))
-		}
-		if counts > 1 {
+		} else {
 			for i := 0; i < len(model.Columns()); i++ {
 				if i == 0 {
 					sql += wrapperName(model.Columns()[i]) + " "
@@ -76,8 +75,6 @@ func init() {
 					sql += ", " + wrapperName(model.Columns()[i]) + " "
 				}
 			}
-		} else {
-			sql += " " + wrapperName(model.Columns()[0])
 		}
 		sql += " FROM " + model.Table() + " "
 		cndString, cndData := m.ConditionToSql(model.Condition())

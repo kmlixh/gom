@@ -298,11 +298,6 @@ func TestDB_Update(t *testing.T) {
 				t.Error("插入异常：", er.Error())
 				return
 			}
-			//var temp User
-			//_, err := db.Where2("nick_name=?", nck).Select(&temp)
-			//if err != nil {
-			//	t.Error("查询异常：", err)
-			//}
 			c, _, er = db.Table("user").Where2("nick_name=?", nck).Update(User{RegDate: time.Now().Add(10 * time.Minute)})
 			if c != 1 {
 				t.Error("更新失败", c, er)
