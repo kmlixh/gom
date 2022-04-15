@@ -28,9 +28,6 @@ func (m Factory) ConditionToSql(cnd cnds.Condition) (string, []interface{}) {
 	if cnd == nil {
 		return "", nil
 	}
-	if !cnd.Valid() {
-		return "", nil
-	}
 	myCnd := cndToMyCndStruct(cnd)
 	var data []interface{}
 	data = append(data, cnd.Values()...)

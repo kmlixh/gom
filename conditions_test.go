@@ -14,7 +14,7 @@ func TestConditions(t *testing.T) {
 			cnds.NewRaw("name = ?", "kmlixh")
 		}},
 		{"测试Full", func(t *testing.T) {
-			cnds.NewFull(true, cnds.And, "name", cnds.NotEq, "", "kmlixh")
+			cnds.NewFull(cnds.And, "name", cnds.NotEq, "", "kmlixh")
 		}},
 		{"测试New", func(t *testing.T) { cnds.New("name", cnds.NotEq, "kmlixh") }},
 

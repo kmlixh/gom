@@ -31,20 +31,110 @@ gom是goroutine安全的（自认为的安全）
 
 使用go mod的情况下：
 ```go
-require gitee.com/janyees/gom v2.0
+require gitee.com/janyees/gom/v2 v2.0.0
+require github.com/go-sql-driver/mysql v1.6.0 // indirect,
 ```
 或者
 ```shell
-go get gitee.com/janyees/gom@v2.0
+go get gitee.com/janyees/gom/v2
 ```
 ### 一个简单的CRUD示例
 
+```go
+package main
 
+import (
+	"gitee.com/janyees/gom/v2"
+	"gitee.com/janyees/gom/v2/cnds"
+	_ "gitee.com/janyees/gom/v2/factory/mysql"
+	"github.com/google/uuid"
+	"time"
+)
+
+var dsn = "remote:remote123@tcp(10.0.1.5)/test?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
+
+type User struct {
+	Id       int64     `json:"id" gom:"@,id"`
+	Pwd      string    `json:"pwd" gom:"pwd"`
+	Email    string    `json:"email" gom:"email"`
+	Valid    int       `json:"valid" gom:"valid"`
+	NickName string    `json:"nicks" gom:"nick_name"`
+	RegDate  time.Time `json:"reg_date" gom:"reg_date"`
+}
+
+var db *gom.DB
+
+func init() {
+	//Create DB ，Global
+	var er error
+	db, er = gom.Open("mysql", dsn, true)
+	if er != nil {
+		panic(er)
+	}
+}
+
+func main() {
+	var users []User
+	//Query
+	db.Where(cnds.New("name",cnds.Eq,"kmlixh")).Page(0, 100).Select(&users)
+	//Update
+	temp := users[0]
+	temp.NickName = uuid.New().String()
+	temp.RegDate = time.Now()
+	db.Update(temp)
+	//Delete
+	db.Delete(users[1])
+	tt := User{
+		Pwd:      "123213",
+		Email:    "1@test.com",
+		Valid:    1,
+		NickName: uuid.New().String(),
+		RegDate:  time.Now(),
+	}
+	db.Insert(tt)
+
+}
+
+
+```
+
+### DB结构体具有的方法（函数）如下：
+
+```go
+RawDb 获取原生的sql.Db对象
+Table
+CloneIfDifferentRoutine
+Raw
+OrderBy
+CleanOrders
+OrderByAsc
+OrderByDesc
+Where2
+Where
+Clone
+Page
+Count
+Sum
+Select
+SelectByModel
+First
+Insert
+Delete
+Update
+ExecuteRaw
+ExecuteStatement
+Begin
+IsInTransaction
+Commit
+Rollback
+DoTransaction
+CleanDb
+```
 
 ## 迭代注记
 #### 2022年4月15日 01:56:50
     v2.0
-    代码几乎全部重构，你大概可以认为这是一个全新的东西，虽然还叫原来的名字，但是API全变了（不过也没事，之前的版本也就我一个人在用^_^）
+    代码几乎全部重构，你大概可以认为这是一个全新的东西，API全变了（不过也没事，之前的版本也就我一个人在用^_^自嗨锅）
     代码测试覆盖率93.0%(相关的测试覆盖率结果可以看test_cover.html以及cover.out)
 
 此处略作测试摘录证明一下我真的做过测试了：
