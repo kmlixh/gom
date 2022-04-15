@@ -1,7 +1,7 @@
 package gom
 
 import (
-	"gitee.com/janyees/gom/v2/cnds"
+	"github.com/kmlixh/gom/v2/cnds"
 	"testing"
 )
 

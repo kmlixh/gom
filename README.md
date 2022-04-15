@@ -1,7 +1,7 @@
 # gom
 
 
-[![GoDoc](https://godoc.org/gitee.com/janyees/gom?status.svg)](https://godoc.org/gitee.com/janyees/gom)
+[![GoDoc](https://godoc.org/github.com/kmlixh/gom?status.svg)](https://godoc.org/github.com/kmlixh/gom)
 [![wercker status](https://app.wercker.com/status/56931116573ad6b913d0c7176e72e759/s/master "wercker status")](https://app.wercker.com/project/byKey/56931116573ad6b913d0c7176e72e759)
 
 ## 基本介绍&特性
@@ -31,12 +31,12 @@ gom是goroutine安全的（自认为的安全）
 
 使用go mod的情况下：
 ```go
-require gitee.com/janyees/gom/v2 v2.0.0
+require github.com/kmlixh/gom/v2 v2.0.0
 require github.com/go-sql-driver/mysql v1.6.0 // indirect,
 ```
 或者
 ```shell
-go get gitee.com/janyees/gom/v2
+go get github.com/kmlixh/gom/v2
 ```
 ### 一个简单的CRUD示例
 
@@ -44,9 +44,9 @@ go get gitee.com/janyees/gom/v2
 package main
 
 import (
-	"gitee.com/janyees/gom/v2"
-	"gitee.com/janyees/gom/v2/cnds"
-	_ "gitee.com/janyees/gom/v2/factory/mysql"
+	"github.com/kmlixh/gom/v2"
+	"github.com/kmlixh/gom/v2/cnds"
+	_ "github.com/kmlixh/gom/v2/factory/mysql"
 	"github.com/google/uuid"
 	"time"
 )
@@ -144,7 +144,7 @@ go test  -cover -coverprofile=cover.out -coverpkg=./...
 init DB.............
 PASS
 coverage: 93.0% of statements in ./...
-ok      gitee.com/janyees/gom   9.112s
+ok      github.com/kmlixh/gom   9.112s
 
 ```
 然后Benchmark也顺手写了粗糙的两个：
@@ -154,14 +154,14 @@ go test -bench="." -benchmem -run="TestNothing"
 init DB.............
 goos: darwin
 goarch: amd64
-pkg: gitee.com/janyees/gom
+pkg: github.com/kmlixh/gom
 cpu: Intel(R) Core(TM) i9-9980HK CPU @ 2.40GHz
 BenchmarkBaseSelect-16                       138           8654269 ns/op          662728 B/op      10397 allocs/op
 BenchmarkBaseSelectGom-16                    122           8936071 ns/op          679967 B/op      14406 allocs/op
 BenchmarkDB_InsertSingle-16                   74          19828957 ns/op            5403 B/op        109 allocs/op
 BenchmarkRaw_InsertSingle-16                  66          17606781 ns/op            1175 B/op         22 allocs/op
 PASS
-ok      gitee.com/janyees/gom   6.176s
+ok      github.com/kmlixh/gom   6.176s
 
 ```
 查询的性能比原始查询是差了一些的，这个需要承认

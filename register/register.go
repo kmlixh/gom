@@ -1,7 +1,7 @@
 package register
 
 import (
-	"gitee.com/janyees/gom/v2/structs"
+	"github.com/kmlixh/gom/v2/structs"
 	"sync"
 )
 

@@ -3,8 +3,8 @@ package structs
 import (
 	"errors"
 	"fmt"
-	"gitee.com/janyees/gom/v2/arrays"
-	"gitee.com/janyees/gom/v2/cnds"
+	"github.com/kmlixh/gom/v2/arrays"
+	"github.com/kmlixh/gom/v2/cnds"
 	"reflect"
 	"runtime"
 	"strconv"

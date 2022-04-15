@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"gitee.com/janyees/gom/v2/register"
+	"github.com/kmlixh/gom/v2/register"
 	"time"
 )
 

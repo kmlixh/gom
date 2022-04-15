@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"gitee.com/janyees/gom/v2/arrays"
-	"gitee.com/janyees/gom/v2/cnds"
-	"gitee.com/janyees/gom/v2/structs"
+	"github.com/kmlixh/gom/v2/arrays"
+	"github.com/kmlixh/gom/v2/cnds"
+	"github.com/kmlixh/gom/v2/structs"
 )
 
 type DB struct {

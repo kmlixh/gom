@@ -2,10 +2,10 @@ package mysql
 
 import (
 	"errors"
-	"gitee.com/janyees/gom/v2/cnds"
-	"gitee.com/janyees/gom/v2/register"
-	"gitee.com/janyees/gom/v2/structs"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/kmlixh/gom/v2/cnds"
+	"github.com/kmlixh/gom/v2/register"
+	"github.com/kmlixh/gom/v2/structs"
 
 	"strings"
 )

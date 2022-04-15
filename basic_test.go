@@ -2,10 +2,10 @@ package gom
 
 import (
 	"fmt"
-	"gitee.com/janyees/gom/v2/cnds"
-	_ "gitee.com/janyees/gom/v2/factory/mysql"
-	"gitee.com/janyees/gom/v2/structs"
 	"github.com/google/uuid"
+	"github.com/kmlixh/gom/v2/cnds"
+	_ "github.com/kmlixh/gom/v2/factory/mysql"
+	"github.com/kmlixh/gom/v2/structs"
 	"strconv"
 	"testing"
 	"time"
