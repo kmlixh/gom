@@ -24,7 +24,7 @@ gom是goroutine安全的（自认为的安全）
 
 和原生查询接近的查询性能（甚至更好），增删改性能略比原生差一些。
 
-单元测试覆盖率93%，稳定性应该有保证。
+单元测试覆盖率90%,测试比较充分，但是仍不排除还有漏网之BUG
 
 但是逻辑覆盖率没法做到百分之百，如使用过程中如出现问题，欢迎邮件我：kmlixh@foxmail.com或者直接给PR
 
@@ -106,12 +106,11 @@ func main() {
 ### DB结构体具有的方法（函数）如下：
 
 ```go
-RawDb 获取原生的sql.Db对象
-Table
-CloneIfDifferentRoutine
-Raw
-OrderBy
-CleanOrders
+RawDb() 获取原生的sql.Db对象
+Table(tableName string) 设置表名
+Raw() *sql.Db 获取go底层的db对象
+OrderBy()排序
+CleanOrders清除排序
 OrderByAsc
 OrderByDesc
 Where2

@@ -28,17 +28,17 @@ func (db DB) RawDb() *sql.DB {
 	return db.db
 }
 func (db DB) Table(table string) DB {
-	db.CloneIfDifferentRoutine()
+	db.cloneSelfIfDifferentGoRoutine()
 	db.table = &table
 	return db
 }
-func (db *DB) CloneIfDifferentRoutine() {
+func (db *DB) cloneSelfIfDifferentGoRoutine() {
 	if db.id != structs.GetGoid() {
 		*db = db.Clone()
 	}
 }
 func (db DB) Raw(sql string, datas ...interface{}) DB {
-	db.CloneIfDifferentRoutine()
+	db.cloneSelfIfDifferentGoRoutine()
 	db.rawSql = &sql
 	var temp = structs.UnZipSlice(datas)
 	db.rawData = &temp
@@ -46,14 +46,14 @@ func (db DB) Raw(sql string, datas ...interface{}) DB {
 }
 
 func (db DB) OrderBy(field string, t structs.OrderType) DB {
-	db.CloneIfDifferentRoutine()
+	db.cloneSelfIfDifferentGoRoutine()
 	var temp []structs.OrderBy
 	temp = append(temp, structs.MakeOrderBy(field, t))
 	db.orderBys = &temp
 	return db
 }
 func (db DB) CleanOrders() DB {
-	db.CloneIfDifferentRoutine()
+	db.cloneSelfIfDifferentGoRoutine()
 	temp := make([]structs.OrderBy, 0)
 	db.orderBys = &temp
 	return db
@@ -68,11 +68,11 @@ func (db DB) OrderByDesc(field string) DB {
 }
 
 func (db DB) Where2(sql string, patches ...interface{}) DB {
-	db.CloneIfDifferentRoutine()
+	db.cloneSelfIfDifferentGoRoutine()
 	return db.Where(cnds.NewRaw(sql, patches...))
 }
 func (db DB) Where(cnd cnds.Condition) DB {
-	db.CloneIfDifferentRoutine()
+	db.cloneSelfIfDifferentGoRoutine()
 	db.cnd = &cnd
 	return db
 }
@@ -81,7 +81,7 @@ func (db DB) Clone() DB {
 }
 
 func (db DB) Page(index int, pageSize int) DB {
-	db.CloneIfDifferentRoutine()
+	db.cloneSelfIfDifferentGoRoutine()
 	page := structs.MakePage(index, pageSize)
 	db.page = &page
 	return db
@@ -112,7 +112,7 @@ func (db DB) Sum(columnName string) structs.CountResult {
 }
 
 func (db DB) Select(vs interface{}, columns ...string) (interface{}, error) {
-	db.CloneIfDifferentRoutine()
+	db.cloneSelfIfDifferentGoRoutine()
 	model, er := structs.GetTableModel(vs, columns...)
 	if er != nil {
 		return nil, er
@@ -126,7 +126,7 @@ func (db DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 }
 func (db DB) SelectByModel(model structs.TableModel) (interface{}, error) {
 	//TODO 此处逻辑不合理，如果是自定义查询的话，无需生成Model，简单的查询也不需要生成model。
-	db.CloneIfDifferentRoutine()
+	db.cloneSelfIfDifferentGoRoutine()
 	selectFunc := db.factory.GetSqlFunc(structs.Query)
 	sqlProtos := selectFunc(model)
 	return db.query(sqlProtos[0].PreparedSql, sqlProtos[0].Data, model)
@@ -194,7 +194,7 @@ func (db DB) ExecuteRaw() (int64, int64, error) {
 }
 
 func (db DB) executeTableModel(sqlType structs.SqlType, models []structs.TableModel) (int64, int64, error) {
-	db.CloneIfDifferentRoutine()
+	db.cloneSelfIfDifferentGoRoutine()
 	var lastInsertId = int64(0)
 	genFunc := db.factory.GetSqlFunc(sqlType)
 	//此处应当判断是否已经在事物中，如果不在事务中才开启事物
