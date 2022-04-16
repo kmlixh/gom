@@ -35,7 +35,7 @@ gom是goroutine安全的（自认为的安全）
 使用go mod的情况下：
 
 ```go
-require github.com/kmlixh/gom/v2 v2.0.0
+require github.com/kmlixh/gom/v2 v2.0.2
 require github.com/go-sql-driver/mysql v1.6.0 // indirect,
 ```
 
