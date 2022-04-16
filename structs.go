@@ -1,13 +1,9 @@
-package structs
+package gom
 
 import (
 	"database/sql"
-	"github.com/kmlixh/gom/v2/arrays"
-	"github.com/kmlixh/gom/v2/cnds"
 	"reflect"
 )
-
-var Debug bool
 
 type DefaultStruct struct {
 }
@@ -20,10 +16,6 @@ type RawTableInfo struct {
 	IsStruct     bool
 }
 
-type SqlProto struct {
-	PreparedSql string
-	Data        []interface{}
-}
 type Column struct {
 	Data        interface{}
 	ColumnName  string
@@ -31,10 +23,16 @@ type Column struct {
 	Primary     bool
 	PrimaryAuto bool //If Primary Key Auto Generate Or2 Not
 }
+
+type SqlProto struct {
+	PreparedSql string
+	Data        []interface{}
+}
+
 type GenerateSQLFunc func(model ...TableModel) []SqlProto
 type SqlFactory interface {
 	GetSqlFunc(sqlType SqlType) GenerateSQLFunc
-	ConditionToSql(condition cnds.Condition) (string, []interface{})
+	ConditionToSql(condition Condition) (string, []interface{})
 }
 
 type OrderType int
@@ -75,20 +73,24 @@ func (o OrderByImpl) Type() OrderType {
 	return o.orderType
 }
 
-type Page interface {
-	Page() (int, int)
+type PageInfo interface {
+	Page() (int64, int64)
 }
 
 type PageImpl struct {
-	index int
-	size  int
+	index int64
+	size  int64
 }
 
-func MakePage(index int, size int) Page {
+func MakePage(page int64, size int64) PageInfo {
+	if page <= 0 {
+		page = 1
+	}
+	index := (page - 1) * size
 	return PageImpl{index, size}
 }
 
-func (p PageImpl) Page() (int, int) {
+func (p PageImpl) Page() (int64, int64) {
 	return p.index, p.size
 }
 
@@ -106,12 +108,12 @@ type TableModel interface {
 	GetScanners(columns []string) ([]interface{}, int, error)
 	PrimaryAuto() bool
 	ColumnDataMap() map[string]interface{}
-	Condition() cnds.Condition
-	SetCondition(c cnds.Condition) error
+	Condition() Condition
+	SetCondition(c Condition) error
 	OrderBys() []OrderBy
 	SetOrderBys(orders []OrderBy) error
-	Page() Page
-	SetPage(p Page) error
+	Page() PageInfo
+	SetPage(p PageInfo) error
 	Scan(rows *sql.Rows) (interface{}, error)
 	Clone() TableModel
 }
@@ -134,9 +136,9 @@ type DefaultModel struct {
 	columns       []string
 	columnsIdx    []int8
 	columnDataMap map[string]interface{}
-	condition     cnds.Condition
+	condition     Condition
 	orderBys      []OrderBy
-	page          Page
+	page          PageInfo
 }
 
 func (d DefaultModel) GetScanners(columns []string) ([]interface{}, int, error) {
@@ -242,7 +244,7 @@ func (d DefaultModel) Columns() []string {
 func (d *DefaultModel) SetColumns(columns []string) error {
 	if columns != nil && len(columns) > 0 {
 		if d.isStruct {
-			d.columns = arrays.Intersect(d.rawColumnNames, append([]string{d.rawColumnNames[0]}, columns...))
+			d.columns = ArrayIntersect(d.rawColumnNames, append([]string{d.rawColumnNames[0]}, columns...))
 		} else {
 			d.columns = columns
 		}
@@ -281,7 +283,7 @@ func (d DefaultModel) ColumnDataMap() map[string]interface{} {
 	}
 }
 
-func (d DefaultModel) Condition() cnds.Condition {
+func (d DefaultModel) Condition() Condition {
 	if d.condition != nil {
 		return d.condition
 	}
@@ -290,13 +292,13 @@ func (d DefaultModel) Condition() cnds.Condition {
 		v := reflect.ValueOf(col)
 		//TODO 此处逻辑不够完备，需要判断列本身是否为空
 		if ok && !v.IsZero() {
-			d.condition = cnds.New(d.rawColumnNames[0], cnds.Eq, col)
+			d.condition = New(d.rawColumnNames[0], Eq, col)
 		}
 	}
 	return d.condition
 }
 
-func (d *DefaultModel) SetCondition(c cnds.Condition) error {
+func (d *DefaultModel) SetCondition(c Condition) error {
 	d.condition = c
 	return nil
 }
@@ -310,11 +312,11 @@ func (d *DefaultModel) SetOrderBys(orders []OrderBy) error {
 	return nil
 }
 
-func (d DefaultModel) Page() Page {
+func (d DefaultModel) Page() PageInfo {
 	return d.page
 }
 
-func (d *DefaultModel) SetPage(p Page) error {
+func (d *DefaultModel) SetPage(p PageInfo) error {
 	d.page = p
 	return nil
 }

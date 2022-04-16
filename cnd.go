@@ -1,4 +1,4 @@
-package cnds
+package gom
 
 type Linker int
 

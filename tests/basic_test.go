@@ -1,11 +1,10 @@
-package gom
+package tests
 
 import (
 	"fmt"
 	"github.com/google/uuid"
-	"github.com/kmlixh/gom/v2/cnds"
+	"github.com/kmlixh/gom/v2"
 	_ "github.com/kmlixh/gom/v2/factory/mysql"
-	"github.com/kmlixh/gom/v2/structs"
 	"strconv"
 	"testing"
 	"time"
@@ -15,7 +14,7 @@ var dsn = "remote:remote123@tcp(10.0.1.5)/test?charset=utf8&loc=Asia%2FShanghai&
 
 //var dsn = "remote:Remote171Yzy@tcp(13.236.1.51:3306)/user_centre?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
 
-var db *DB
+var db *gom.DB
 
 type UserInfo struct {
 	Id          int64     `json:"id" gom:"@"`
@@ -50,7 +49,7 @@ type User2 struct {
 
 func init() {
 	fmt.Println("init DB.............")
-	temp, er := Open("mysql", dsn, false)
+	temp, er := gom.Open("mysql", dsn, false)
 	if er != nil {
 		panic(er)
 	}
@@ -82,7 +81,7 @@ func (Log) TableName() string {
 
 func TestGetTableModel(t *testing.T) {
 	var log []Log
-	_, err := structs.GetTableModel(&log)
+	_, err := gom.GetTableModel(&log)
 	if err != nil {
 		t.Error(err)
 	}
@@ -124,7 +123,7 @@ func TestCustomTableName(t *testing.T) {
 
 func TestMultiOrders(t *testing.T) {
 	users := make([]UserInfo, 0)
-	_, er := db.OrderByAsc("id").OrderBy("nick_name", structs.Desc).OrderByDesc("create_date").Page(0, 10).Select(&users)
+	_, er := db.OrderByAsc("id").OrderBy("nick_name", gom.Desc).OrderByDesc("create_date").Page(0, 10).Select(&users)
 	if er != nil {
 		panic(er)
 	}
@@ -146,7 +145,7 @@ func TestRawCondition(t *testing.T) {
 }
 func TestCondition(t *testing.T) {
 	users := make([]UserInfo, 0)
-	_, er := db.Where(cnds.New("nick_name", cnds.LikeIgnoreStart, "淑兰")).Page(0, 10).Select(&users)
+	_, er := db.Where(gom.New("nick_name", gom.LikeIgnoreStart, "淑兰")).Page(0, 10).Select(&users)
 	if er != nil {
 		panic(er)
 	}
@@ -157,7 +156,7 @@ func TestCondition(t *testing.T) {
 }
 func TestMultiCondition(t *testing.T) {
 	users := make([]UserInfo, 0)
-	_, er := db.Where(cnds.New("nick_name", cnds.LikeIgnoreStart, "淑兰").Or2(cnds.New("phone_number", cnds.Eq, "13663049871").Eq("nick_name", "吃素是福"))).Page(0, 10).Select(&users)
+	_, er := db.Where(gom.New("nick_name", gom.LikeIgnoreStart, "淑兰").Or2(gom.New("phone_number", gom.Eq, "13663049871").Eq("nick_name", "吃素是福"))).Page(0, 10).Select(&users)
 	if er != nil {
 		panic(er)
 	}
@@ -170,7 +169,7 @@ func TestMultiCondition(t *testing.T) {
 func TestStructCondition(t *testing.T) {
 	user := UserInfo{PhoneNumber: "13663049871", NickName: "吃素是福"}
 	users := make([]UserInfo, 0)
-	_, er := db.Where(structs.StructToCondition(user)).Page(0, 10).Select(&users)
+	_, er := db.Where(gom.StructToCondition(user)).Page(0, 10).Select(&users)
 	if er != nil {
 		panic(er)
 	}
@@ -233,54 +232,54 @@ func TestSpecial(t *testing.T) {
 	ts := []Tt{
 		{"测试使用Interface获取对象", func(t *testing.T) {
 			var v interface{}
-			m, er := structs.GetTableModel(v)
+			m, er := gom.GetTableModel(v)
 			if er != nil {
 				t.Error("使用interface获取表模型应该报错", m, er)
 			}
 		}},
 		{"测试使用Interface赋值Struct获取对象", func(t *testing.T) {
 			var v interface{} = User{}
-			m, er := structs.GetTableModel(v)
+			m, er := gom.GetTableModel(v)
 			if er != nil {
 				t.Error(m, er)
 			}
 		}},
 		{"测试对数组使用StructToMap", func(t *testing.T) {
 			var v []interface{}
-			m, n, er := structs.StructToMap(v)
+			m, n, er := gom.StructToMap(v)
 			if er == nil {
 				t.Error("interface数组未报错", m, n)
 			}
 		}},
 		{"用interface使用StructToMap", func(t *testing.T) {
 			var v interface{}
-			m, n, er := structs.StructToMap(v)
+			m, n, er := gom.StructToMap(v)
 			if er == nil {
 				t.Error("interface未报错", m, n)
 			}
 		}},
 		{"测试MapToCondition", func(t *testing.T) {
 			maps := map[string]interface{}{"name": "kmlixh", "age": 12, "sex": "big cook"}
-			c := structs.MapToCondition(maps)
+			c := gom.MapToCondition(maps)
 			if c == nil {
 				t.Error("MaptoCondition失败", c)
 			}
 		}},
 		{"测试MapToCondition", func(t *testing.T) {
 			maps := map[string]interface{}{"name": "kmlixh", "age": 12, "sex": "big cook"}
-			c := structs.MapToCondition(maps)
+			c := gom.MapToCondition(maps)
 			if c == nil {
 				t.Error("MaptoCondition失败", c)
 			}
 		}},
 		{"测试空结构体获取Map", func(t *testing.T) {
-			d, ds, er := structs.StructToMap(EmptyStruct{})
+			d, ds, er := gom.StructToMap(EmptyStruct{})
 			if er == nil {
 				t.Error("MaptoCondition失败", d, ds)
 			}
 		}},
 		{"空结构体获取TableModel", func(t *testing.T) {
-			tb, er := structs.GetTableModel(EmptyStruct{})
+			tb, er := gom.GetTableModel(EmptyStruct{})
 			if er == nil {
 				t.Error("空结构体生成tb成功", tb, er)
 			}
@@ -344,26 +343,26 @@ func TestSpecial(t *testing.T) {
 		},
 		{
 			"获取空的OrderBys", func(t *testing.T) {
-				db.CleanDb().getOrderBys()
+				db.CleanDb().GetOrderBys()
 			},
 		},
 		{
 			"获取空的Page", func(t *testing.T) {
-				db.CleanDb().getPage()
+				db.CleanDb().GetPage()
 			},
 		},
 		{
 			"获取空的Condition", func(t *testing.T) {
-				db.CleanDb().getCnd()
+				db.CleanDb().GetCnd()
 			},
 		},
 		{
 			"open by wrong driver", func(t *testing.T) {
-				ddb, er := Open("sdf", dsn, false)
+				ddb, er := gom.Open("sdf", dsn, false)
 				if er == nil {
 					t.Error(ddb, er)
 				}
-				ddbs, ers := OpenWithConfig("sdf", dsn, 1000, 1000, false)
+				ddbs, ers := gom.OpenWithConfig("sdf", dsn, 1000, 1000, false)
 				if ers == nil {
 					t.Error(ddbs, ers)
 				}
@@ -371,11 +370,11 @@ func TestSpecial(t *testing.T) {
 		},
 		{
 			"open by wrong Config", func(t *testing.T) {
-				ddb, er := Open("sdf", dsn, false)
+				ddb, er := gom.Open("sdf", dsn, false)
 				if er == nil {
 					t.Error(ddb, er)
 				}
-				ddbs, ers := OpenWithConfig("mysql", dsn, -1000, -1000, false)
+				ddbs, ers := gom.OpenWithConfig("mysql", dsn, -1000, -1000, false)
 				if ers != nil {
 					t.Error(ddbs, ers)
 				}
@@ -402,7 +401,7 @@ func TestSpecial(t *testing.T) {
 			"事务回滚测试", func(t *testing.T) {
 				uid := uuid.New().String()
 
-				c, er := db.DoTransaction(func(dbTx *DB) (interface{}, error) {
+				c, er := db.DoTransaction(func(dbTx *gom.DB) (interface{}, error) {
 					c, _, er := dbTx.Insert(User{NickName: uid, Valid: 2, Email: "test@gg.com", RegDate: time.Now()})
 					if er != nil {
 						return c, er

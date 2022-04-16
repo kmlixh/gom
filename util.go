@@ -1,10 +1,8 @@
-package structs
+package gom
 
 import (
 	"errors"
 	"fmt"
-	"github.com/kmlixh/gom/v2/arrays"
-	"github.com/kmlixh/gom/v2/cnds"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -175,7 +173,7 @@ func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, []s
 		if colNames == nil || len(colNames) == 0 {
 			panic(fmt.Sprintf("can't get any data from Type [%s]", rawInfo.Name()))
 		}
-		columns = arrays.Intersect(columns, colNames)
+		columns = ArrayIntersect(columns, colNames)
 		newMap := make(map[string]interface{})
 		for i, column := range columns {
 			newMap[column] = cols[i].Data
@@ -185,18 +183,18 @@ func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, []s
 	return nil, nil, errors.New(fmt.Sprintf("can't convert %s to map", rawInfo.Name()))
 
 }
-func StructToCondition(vs interface{}, columns ...string) cnds.Condition {
+func StructToCondition(vs interface{}, columns ...string) Condition {
 	maps, _, err := StructToMap(vs, columns...)
 	if err != nil {
 		panic(err)
 	}
 	return MapToCondition(maps)
 }
-func MapToCondition(maps map[string]interface{}) cnds.Condition {
+func MapToCondition(maps map[string]interface{}) Condition {
 	if maps == nil {
 		return nil
 	}
-	var cnd cnds.Condition
+	var cnd Condition
 	for k, v := range maps {
 		t := reflect.TypeOf(v)
 		if t.Kind() == reflect.Ptr {
@@ -205,9 +203,9 @@ func MapToCondition(maps map[string]interface{}) cnds.Condition {
 		if (t.Kind() != reflect.Struct && t.Kind() != reflect.Slice) || t.Kind() == reflect.TypeOf(time.Now()).Kind() {
 			value := v
 			if cnd == nil {
-				cnd = cnds.New(k, cnds.Eq, value)
+				cnd = New(k, Eq, value)
 			} else {
-				cnd.And(k, cnds.Eq, arrays.Of(value))
+				cnd.And(k, Eq, ArrayOf(value))
 			}
 		}
 	}

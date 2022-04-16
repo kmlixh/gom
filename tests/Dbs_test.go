@@ -1,9 +1,8 @@
-package gom
+package tests
 
 import (
 	"github.com/google/uuid"
-	"github.com/kmlixh/gom/v2/cnds"
-	"github.com/kmlixh/gom/v2/structs"
+	"github.com/kmlixh/gom/v2"
 	"reflect"
 	"strconv"
 	"testing"
@@ -11,24 +10,24 @@ import (
 )
 
 func TestDB_CleanOrders(t *testing.T) {
-	db1 := DB{}
-	db2 := DB{}
-	db3 := DB{}
-	db2.OrderBy("name", structs.Desc)
-	db2.OrderBy("name", structs.Desc).OrderByDesc("use")
+	db1 := gom.DB{}
+	db2 := gom.DB{}
+	db3 := gom.DB{}
+	db2.OrderBy("name", gom.Desc)
+	db2.OrderBy("name", gom.Desc).OrderByDesc("use")
 	tests := []struct {
 		name string
-		raw  DB
-		want *[]structs.OrderBy
+		raw  gom.DB
+		want []gom.OrderBy
 	}{
-		{"empty orders clean", db1, &[]structs.OrderBy{}},
-		{"有一个时除去", db2, &[]structs.OrderBy{}},
-		{"有多个时清空", db3, &[]structs.OrderBy{}},
+		{"empty orders clean", db1, []gom.OrderBy{}},
+		{"有一个时除去", db2, []gom.OrderBy{}},
+		{"有多个时清空", db3, []gom.OrderBy{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			this := tt.raw
-			if got := this.CleanOrders().orderBys; !reflect.DeepEqual(got, tt.want) {
+			if got := this.CleanOrders().GetOrderBys(); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("CleanOrders() = %v, want %v", got, tt.want)
 			}
 		})
@@ -43,7 +42,7 @@ func TestDB_Count(t *testing.T) {
 	}
 	tests := []struct {
 		name string
-		db   *DB
+		db   *gom.DB
 		args args
 		want int64
 	}{
@@ -72,7 +71,7 @@ func Test_UnzipSlice(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gots := structs.UnZipSlice(tt.args)
+			gots := gom.UnZipSlice(tt.args)
 			if !reflect.DeepEqual(gots, tt.wants) {
 				t.Errorf("Test_UnzipSlice resource was: = %v, want: %v", gots, tt.wants)
 			}
@@ -109,11 +108,11 @@ func Test_UnzipSliceToMapSlice(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gots := structs.SliceToGroupSlice(tt.args)
+			gots := gom.SliceToGroupSlice(tt.args)
 			if !reflect.DeepEqual(gots, tt.wants) {
 				t.Errorf("Test_UnzipSlice resource was: = %v, want: %v", gots, tt.wants)
 			} else {
-				if Debug {
+				if gom.Debug {
 					t.Logf("Test_UnzipSlice ok resource was: = %v, want: %v", gots, tt.wants)
 				}
 
@@ -161,7 +160,7 @@ func Test_StructToMap(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gots, _, er := structs.StructToMap(tt.args)
+			gots, _, er := gom.StructToMap(tt.args)
 			if !reflect.DeepEqual(gots, tt.wants.result) && tt.wants.err && er == nil {
 				t.Errorf("Test_StructToMap Fail, resource was: = %v, want: %v,er result:%v,er wants:%v", gots, tt.wants.result, er.Error(), tt.wants.err)
 			}
@@ -207,7 +206,7 @@ func TestDB_Insert(t *testing.T) {
 					t.Error("批量插入报错", c, er)
 				}
 				var tempUsers []User
-				_, err := db.Where(cnds.NewRaw("id > ?", 0).In("nick_name", ncks...)).Select(&tempUsers)
+				_, err := db.Where(gom.NewRaw("id > ?", 0).In("nick_name", ncks...)).Select(&tempUsers)
 
 				if err != nil {
 					t.Error("查询出错")
@@ -252,7 +251,7 @@ func TestDB_Delete(t *testing.T) {
 					users = append(users, user)
 				}
 				c, _, er := db.Insert(users)
-				c, _, er = db.Table("user").Where(cnds.NewRaw("valid=?", 1).In("nick_name", ncks...)).Delete()
+				c, _, er = db.Table("user").Where(gom.NewRaw("valid=?", 1).In("nick_name", ncks...)).Delete()
 				if c != 100 || er != nil {
 					t.Error("批量删除失败", c, er)
 				}
@@ -277,7 +276,7 @@ func TestDB_Update(t *testing.T) {
 				t.Error("插入异常：", er.Error())
 			}
 			var temp User
-			_, err := db.Where(cnds.NewRaw("id=?", id)).Select(&temp)
+			_, err := db.Where(gom.NewRaw("id=?", id)).Select(&temp)
 			if err != nil {
 				t.Error("插入后查询失败：", err)
 			}
@@ -305,7 +304,7 @@ func TestDB_Update(t *testing.T) {
 			}
 		}},
 		{"带事务处理批量插入后操作更新", func(t *testing.T) {
-			c, er := db.DoTransaction(func(db *DB) (interface{}, error) {
+			c, er := db.DoTransaction(func(db *gom.DB) (interface{}, error) {
 				var users []User
 				var ncks []interface{}
 				for i := 0; i < 100; i++ {
@@ -319,7 +318,7 @@ func TestDB_Update(t *testing.T) {
 					t.Error("插入后查询失败", er)
 				}
 				var temps []User
-				_, er = db.Where(cnds.NewIn("nick_name", ncks...)).Select(&temps)
+				_, er = db.Where(gom.NewIn("nick_name", ncks...)).Select(&temps)
 				if er != nil || len(temps) != 100 {
 					t.Error("插入后查询失败", er)
 				}
@@ -354,19 +353,19 @@ func TestDB_Update(t *testing.T) {
 			}
 		}},
 		{"GetOrderBys", func(t *testing.T) {
-			orderbys := db.OrderBy("name", structs.Desc).OrderBy("id", structs.Asc).getOrderBys()
+			orderbys := db.OrderBy("name", gom.Desc).OrderBy("id", gom.Asc).GetOrderBys()
 			if orderbys == nil || len(orderbys) == 0 {
 				t.Error(orderbys)
 			}
 		}},
-		{"Get Page", func(t *testing.T) {
-			page := db.Page(0, 1000).getPage()
-			if page == nil {
-				t.Error(page)
+		{"Get PageInfo", func(t *testing.T) {
+			index, limit := db.Page(0, 1000).GetPage()
+			if index != 0 || limit != 1000 {
+				t.Error(index)
 			}
 		}},
 		{"Get Cnd", func(t *testing.T) {
-			cnd := db.Where(cnds.NewEq("name", "kmlixh")).getCnd()
+			cnd := db.Where(gom.NewEq("name", "kmlixh")).GetCnd()
 			if cnd == nil {
 				t.Error(cnd)
 			}

@@ -1,4 +1,4 @@
-package gom
+package tests
 
 import (
 	"database/sql"

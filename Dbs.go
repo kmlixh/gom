@@ -4,22 +4,19 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/kmlixh/gom/v2/arrays"
-	"github.com/kmlixh/gom/v2/cnds"
-	"github.com/kmlixh/gom/v2/structs"
 )
 
 type DB struct {
 	id       int64
-	factory  structs.SqlFactory
+	factory  SqlFactory
 	db       *sql.DB
-	cnd      *cnds.Condition
+	cnd      *Condition
 	table    *string
 	rawSql   *string
 	rawData  *[]interface{}
 	tx       *sql.Tx
-	orderBys *[]structs.OrderBy
-	page     *structs.Page
+	orderBys *[]OrderBy
+	page     *PageInfo
 }
 
 type TransactionWork func(databaseTx *DB) (interface{}, error)
@@ -27,70 +24,73 @@ type TransactionWork func(databaseTx *DB) (interface{}, error)
 func (db DB) RawDb() *sql.DB {
 	return db.db
 }
+func (db DB) Factory() SqlFactory {
+	return db.factory
+}
 func (db DB) Table(table string) DB {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.table = &table
 	return db
 }
 func (db *DB) cloneSelfIfDifferentGoRoutine() {
-	if db.id != structs.GetGoid() {
+	if db.id != GetGoid() {
 		*db = db.Clone()
 	}
 }
 func (db DB) Raw(sql string, datas ...interface{}) DB {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.rawSql = &sql
-	var temp = structs.UnZipSlice(datas)
+	var temp = UnZipSlice(datas)
 	db.rawData = &temp
 	return db
 }
 
-func (db DB) OrderBy(field string, t structs.OrderType) DB {
+func (db DB) OrderBy(field string, t OrderType) DB {
 	db.cloneSelfIfDifferentGoRoutine()
-	var temp []structs.OrderBy
-	temp = append(temp, structs.MakeOrderBy(field, t))
+	var temp []OrderBy
+	temp = append(temp, MakeOrderBy(field, t))
 	db.orderBys = &temp
 	return db
 }
 func (db DB) CleanOrders() DB {
 	db.cloneSelfIfDifferentGoRoutine()
-	temp := make([]structs.OrderBy, 0)
+	temp := make([]OrderBy, 0)
 	db.orderBys = &temp
 	return db
 }
 func (db DB) OrderByAsc(field string) DB {
-	db.OrderBy(field, structs.Asc)
+	db.OrderBy(field, Asc)
 	return db
 }
 func (db DB) OrderByDesc(field string) DB {
-	db.OrderBy(field, structs.Desc)
+	db.OrderBy(field, Desc)
 	return db
 }
 
 func (db DB) Where2(sql string, patches ...interface{}) DB {
 	db.cloneSelfIfDifferentGoRoutine()
-	return db.Where(cnds.NewRaw(sql, patches...))
+	return db.Where(NewRaw(sql, patches...))
 }
-func (db DB) Where(cnd cnds.Condition) DB {
+func (db DB) Where(cnd Condition) DB {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.cnd = &cnd
 	return db
 }
 func (db DB) Clone() DB {
-	return DB{id: structs.GetGoid(), factory: db.factory, db: db.db}
+	return DB{id: GetGoid(), factory: db.factory, db: db.db}
 }
 
-func (db DB) Page(index int, pageSize int) DB {
+func (db DB) Page(page int64, pageSize int64) DB {
 	db.cloneSelfIfDifferentGoRoutine()
-	page := structs.MakePage(index, pageSize)
-	db.page = &page
+	pages := MakePage(page, pageSize)
+	db.page = &pages
 	return db
 }
 
 func (db DB) Count(columnName string) (int64, error) {
 	statements := fmt.Sprintf("select count(`%s`) as count from `%s`", columnName, *db.table)
 	var count int64
-	tb, er := structs.GetTableModel(&count, "count")
+	tb, er := GetTableModel(&count, "count")
 	if er != nil {
 		panic(er)
 	}
@@ -99,10 +99,10 @@ func (db DB) Count(columnName string) (int64, error) {
 	return count, er
 }
 
-func (db DB) Sum(columnName string) structs.CountResult {
+func (db DB) Sum(columnName string) CountResult {
 	statements := fmt.Sprintf("select SUM(`%s`) as count from `%s`", columnName, *db.table)
-	var countResult structs.CountResult
-	tb, er := structs.GetTableModel(&countResult, "count")
+	var countResult CountResult
+	tb, er := GetTableModel(&countResult, "count")
 	if er != nil {
 		panic(er)
 	}
@@ -113,7 +113,7 @@ func (db DB) Sum(columnName string) structs.CountResult {
 
 func (db DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 	db.cloneSelfIfDifferentGoRoutine()
-	model, er := structs.GetTableModel(vs, columns...)
+	model, er := GetTableModel(vs, columns...)
 	if er != nil {
 		return nil, er
 	}
@@ -124,10 +124,10 @@ func (db DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 		return db.SelectByModel(model)
 	}
 }
-func (db DB) SelectByModel(model structs.TableModel) (interface{}, error) {
+func (db DB) SelectByModel(model TableModel) (interface{}, error) {
 	//TODO 此处逻辑不合理，如果是自定义查询的话，无需生成Model，简单的查询也不需要生成model。
 	db.cloneSelfIfDifferentGoRoutine()
-	selectFunc := db.factory.GetSqlFunc(structs.Query)
+	selectFunc := db.factory.GetSqlFunc(Query)
 	sqlProtos := selectFunc(model)
 	return db.query(sqlProtos[0].PreparedSql, sqlProtos[0].Data, model)
 }
@@ -135,21 +135,21 @@ func (db DB) First(vs interface{}) (interface{}, error) {
 	return db.Page(0, 1).Select(vs)
 }
 func (db DB) Insert(v interface{}, columns ...string) (int64, int64, error) {
-	return db.execute(structs.Insert, arrays.Of(v), columns...)
+	return db.execute(Insert, ArrayOf(v), columns...)
 
 }
 func (db DB) Delete(vs ...interface{}) (int64, int64, error) {
-	return db.execute(structs.Delete, vs)
+	return db.execute(Delete, vs)
 
 }
 func (db DB) Update(v interface{}, columns ...string) (int64, int64, error) {
-	return db.execute(structs.Update, arrays.Of(v), columns...)
+	return db.execute(Update, ArrayOf(v), columns...)
 }
 
-func (db DB) execute(sqlType structs.SqlType, v []interface{}, columns ...string) (int64, int64, error) {
+func (db DB) execute(sqlType SqlType, v []interface{}, columns ...string) (int64, int64, error) {
 	var vs []interface{}
 	if v != nil && len(v) > 0 {
-		vs = append(vs, structs.UnZipSlice(v)...)
+		vs = append(vs, UnZipSlice(v)...)
 	}
 	if db.rawSql != nil && len(*db.rawSql) > 0 {
 		if vs != nil && len(vs) > 0 {
@@ -160,22 +160,22 @@ func (db DB) execute(sqlType structs.SqlType, v []interface{}, columns ...string
 	if len(vs) == 0 && db.table == nil && db.cnd == nil {
 		return 0, 0, errors.New("there was nothing to do")
 	} else {
-		var vvs []structs.TableModel
+		var vvs []TableModel
 		if len(vs) == 0 {
-			t, _ := structs.GetTableModel(nil, columns...)
+			t, _ := GetTableModel(nil, columns...)
 			db.initTableModel(t)
-			if sqlType == structs.Update && t.Condition() == nil {
+			if sqlType == Update && t.Condition() == nil {
 				return 0, 0, errors.New("can't update Database without Conditions")
 			}
 			vvs = append(vvs, t)
 		} else {
 			for _, v := range vs {
-				t, er := structs.GetTableModel(v, columns...)
+				t, er := GetTableModel(v, columns...)
 				if er != nil {
 					panic(er)
 				}
 				db.initTableModel(t)
-				if sqlType == structs.Update && t.Condition() == nil {
+				if sqlType == Update && t.Condition() == nil {
 					return 0, 0, errors.New("can't update Database without Conditions")
 				}
 				vvs = append(vvs, t)
@@ -193,7 +193,7 @@ func (db DB) ExecuteRaw() (int64, int64, error) {
 	return c, 0, er
 }
 
-func (db DB) executeTableModel(sqlType structs.SqlType, models []structs.TableModel) (int64, int64, error) {
+func (db DB) executeTableModel(sqlType SqlType, models []TableModel) (int64, int64, error) {
 	db.cloneSelfIfDifferentGoRoutine()
 	var lastInsertId = int64(0)
 	genFunc := db.factory.GetSqlFunc(sqlType)
@@ -209,7 +209,7 @@ func (db DB) executeTableModel(sqlType structs.SqlType, models []structs.TableMo
 			return 0, 0, er
 		}
 		cs, err := rs.RowsAffected()
-		if cs == 1 && len(sqlProtos) == len(models) && sqlType == structs.Insert {
+		if cs == 1 && len(sqlProtos) == len(models) && sqlType == Insert {
 			//
 			id, er := rs.LastInsertId()
 			if er == nil {
@@ -254,14 +254,14 @@ func (db DB) prepare(query string) (*sql.Stmt, error) {
 	return db.db.Prepare(query)
 }
 
-func (db DB) getCnd() cnds.Condition {
+func (db DB) GetCnd() Condition {
 	if db.cnd != nil && *db.cnd != nil {
 		return *db.cnd
 	}
 	return nil
 }
 
-func (db DB) query(statement string, data []interface{}, model structs.TableModel) (interface{}, error) {
+func (db DB) query(statement string, data []interface{}, model TableModel) (interface{}, error) {
 	if Debug {
 		fmt.Println("executeTableModel query,PreparedSql:", statement, "data was:", data)
 	}
@@ -340,20 +340,20 @@ func (db DB) DoTransaction(work TransactionWork) (interface{}, error) {
 	return i, es
 }
 
-func (db DB) getOrderBys() []structs.OrderBy {
+func (db DB) GetOrderBys() []OrderBy {
 	if db.orderBys != nil && *db.orderBys != nil {
 		return *db.orderBys
 	}
 	return nil
 }
 
-func (db DB) getPage() structs.Page {
+func (db DB) GetPage() (int64, int64) {
 	if db.page != nil && *db.page != nil {
-		return *db.page
+		return (*db.page).Page()
 	}
-	return nil
+	return 0, 0
 }
-func (db *DB) initTableModel(t structs.TableModel) {
+func (db *DB) initTableModel(t TableModel) {
 	if db.table != nil {
 		t.SetTable(*db.table)
 	}

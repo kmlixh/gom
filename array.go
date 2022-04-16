@@ -1,9 +1,9 @@
-package arrays
+package gom
 
-func Of(i ...interface{}) []interface{} {
+func ArrayOf(i ...interface{}) []interface{} {
 	return i
 }
-func Intersect(slice1, slice2 []string) []string {
+func ArrayIntersect(slice1, slice2 []string) []string {
 	m := make(map[string]int)
 	nn := make([]string, 0)
 	for _, v := range slice1 {
