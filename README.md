@@ -51,10 +51,9 @@ go get github.com/kmlixh/gom/v2
 package main
 
 import (
-	"github.com/kmlixh/gom/v2"
-	"github.com/kmlixh/gom/v2/cnds"
-	_ "github.com/kmlixh/gom/v2/factory/mysql"
 	"github.com/google/uuid"
+	"github.com/kmlixh/gom/v2"
+	_ "github.com/kmlixh/gom/v2/factory/mysql"
 	"time"
 )
 
@@ -83,7 +82,7 @@ func init() {
 func main() {
 	var users []User
 	//Query
-	db.Where(cnds.New("name",cnds.Eq,"kmlixh")).Page(0, 100).Select(&users)
+	db.Where(gom.New("name", gom.Eq, "kmlixh")).Page(0, 100).Select(&users)
 	//Update
 	temp := users[0]
 	temp.NickName = uuid.New().String()
@@ -101,6 +100,8 @@ func main() {
 	db.Insert(tt)
 
 }
+
+
 ```
 
 ### DB结构体具有的方法（函数）如下：
