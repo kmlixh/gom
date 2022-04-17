@@ -8,6 +8,10 @@ import (
 type DefaultStruct struct {
 }
 
+type ITableName interface {
+	TableName() string
+}
+
 type RawTableInfo struct {
 	reflect.Type
 	RawTableName string

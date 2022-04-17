@@ -421,6 +421,15 @@ func TestSpecial(t *testing.T) {
 				}
 			},
 		},
+		{
+			"Test ITableName", func(t *testing.T) {
+				var user User
+				mm, er := gom.GetTableModel(user)
+				if er != nil {
+					t.Error(mm, er)
+				}
+			},
+		},
 	}
 
 	for _, tt := range ts {

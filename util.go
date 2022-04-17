@@ -32,6 +32,11 @@ func GetRawTableInfo(v interface{}) RawTableInfo {
 	if isStruct {
 		tableName = CamelToSnakeString(tt.Name())
 	}
+	vs := reflect.Indirect(reflect.New(tt))
+	iTable, ok := vs.Interface().(ITableName)
+	if ok {
+		tableName = iTable.TableName()
+	}
 
 	return RawTableInfo{tt, tableName, isSlice, isPtr, isStruct}
 }
