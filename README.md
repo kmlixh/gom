@@ -82,7 +82,7 @@ func init() {
 func main() {
 	var users []User
 	//Query
-	db.Where(gom.New("name", gom.Eq, "kmlixh")).Page(0, 100).Select(&users)
+	db.Where(gom.Cnd("name", gom.Eq, "kmlixh")).Page(0, 100).Select(&users)
 	//Update
 	temp := users[0]
 	temp.NickName = uuid.New().String()

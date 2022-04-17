@@ -145,7 +145,7 @@ func TestRawCondition(t *testing.T) {
 }
 func TestCondition(t *testing.T) {
 	users := make([]UserInfo, 0)
-	_, er := db.Where(gom.New("nick_name", gom.LikeIgnoreStart, "淑兰")).Page(0, 10).Select(&users)
+	_, er := db.Where(gom.Cnd("nick_name", gom.LikeIgnoreStart, "淑兰")).Page(0, 10).Select(&users)
 	if er != nil {
 		panic(er)
 	}
@@ -156,7 +156,7 @@ func TestCondition(t *testing.T) {
 }
 func TestMultiCondition(t *testing.T) {
 	users := make([]UserInfo, 0)
-	_, er := db.Where(gom.New("nick_name", gom.LikeIgnoreStart, "淑兰").Or2(gom.New("phone_number", gom.Eq, "13663049871").Eq("nick_name", "吃素是福"))).Page(0, 10).Select(&users)
+	_, er := db.Where(gom.Cnd("nick_name", gom.LikeIgnoreStart, "淑兰").Or2(gom.Cnd("phone_number", gom.Eq, "13663049871").Eq("nick_name", "吃素是福"))).Page(0, 10).Select(&users)
 	if er != nil {
 		panic(er)
 	}

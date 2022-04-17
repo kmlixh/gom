@@ -69,7 +69,7 @@ func (db DB) OrderByDesc(field string) DB {
 
 func (db DB) Where2(sql string, patches ...interface{}) DB {
 	db.cloneSelfIfDifferentGoRoutine()
-	return db.Where(NewRaw(sql, patches...))
+	return db.Where(CndRaw(sql, patches...))
 }
 func (db DB) Where(cnd Condition) DB {
 	db.cloneSelfIfDifferentGoRoutine()

@@ -11,51 +11,51 @@ func TestConditions(t *testing.T) {
 
 	tests := []Tt{
 		{"测试Raw创建", func(t *testing.T) {
-			gom.NewRaw("name = ?", "kmlixh")
+			gom.CndRaw("name = ?", "kmlixh")
 		}},
 		{"测试Full", func(t *testing.T) {
-			gom.NewFull(gom.And, "name", gom.NotEq, "", "kmlixh")
+			gom.CndFull(gom.And, "name", gom.NotEq, "", "kmlixh")
 		}},
-		{"测试New", func(t *testing.T) { gom.New("name", gom.NotEq, "kmlixh") }},
+		{"测试New", func(t *testing.T) { gom.Cnd("name", gom.NotEq, "kmlixh") }},
 
 		{"测试NewEq", func(t *testing.T) {
-			gom.NewEq("name", "kmlixh")
+			gom.CndEq("name", "kmlixh")
 		}},
 		{"测试NewNotEq", func(t *testing.T) {
-			gom.NewNotEq("name", "kmlixh")
+			gom.CndNotEq("name", "kmlixh")
 		}},
 		{"测试NewGe", func(t *testing.T) {
-			gom.NewGe("name", "kmlixh")
+			gom.CndGe("name", "kmlixh")
 		}},
 		{"测试NewGt", func(t *testing.T) {
-			gom.NewGt("name", "kmlixh")
+			gom.CndGt("name", "kmlixh")
 		}},
 		{"测试NewLe", func(t *testing.T) {
-			gom.NewLe("name", "kmlixh")
+			gom.CndLe("name", "kmlixh")
 		}},
 		{"测试NewLt", func(t *testing.T) {
-			gom.NewLt("name", "kmlixh")
+			gom.CndLt("name", "kmlixh")
 		}},
 		{"测试NewLike", func(t *testing.T) {
-			gom.NewLike("name", "kmlixh")
+			gom.CndLike("name", "kmlixh")
 		}},
 		{"测试NewLikeIgnoreStart", func(t *testing.T) {
-			gom.NewLikeIgnoreStart("name", "kmlixh")
+			gom.CndLikeIgnoreStart("name", "kmlixh")
 		}},
 		{"测试LikeIgnoreEnd", func(t *testing.T) {
-			gom.NewLikeIgnoreEnd("name", "kmlixh")
+			gom.CndLikeIgnoreEnd("name", "kmlixh")
 		}},
 		{"测试NewIn", func(t *testing.T) {
-			gom.NewIn("name", "kmlixh")
+			gom.CndIn("name", "kmlixh")
 		}},
 		{"测试NewNotIn", func(t *testing.T) {
-			gom.NewNotIn("name", "kmlixh")
+			gom.CndNotIn("name", "kmlixh")
 		}},
 		{"测试NewIsNull", func(t *testing.T) {
-			gom.NewIsNull("name")
+			gom.CndIsNull("name")
 		}},
 		{"测试NewIsNotNull", func(t *testing.T) {
-			gom.NewIsNotNull("name")
+			gom.CndIsNotNull("name")
 		}},
 	}
 	for _, tt := range tests {
@@ -65,9 +65,9 @@ func TestConditions(t *testing.T) {
 func TestOperation(t *testing.T) {
 	tests := []Tt{
 		{"Test cnd function", func(t *testing.T) {
-			cnd := gom.New("name", gom.NotEq, "kmlixh").
-				And("age", gom.Lt, 12).And2(gom.New("gg", gom.Eq, "ss")).And3("ssdf=?", 23).
-				Or("sdfsd", gom.Eq, "sdafs").Or2(gom.NewRaw("age >= ?", 22)).Or3("name like ?", "sadf").OrNotEq("sdf", "sdfsd").
+			cnd := gom.Cnd("name", gom.NotEq, "kmlixh").
+				And("age", gom.Lt, 12).And2(gom.Cnd("gg", gom.Eq, "ss")).And3("ssdf=?", 23).
+				Or("sdfsd", gom.Eq, "sdafs").Or2(gom.CndRaw("age >= ?", 22)).Or3("name like ?", "sadf").OrNotEq("sdf", "sdfsd").
 				Eq("name", "j").OrEq("sdfsd", "sdf").NotEq("name", "sdfds").
 				Ge("height", 12).OrGe("width", 234).Gt("sdfs", "sdfs").OrGt("sfsdf", "sfdsf").
 				Le("asdfa", "sdfds").Lt("sdfds", "sdfsdf").OrLe("sdfss", "sdf").OrLt("asdfs", "asdf").
@@ -80,6 +80,15 @@ func TestOperation(t *testing.T) {
 				t.Error("condition to string failed", er, str)
 			}
 		}},
+		{
+			"测试Empty后缀情况", func(t *testing.T) {
+				cnd := gom.CndEmpty().And3("name=?", "km")
+				str, er := db.Factory().ConditionToSql(cnd)
+				if str != "name=?" || er == nil {
+					t.Error("condition to string failed", er, str)
+				}
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, tt.t)

@@ -206,7 +206,7 @@ func TestDB_Insert(t *testing.T) {
 					t.Error("批量插入报错", c, er)
 				}
 				var tempUsers []User
-				_, err := db.Where(gom.NewRaw("id > ?", 0).In("nick_name", ncks...)).Select(&tempUsers)
+				_, err := db.Where(gom.CndRaw("id > ?", 0).In("nick_name", ncks...)).Select(&tempUsers)
 
 				if err != nil {
 					t.Error("查询出错")
@@ -251,7 +251,7 @@ func TestDB_Delete(t *testing.T) {
 					users = append(users, user)
 				}
 				c, _, er := db.Insert(users)
-				c, _, er = db.Table("user").Where(gom.NewRaw("valid=?", 1).In("nick_name", ncks...)).Delete()
+				c, _, er = db.Table("user").Where(gom.CndRaw("valid=?", 1).In("nick_name", ncks...)).Delete()
 				if c != 100 || er != nil {
 					t.Error("批量删除失败", c, er)
 				}
@@ -276,7 +276,7 @@ func TestDB_Update(t *testing.T) {
 				t.Error("插入异常：", er.Error())
 			}
 			var temp User
-			_, err := db.Where(gom.NewRaw("id=?", id)).Select(&temp)
+			_, err := db.Where(gom.CndRaw("id=?", id)).Select(&temp)
 			if err != nil {
 				t.Error("插入后查询失败：", err)
 			}
@@ -318,7 +318,7 @@ func TestDB_Update(t *testing.T) {
 					t.Error("插入后查询失败", er)
 				}
 				var temps []User
-				_, er = db.Where(gom.NewIn("nick_name", ncks...)).Select(&temps)
+				_, er = db.Where(gom.CndIn("nick_name", ncks...)).Select(&temps)
 				if er != nil || len(temps) != 100 {
 					t.Error("插入后查询失败", er)
 				}
@@ -365,7 +365,7 @@ func TestDB_Update(t *testing.T) {
 			}
 		}},
 		{"Get Cnd", func(t *testing.T) {
-			cnd := db.Where(gom.NewEq("name", "kmlixh")).GetCnd()
+			cnd := db.Where(gom.CndEq("name", "kmlixh")).GetCnd()
 			if cnd == nil {
 				t.Error(cnd)
 			}

@@ -203,7 +203,7 @@ func MapToCondition(maps map[string]interface{}) Condition {
 		if (t.Kind() != reflect.Struct && t.Kind() != reflect.Slice) || t.Kind() == reflect.TypeOf(time.Now()).Kind() {
 			value := v
 			if cnd == nil {
-				cnd = New(k, Eq, value)
+				cnd = Cnd(k, Eq, value)
 			} else {
 				cnd.And(k, Eq, ArrayOf(value))
 			}

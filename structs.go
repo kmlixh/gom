@@ -292,7 +292,7 @@ func (d DefaultModel) Condition() Condition {
 		v := reflect.ValueOf(col)
 		//TODO 此处逻辑不够完备，需要判断列本身是否为空
 		if ok && !v.IsZero() {
-			d.condition = New(d.rawColumnNames[0], Eq, col)
+			d.condition = Cnd(d.rawColumnNames[0], Eq, col)
 		}
 	}
 	return d.condition
