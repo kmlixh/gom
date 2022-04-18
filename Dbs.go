@@ -289,6 +289,10 @@ func (db DB) query(statement string, data []interface{}, model TableModel) (inte
 		}
 		result := recover()
 		if result != nil {
+			er, ok := result.(error)
+			if ok {
+				fmt.Println(er)
+			}
 			db.Rollback()
 		}
 	}(rows)
