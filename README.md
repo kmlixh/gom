@@ -12,7 +12,7 @@ gom - An Easy ORM library for Golang
 
 gom是一个基于golang语言的关系型数据库ORM框架（CRUD工具库，支持事务）
 
-目前最新版本为v2.0，于2022年4月15 发布
+目前最新版本为v2.0.4，于2022年4月15 修复发布
 
 **当前支持的数据库类型仅为* `mysql`*及其衍生品* `mariadb`*
 
@@ -35,14 +35,14 @@ gom是goroutine安全的（自认为的安全）
 使用go mod的情况下：
 
 ```go
-require github.com/kmlixh/gom/v2 v2.0.2
+require github.com/kmlixh/gom/v2 v2.0.4
 require github.com/go-sql-driver/mysql v1.6.0 // indirect,
 ```
 
 或者
 
 ```shell
-go get github.com/kmlixh/gom/v2
+go get github.com/kmlixh/gom/v2@v2.0.4
 ```
 
 ### 一个简单的CRUD示例
@@ -138,7 +138,13 @@ CleanDb
 
 ## 迭代注记
 
-#### 2022年4月15日 01:56:50
+#### 2022年4月17日 修复bug，更新版本为v2.0.4
+
+    修复查询条件关系错误的bug；
+    修复查询条件初始化为空时附加属性不合理的bug；
+    新增CndEmpty()方法，用于创建空的Condition对象，此方法与CndRaw("")等价
+
+#### 2022年4月15日 01:56:50 v2.0.0发布
 
 ```
 v2.0
