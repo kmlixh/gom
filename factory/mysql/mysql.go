@@ -151,7 +151,7 @@ func init() {
 						sql += ","
 						valuesPattern += ","
 					}
-					sql += c
+					sql += wrapperName(c)
 					valuesPattern += "?"
 					datas = append(datas, model.ColumnDataMap()[c])
 					i++
@@ -182,9 +182,10 @@ func init() {
 }
 
 func wrapperName(name string) string {
-	if strings.Contains(name, " ") {
+	if strings.IndexAny(name, " ") > 0 {
 		return name
 	} else {
+		name = strings.TrimSpace(name)
 		return "`" + name + "`"
 	}
 }

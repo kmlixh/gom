@@ -273,7 +273,6 @@ func (db DB) query(statement string, data []interface{}, model TableModel) (inte
 		if err == nil {
 			st.Close()
 		}
-
 	}(st, err)
 	if err != nil {
 		return nil, err
