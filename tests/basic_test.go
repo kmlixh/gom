@@ -49,7 +49,7 @@ type User2 struct {
 
 func init() {
 	fmt.Println("init DB.............")
-	temp, er := gom.Open("mysql", dsn, false)
+	temp, er := gom.Open("mysql", dsn, true)
 	if er != nil {
 		panic(er)
 	}
@@ -427,6 +427,15 @@ func TestSpecial(t *testing.T) {
 				mm, er := gom.GetTableModel(user)
 				if er != nil {
 					t.Error(mm, er)
+				}
+			},
+		},
+		{
+			"test order by", func(t *testing.T) {
+				var users []User
+				_, er := db.OrderByDesc("id").Select(&users)
+				if er != nil {
+					t.Error(users, er)
 				}
 			},
 		},

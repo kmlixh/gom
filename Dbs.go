@@ -59,12 +59,10 @@ func (db DB) CleanOrders() DB {
 	return db
 }
 func (db DB) OrderByAsc(field string) DB {
-	db.OrderBy(field, Asc)
-	return db
+	return db.OrderBy(field, Asc)
 }
 func (db DB) OrderByDesc(field string) DB {
-	db.OrderBy(field, Desc)
-	return db
+	return db.OrderBy(field, Desc)
 }
 
 func (db DB) Where2(sql string, patches ...interface{}) DB {
