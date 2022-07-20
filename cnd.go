@@ -296,7 +296,7 @@ func (c *CndImpl) GtBool(b bool, field string, values interface{}) Condition {
 	if !b {
 		return c
 	}
-	condition := Cnd(field, Eq, values)
+	condition := Cnd(field, Gt, values)
 	cc := condition.(*CndImpl)
 	cc.depth = c.depth + 1
 	c.items = append(c.items, cc)
