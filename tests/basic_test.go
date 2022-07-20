@@ -210,11 +210,12 @@ func TestCount(t *testing.T) {
 	}
 }
 func TestSum(t *testing.T) {
-	cs := db.Table("tb_record").Sum("age")
-	if cs.Error != nil {
+	count, er := db.Table("tb_record").Sum("age")
+	if er != nil {
 		t.Error("counts :", db)
 		t.Fail()
 	}
+	print(count)
 }
 func TestFirst(t *testing.T) {
 	var log TbRecord

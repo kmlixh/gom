@@ -87,26 +87,38 @@ func (db DB) Page(page int64, pageSize int64) DB {
 
 func (db DB) Count(columnName string) (int64, error) {
 	statements := fmt.Sprintf("select count(`%s`) as count from `%s`", columnName, *db.table)
+	var data []interface{}
+	if db.cnd != nil {
+		cndString, cndData := db.factory.ConditionToSql(*db.cnd)
+		data = append(data, cndData...)
+		statements = statements + " WHERE " + cndString
+	}
 	var count int64
 	tb, er := GetTableModel(&count, "count")
 	if er != nil {
 		panic(er)
 	}
-	_, er = db.query(statements, nil, tb)
+	_, er = db.query(statements, data, tb)
 
 	return count, er
 }
 
-func (db DB) Sum(columnName string) CountResult {
+func (db DB) Sum(columnName string) (int64, error) {
 	statements := fmt.Sprintf("select SUM(`%s`) as count from `%s`", columnName, *db.table)
-	var countResult CountResult
-	tb, er := GetTableModel(&countResult, "count")
+	var data []interface{}
+	if db.cnd != nil {
+		cndString, cndData := db.factory.ConditionToSql(*db.cnd)
+		data = append(data, cndData...)
+		statements = statements + " WHERE " + cndString
+	}
+	var count int64
+	tb, er := GetTableModel(&count, "count")
 	if er != nil {
 		panic(er)
 	}
-	_, er = db.query(statements, nil, tb)
-	countResult.Error = er
-	return countResult
+	_, er = db.query(statements, data, tb)
+
+	return count, er
 }
 
 func (db DB) Select(vs interface{}, columns ...string) (interface{}, error) {
