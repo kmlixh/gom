@@ -36,7 +36,7 @@ type SqlProto struct {
 type GenerateSQLFunc func(model ...TableModel) []SqlProto
 type SqlFactory interface {
 	GetSqlFunc(sqlType SqlType) GenerateSQLFunc
-	ConditionToSql(condition Condition) (string, []interface{})
+	ConditionToSql(preTag bool, condition Condition) (string, []interface{})
 }
 
 type OrderType int

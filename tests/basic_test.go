@@ -165,6 +165,11 @@ func TestMultiCondition(t *testing.T) {
 		t.Fail()
 	}
 }
+func TestMultiEmptyCondition(t *testing.T) {
+	cnd := gom.CndEmpty().And2(gom.CndEmpty().Eq("id", 23).Gt("test", 2)).And2(gom.CndEmpty()).Eq("name", "kmlixh")
+	sql, data := db.Factory().ConditionToSql(false, cnd)
+	fmt.Println(sql, data)
+}
 
 func TestStructCondition(t *testing.T) {
 	user := UserInfo{PhoneNumber: "13663049871", NickName: "吃素是福"}

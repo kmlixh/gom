@@ -21,31 +21,38 @@ type Factory struct {
 func (m Factory) GetSqlFunc(sqlType gom.SqlType) gom.GenerateSQLFunc {
 	return funcMap[sqlType]
 }
-func (m Factory) ConditionToSql(cnd gom.Condition) (string, []interface{}) {
+func (m Factory) ConditionToSql(preTag bool, cnd gom.Condition) (string, []interface{}) {
 	if cnd == nil {
 		return "", nil
 	}
 	myCnd := cndToMyCndStruct(cnd)
+
 	var data []interface{}
-	data = append(data, cnd.Values()...)
-	var sql string
-	if cnd.Depth() > 0 {
+	data = append(data, myCnd.Data...)
+	sql := ""
+	if preTag {
 		sql += myCnd.Linker
 	}
-
-	if cnd.HasSubConditions() && cnd.Depth() > 0 {
+	if preTag && cnd.PayLoads() > 1 {
 		sql += " ("
 	}
+	curTag := len(myCnd.Expression) > 0
 	sql += myCnd.Expression
+
 	if cnd.HasSubConditions() {
 		for _, v := range cnd.Items() {
-			s, dd := m.ConditionToSql(v)
-			sql += s
-			data = append(data, dd...)
+			if v.PayLoads() > 0 {
+				s, dd := m.ConditionToSql(curTag || preTag, v)
+				if len(s) > 0 {
+					curTag = true
+				}
+				sql += s
+				data = append(data, dd...)
+			}
 		}
 	}
 
-	if cnd.HasSubConditions() && cnd.Depth() > 0 {
+	if preTag && cnd.PayLoads() > 1 {
 		sql += ")"
 	}
 
@@ -74,7 +81,7 @@ func init() {
 			}
 		}
 		sql += " FROM " + model.Table() + " "
-		cndString, cndData := m.ConditionToSql(model.Condition())
+		cndString, cndData := m.ConditionToSql(false, model.Condition())
 		if len(cndString) > 0 {
 			sql += " WHERE " + cndString
 		}
@@ -127,7 +134,7 @@ func init() {
 					i++
 				}
 			}
-			conditionSql, dds := m.ConditionToSql(model.Condition())
+			conditionSql, dds := m.ConditionToSql(false, model.Condition())
 			if len(conditionSql) > 0 {
 				sql += " WHERE " + conditionSql + ";"
 			}
@@ -170,7 +177,7 @@ func init() {
 			var datas []interface{}
 			sql := "DELETE FROM "
 			sql += " " + model.Table()
-			conditionSql, dds := m.ConditionToSql(model.Condition())
+			conditionSql, dds := m.ConditionToSql(false, model.Condition())
 			if len(conditionSql) > 0 {
 				sql += " WHERE " + conditionSql + ";"
 			}

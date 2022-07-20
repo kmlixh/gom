@@ -75,7 +75,7 @@ func TestOperation(t *testing.T) {
 				OrLike("sdfsd", "sdfds").OrLikeIgnoreStart("sdfsd", "sdfdsf").OrLikeIgnoreEnd("sdfsd", "werwe").
 				In("id", "sdf", "sdf", "sdfsd").NotIn("sdfasdf", "sdf").OrIn("asdf", "dfdfd").OrNotIn("safs", "asfsdf").
 				IsNull("sadfa").IsNotNull("asdfasd").OrIsNull("safasdf").OrIsNotNull("sadfasdf")
-			str, er := db.Factory().ConditionToSql(cnd)
+			str, er := db.Factory().ConditionToSql(false, cnd)
 			if str == "" || er == nil {
 				t.Error("condition to string failed", er, str)
 			}
@@ -83,7 +83,7 @@ func TestOperation(t *testing.T) {
 		{
 			"测试Empty后缀情况", func(t *testing.T) {
 				cnd := gom.CndEmpty().And3("name=?", "km")
-				str, er := db.Factory().ConditionToSql(cnd)
+				str, er := db.Factory().ConditionToSql(false, cnd)
 				if str != "name=?" || er == nil {
 					t.Error("condition to string failed", er, str)
 				}

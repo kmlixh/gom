@@ -29,7 +29,7 @@ const (
 )
 
 type Condition interface {
-	Depth() int64
+	PayLoads() int64 //有效荷载，说明当前条件及其链式条件共有多少有多少个条件
 	Linker() Linker
 	Field() string
 	Operation() Operation
@@ -102,7 +102,7 @@ type Condition interface {
 	Or3Bool(b bool, rawExpresssion string, values ...interface{}) Condition
 }
 type CndImpl struct {
-	depth         int64
+	payloads      int64
 	linker        Linker
 	field         string
 	operation     Operation
@@ -111,8 +111,8 @@ type CndImpl struct {
 	rawExpression string
 }
 
-func (c *CndImpl) Depth() int64 {
-	return c.depth
+func (c *CndImpl) PayLoads() int64 {
+	return c.payloads
 }
 
 func (c *CndImpl) Linker() Linker {
@@ -242,7 +242,7 @@ func (c *CndImpl) And(field string, operation Operation, value ...interface{}) C
 }
 func (c *CndImpl) And2(condition Condition) Condition {
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	cc.linker = And
 	c.items = append(c.items, cc)
 	return c
@@ -258,7 +258,7 @@ func (c *CndImpl) EqBool(b bool, field string, values interface{}) Condition {
 	}
 	condition := Cnd(field, Eq, values)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -268,7 +268,7 @@ func (c *CndImpl) OrEqBool(b bool, field string, values interface{}) Condition {
 	}
 	condition := CndFull(Or, field, Eq, "", values)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -278,7 +278,7 @@ func (c *CndImpl) GeBool(b bool, field string, values interface{}) Condition {
 	}
 	condition := Cnd(field, Ge, values)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -288,7 +288,7 @@ func (c *CndImpl) OrGeBool(b bool, field string, values interface{}) Condition {
 	}
 	condition := CndFull(Or, field, Ge, "", values)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -298,7 +298,7 @@ func (c *CndImpl) GtBool(b bool, field string, values interface{}) Condition {
 	}
 	condition := Cnd(field, Gt, values)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -308,7 +308,7 @@ func (c *CndImpl) OrGtBool(b bool, field string, values interface{}) Condition {
 	}
 	condition := CndFull(Or, field, Gt, "", values)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -318,7 +318,7 @@ func (c *CndImpl) LeBool(b bool, field string, values interface{}) Condition {
 	}
 	condition := Cnd(field, Le, values)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -328,7 +328,7 @@ func (c *CndImpl) OrLeBool(b bool, field string, values interface{}) Condition {
 	}
 	condition := CndFull(Or, field, Le, "", values)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -338,7 +338,7 @@ func (c *CndImpl) LtBool(b bool, field string, values interface{}) Condition {
 	}
 	condition := Cnd(field, Lt, values)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -348,7 +348,7 @@ func (c *CndImpl) OrLtBool(b bool, field string, values interface{}) Condition {
 	}
 	condition := CndFull(Or, field, Lt, "", values)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -358,7 +358,7 @@ func (c *CndImpl) NotEqBool(b bool, field string, values interface{}) Condition 
 	}
 	condition := Cnd(field, NotEq, values)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -368,7 +368,7 @@ func (c *CndImpl) OrNotEqBool(b bool, field string, values interface{}) Conditio
 	}
 	condition := CndFull(Or, field, NotEq, "", values)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -378,7 +378,7 @@ func (c *CndImpl) InBool(b bool, field string, values ...interface{}) Condition 
 	}
 	condition := Cnd(field, In, values...)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -388,7 +388,7 @@ func (c *CndImpl) OrInBool(b bool, field string, values ...interface{}) Conditio
 	}
 	condition := CndFull(Or, field, NotEq, "", values...)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -398,7 +398,7 @@ func (c *CndImpl) NotInBool(b bool, field string, values ...interface{}) Conditi
 	}
 	condition := Cnd(field, NotIn, values...)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -408,7 +408,7 @@ func (c *CndImpl) OrNotInBool(b bool, field string, values ...interface{}) Condi
 	}
 	condition := CndFull(Or, field, NotIn, "", values...)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -418,7 +418,7 @@ func (c *CndImpl) LikeBool(b bool, field string, values interface{}) Condition {
 	}
 	condition := Cnd(field, Like, values)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -428,7 +428,7 @@ func (c *CndImpl) OrLikeBool(b bool, field string, values interface{}) Condition
 	}
 	condition := CndFull(Or, field, Like, "", values)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -438,7 +438,7 @@ func (c *CndImpl) LikeIgnoreStartBool(b bool, field string, values interface{}) 
 	}
 	condition := Cnd(field, LikeIgnoreStart, "", values)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -448,7 +448,7 @@ func (c *CndImpl) OrLikeIgnoreStartBool(b bool, field string, values interface{}
 	}
 	condition := CndFull(Or, field, LikeIgnoreStart, "", values)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -458,7 +458,7 @@ func (c *CndImpl) LikeIgnoreEndBool(b bool, field string, values interface{}) Co
 	}
 	condition := Cnd(field, Like, values)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -468,7 +468,7 @@ func (c *CndImpl) IsNullBool(b bool, field string) Condition {
 	}
 	condition := Cnd(field, IsNull, nil)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -478,7 +478,7 @@ func (c *CndImpl) IsNotNullBool(b bool, filed string) Condition {
 	}
 	condition := Cnd(filed, IsNotNull, nil)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -494,7 +494,7 @@ func (c *CndImpl) OrIsNullBool(b bool, field string) Condition {
 	condition := Cnd(field, IsNull, nil)
 	cc := condition.(*CndImpl)
 	cc.linker = Or
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -510,7 +510,7 @@ func (c *CndImpl) OrIsNotNullBool(b bool, field string) Condition {
 	condition := Cnd(field, IsNotNull, nil)
 	cc := condition.(*CndImpl)
 	cc.linker = Or
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -518,7 +518,7 @@ func (c *CndImpl) OrIsNotNullBool(b bool, field string) Condition {
 func (c *CndImpl) OrLikeIgnoreEndBool(b bool, field string, values interface{}) Condition {
 	condition := CndFull(Or, field, LikeIgnoreEnd, "", values)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
@@ -528,7 +528,7 @@ func (c *CndImpl) AndBool(b bool, field string, operation Operation, values ...i
 		return c
 	}
 	cc := Cnd(field, operation, values...).(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	cc.linker = And
 	c.items = append(c.items, cc)
 	return c
@@ -540,7 +540,7 @@ func (c *CndImpl) And3Bool(b bool, rawExpresssion string, values ...interface{})
 	}
 	condition := CndRaw(rawExpresssion, values...)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	cc.linker = And
 	c.items = append(c.items, cc)
 	return c
@@ -553,14 +553,14 @@ func (c *CndImpl) OrBool(b bool, field string, operation Operation, values ...in
 		return c
 	}
 	cc := Cnd(field, operation, values...).(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	cc.linker = Or
 	c.items = append(c.items, cc)
 	return c
 }
 func (c *CndImpl) Or2(condition Condition) Condition {
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	cc.linker = Or
 	c.items = append(c.items, cc)
 	return c
@@ -574,7 +574,7 @@ func (c *CndImpl) Or3Bool(b bool, rawExpresssion string, values ...interface{}) 
 	}
 	condition := CndRaw(rawExpresssion, values...)
 	cc := condition.(*CndImpl)
-	cc.depth = c.depth + 1
+	c.payloads += cc.payloads
 	cc.linker = Or
 	c.items = append(c.items, cc)
 	return c
@@ -629,16 +629,16 @@ func CndEmpty() Condition {
 }
 
 func CndRaw(rawExpresssion string, values ...interface{}) Condition {
-	depth := int64(0)
-	if len(rawExpresssion) == 0 {
-		depth = -1
+	payloads := int64(1)
+	if rawExpresssion == "" {
+		payloads = 0
 	}
-	return &CndImpl{depth: depth, linker: And, rawExpression: rawExpresssion, values: values, operation: RawOperation}
+	return &CndImpl{payloads: payloads, linker: And, rawExpression: rawExpresssion, values: values, operation: RawOperation}
 }
 
 func CndFull(linker Linker, field string, operation Operation, rawExpression string, values ...interface{}) Condition {
 	return &CndImpl{
-		0,
+		1,
 		linker,
 		field,
 		operation,

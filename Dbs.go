@@ -89,7 +89,7 @@ func (db DB) Count(columnName string) (int64, error) {
 	statements := fmt.Sprintf("select count(`%s`) as count from `%s`", columnName, *db.table)
 	var data []interface{}
 	if db.cnd != nil {
-		cndString, cndData := db.factory.ConditionToSql(*db.cnd)
+		cndString, cndData := db.factory.ConditionToSql(false, *db.cnd)
 		data = append(data, cndData...)
 		statements = statements + " WHERE " + cndString
 	}
@@ -107,7 +107,7 @@ func (db DB) Sum(columnName string) (int64, error) {
 	statements := fmt.Sprintf("select SUM(`%s`) as count from `%s`", columnName, *db.table)
 	var data []interface{}
 	if db.cnd != nil {
-		cndString, cndData := db.factory.ConditionToSql(*db.cnd)
+		cndString, cndData := db.factory.ConditionToSql(false, *db.cnd)
 		data = append(data, cndData...)
 		statements = statements + " WHERE " + cndString
 	}
