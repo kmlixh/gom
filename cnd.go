@@ -633,7 +633,7 @@ func CndRaw(rawExpresssion string, values ...interface{}) Condition {
 	if rawExpresssion == "" {
 		payloads = 0
 	}
-	return &CndImpl{payloads: payloads, linker: And, rawExpression: rawExpresssion, values: values, operation: RawOperation}
+	return &CndImpl{payloads: payloads, linker: And, rawExpression: rawExpresssion, values: UnZipSlice(values), operation: RawOperation}
 }
 
 func CndFull(linker Linker, field string, operation Operation, rawExpression string, values ...interface{}) Condition {
@@ -642,7 +642,7 @@ func CndFull(linker Linker, field string, operation Operation, rawExpression str
 		linker,
 		field,
 		operation,
-		values,
+		UnZipSlice(values),
 		nil,
 		rawExpression,
 	}
