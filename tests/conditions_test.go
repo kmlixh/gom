@@ -89,6 +89,13 @@ func TestOperation(t *testing.T) {
 				}
 			},
 		},
+		{
+			"test MaptoConditon", func(t *testing.T) {
+				maps := map[string]interface{}{"name": []string{"lier", "kmlixh", "sdfdsf"}, "id": "xxxx"}
+				cnd := gom.MapToCondition(maps)
+				var users []User
+				db.Where(cnd).Select(&users)
+			}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, tt.t)

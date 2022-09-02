@@ -109,11 +109,11 @@ func getColumns(v reflect.Value) ([]string, []Column, map[string]int) {
 	return columnNames, columns, columnIdxMap
 }
 
-//func Md5Text(str string) string {
-//	h := md5.New()
-//	h.Write([]byte(str))
-//	return hex.EncodeToString(h.Sum(nil))
-//}
+//	func Md5Text(str string) string {
+//		h := md5.New()
+//		h.Write([]byte(str))
+//		return hex.EncodeToString(h.Sum(nil))
+//	}
 func getColumnFromField(v reflect.Value, filed reflect.StructField) (Column, int) {
 	colName, tps := getColumnNameAndTypeFromField(filed)
 	if Debug {
@@ -205,13 +205,22 @@ func MapToCondition(maps map[string]interface{}) Condition {
 		if t.Kind() == reflect.Ptr {
 			t = t.Elem()
 		}
-		if (t.Kind() != reflect.Struct && t.Kind() != reflect.Slice) || t.Kind() == reflect.TypeOf(time.Now()).Kind() {
+		if t.Kind() != reflect.Struct || t.Kind() == reflect.TypeOf(time.Now()).Kind() || ((t.Kind() == reflect.Slice || t.Kind() == reflect.Array) && t.Elem().Kind() != reflect.Struct) {
 			value := v
-			if cnd == nil {
-				cnd = Cnd(k, Eq, value)
+			if (t.Kind() == reflect.Slice || t.Kind() == reflect.Array) && t.Elem().Kind() != reflect.Struct {
+				if cnd == nil {
+					cnd = CndIn(k, UnZipSlice(value)...)
+				} else {
+					cnd.In(k, UnZipSlice(value)...)
+				}
 			} else {
-				cnd.And(k, Eq, ArrayOf(value))
+				if cnd == nil {
+					cnd = Cnd(k, Eq, value)
+				} else {
+					cnd.And(k, Eq, value)
+				}
 			}
+
 		}
 	}
 	return cnd
