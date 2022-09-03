@@ -255,7 +255,7 @@ func linkerToString(cnd gom.Condition) string {
 
 func valueSpace(count int) string {
 	if count == 1 {
-		return " ? "
+		return " ( ? ) "
 	} else {
 		str := "("
 		for i := 0; i < count-1; i++ {

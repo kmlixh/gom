@@ -445,6 +445,15 @@ func TestSpecial(t *testing.T) {
 				}
 			},
 		},
+		{
+			"test in one", func(t *testing.T) {
+				var users []User
+				_, er := db.Where(gom.CndEmpty().In("id", "sss")).OrderByDesc("id").Select(&users)
+				if er != nil {
+					t.Error(users, er)
+				}
+			},
+		},
 	}
 
 	for _, tt := range ts {
