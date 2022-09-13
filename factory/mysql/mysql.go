@@ -61,8 +61,8 @@ func (m Factory) ConditionToSql(preTag bool, cnd gom.Condition) (string, []inter
 }
 
 func init() {
-	m := Factory{}
-	gom.Register("mysql", &m)
+	factory := Factory{}
+	gom.Register("mysql", &factory)
 	funcMap = make(map[gom.SqlType]gom.GenerateSQLFunc)
 	funcMap[gom.Query] = func(models ...gom.TableModel) []gom.SqlProto {
 		model := models[0]
@@ -81,7 +81,7 @@ func init() {
 			}
 		}
 		sql += " FROM " + model.Table() + " "
-		cndString, cndData := m.ConditionToSql(false, model.Condition())
+		cndString, cndData := factory.ConditionToSql(false, model.Condition())
 		if len(cndString) > 0 {
 			sql += " WHERE " + cndString
 		}
@@ -134,7 +134,7 @@ func init() {
 					i++
 				}
 			}
-			conditionSql, dds := m.ConditionToSql(false, model.Condition())
+			conditionSql, dds := factory.ConditionToSql(false, model.Condition())
 			if len(conditionSql) > 0 {
 				sql += " WHERE " + conditionSql + ";"
 			}
@@ -177,7 +177,7 @@ func init() {
 			var datas []interface{}
 			sql := "DELETE FROM "
 			sql += " " + model.Table()
-			conditionSql, dds := m.ConditionToSql(false, model.Condition())
+			conditionSql, dds := factory.ConditionToSql(false, model.Condition())
 			if len(conditionSql) > 0 {
 				sql += " WHERE " + conditionSql + ";"
 			}

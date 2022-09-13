@@ -88,7 +88,7 @@ func (db DB) Page(page int64, pageSize int64) DB {
 func (db DB) Count(columnName string) (int64, error) {
 	statements := fmt.Sprintf("select count(`%s`) as count from `%s`", columnName, *db.table)
 	var data []interface{}
-	if db.cnd != nil {
+	if db.cnd != nil && *db.cnd != nil {
 		cndString, cndData := db.factory.ConditionToSql(false, *db.cnd)
 		data = append(data, cndData...)
 		statements = statements + " WHERE " + cndString
@@ -106,7 +106,7 @@ func (db DB) Count(columnName string) (int64, error) {
 func (db DB) Sum(columnName string) (int64, error) {
 	statements := fmt.Sprintf("select SUM(`%s`) as count from `%s`", columnName, *db.table)
 	var data []interface{}
-	if db.cnd != nil {
+	if db.cnd != nil && *db.cnd != nil {
 		cndString, cndData := db.factory.ConditionToSql(false, *db.cnd)
 		data = append(data, cndData...)
 		statements = statements + " WHERE " + cndString
@@ -370,7 +370,7 @@ func (db *DB) initTableModel(t TableModel) {
 	if db.table != nil {
 		t.SetTable(*db.table)
 	}
-	if db.cnd != nil {
+	if db.cnd != nil && *db.cnd != nil {
 		err := t.SetCondition(*db.cnd)
 		if err != nil {
 			panic(err)

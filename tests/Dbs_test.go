@@ -418,6 +418,15 @@ func TestDB_Select(t *testing.T) {
 				t.Error("counts :", len(users), db)
 			}
 		}},
+		{
+			"测试Count时cnd为nil", func(t *testing.T) {
+				var cnd gom.Condition
+				cc, er := db.Where(cnd).Table(UserInfo{}.TableName()).Count("id")
+				if er != nil {
+					t.Error("count failed:", er, cc)
+				}
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, tt.t)
