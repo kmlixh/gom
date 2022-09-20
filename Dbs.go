@@ -52,6 +52,13 @@ func (db DB) OrderBy(field string, t OrderType) DB {
 	db.orderBys = &temp
 	return db
 }
+func (db DB) OrderBys(orderbys []OrderBy) DB {
+	db.cloneSelfIfDifferentGoRoutine()
+	var temp []OrderBy
+	temp = append(temp, orderbys...)
+	db.orderBys = &temp
+	return db
+}
 func (db DB) CleanOrders() DB {
 	db.cloneSelfIfDifferentGoRoutine()
 	temp := make([]OrderBy, 0)
