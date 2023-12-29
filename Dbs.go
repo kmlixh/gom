@@ -33,11 +33,11 @@ func (db DB) Table(table string) DB {
 	return db
 }
 func (db *DB) cloneSelfIfDifferentGoRoutine() {
-	if db.id != GetGoid() {
+	if db.id != getGrouteId() {
 		*db = db.Clone()
 	}
 }
-func (db DB) Raw(sql string, datas ...interface{}) DB {
+func (db *DB) Raw(sql string, datas ...interface{}) *DB {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.rawSql = &sql
 	var temp = UnZipSlice(datas)
@@ -45,47 +45,47 @@ func (db DB) Raw(sql string, datas ...interface{}) DB {
 	return db
 }
 
-func (db DB) OrderBy(field string, t OrderType) DB {
+func (db *DB) OrderBy(field string, t OrderType) *DB {
 	db.cloneSelfIfDifferentGoRoutine()
 	var temp []OrderBy
 	temp = append(temp, MakeOrderBy(field, t))
 	db.orderBys = &temp
 	return db
 }
-func (db DB) OrderBys(orderbys []OrderBy) DB {
+func (db *DB) OrderBys(orderbys []OrderBy) *DB {
 	db.cloneSelfIfDifferentGoRoutine()
 	var temp []OrderBy
 	temp = append(temp, orderbys...)
 	db.orderBys = &temp
 	return db
 }
-func (db DB) CleanOrders() DB {
+func (db *DB) CleanOrders() *DB {
 	db.cloneSelfIfDifferentGoRoutine()
 	temp := make([]OrderBy, 0)
 	db.orderBys = &temp
 	return db
 }
-func (db DB) OrderByAsc(field string) DB {
+func (db *DB) OrderByAsc(field string) *DB {
 	return db.OrderBy(field, Asc)
 }
-func (db DB) OrderByDesc(field string) DB {
+func (db *DB) OrderByDesc(field string) *DB {
 	return db.OrderBy(field, Desc)
 }
 
-func (db DB) Where2(sql string, patches ...interface{}) DB {
+func (db *DB) Where2(sql string, patches ...interface{}) *DB {
 	db.cloneSelfIfDifferentGoRoutine()
 	return db.Where(CndRaw(sql, patches...))
 }
-func (db DB) Where(cnd Condition) DB {
+func (db *DB) Where(cnd Condition) *DB {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.cnd = &cnd
 	return db
 }
 func (db DB) Clone() DB {
-	return DB{id: GetGoid(), factory: db.factory, db: db.db}
+	return DB{id: getGrouteId(), factory: db.factory, db: db.db}
 }
 
-func (db DB) Page(page int64, pageSize int64) DB {
+func (db *DB) Page(page int64, pageSize int64) *DB {
 	db.cloneSelfIfDifferentGoRoutine()
 	pages := MakePage(page, pageSize)
 	db.page = &pages

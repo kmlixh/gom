@@ -263,7 +263,7 @@ func SliceToGroupSlice(vs interface{}) map[string][]interface{} {
 	return result
 }
 
-func GetGoid() int64 {
+func getGrouteId() int64 {
 	var (
 		buf [64]byte
 		n   = runtime.Stack(buf[:], false)
