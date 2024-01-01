@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
 )
 
 type DB struct {
@@ -101,7 +102,7 @@ func (db DB) Count(columnName string) (int64, error) {
 		statements = statements + " WHERE " + cndString
 	}
 	var count int64
-	tb, er := GetTableModel(&count, "count")
+	tb, er := db.GetTableModel(&count, "count")
 	if er != nil {
 		panic(er)
 	}
@@ -119,7 +120,7 @@ func (db DB) Sum(columnName string) (int64, error) {
 		statements = statements + " WHERE " + cndString
 	}
 	var count int64
-	tb, er := GetTableModel(&count, "count")
+	tb, er := db.GetTableModel(&count, "count")
 	if er != nil {
 		panic(er)
 	}
@@ -130,7 +131,7 @@ func (db DB) Sum(columnName string) (int64, error) {
 
 func (db DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 	db.cloneSelfIfDifferentGoRoutine()
-	model, er := GetTableModel(vs, columns...)
+	model, er := db.GetTableModel(vs, columns...)
 	if er != nil {
 		return nil, er
 	}
@@ -179,7 +180,7 @@ func (db DB) execute(sqlType SqlType, v []interface{}, columns ...string) (int64
 	} else {
 		var vvs []TableModel
 		if len(vs) == 0 {
-			t, _ := GetTableModel(nil, columns...)
+			t, _ := db.GetTableModel(nil, columns...)
 			db.initTableModel(t)
 			if sqlType == Update && t.Condition() == nil {
 				return 0, 0, errors.New("can't update Database without Conditions")
@@ -187,7 +188,7 @@ func (db DB) execute(sqlType SqlType, v []interface{}, columns ...string) (int64
 			vvs = append(vvs, t)
 		} else {
 			for _, v := range vs {
-				t, er := GetTableModel(v, columns...)
+				t, er := db.GetTableModel(v, columns...)
 				if er != nil {
 					panic(er)
 				}
@@ -397,6 +398,85 @@ func (db *DB) initTableModel(t TableModel) {
 	}
 
 }
+func GetRawTableInfo(v interface{}) RawTableInfo {
+	tt := reflect.TypeOf(v)
+	isStruct := false
+	isPtr := false
+	isSlice := false
+	if tt.Kind() == reflect.Ptr {
+		tt = tt.Elem()
+		isPtr = true
+	}
+	if tt.Kind() == reflect.Slice || tt.Kind() == reflect.Array {
+		tt = tt.Elem()
+		isSlice = true
+	}
+	isStruct = tt.Kind() == reflect.Struct
+
+	if Debug {
+		fmt.Println("Test GetRawTableInfo, result:", tt, isPtr, isSlice)
+	}
+	tableName := ""
+	if isStruct {
+		tableName = CamelToSnakeString(tt.Name())
+	}
+	vs := reflect.Indirect(reflect.New(tt))
+	iTable, ok := vs.Interface().(ITableName)
+	if ok {
+		tableName = iTable.TableName()
+	}
+
+	return RawTableInfo{tt, tableName, isSlice, isPtr, isStruct}
+}
+
+var tableModelCache = make(map[string]TableModel)
+
+func (db *DB) GetTableModel(v interface{}, choosedColumns ...string) (TableModel, error) {
+	//2024年1月1号，此处的时间类型
+	//防止重复创建map，需要对map创建过程加锁
+	if v == nil {
+		return &DefaultModel{}, nil
+	}
+	rawTableInfo := GetRawTableInfo(v)
+	if !rawTableInfo.IsStruct && (choosedColumns == nil || len(choosedColumns) != 1) {
+		return nil, errors.New("basic Type Only Support [1] Column Or2 nil")
+	}
+
+	var model TableModel
+	cachedModel, ok := tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()]
+	if ok {
+		model = cachedModel.Clone()
+	} else {
+
+		var temp TableModel
+		var scanners []IScanner
+		tempVal := reflect.Indirect(reflect.New(rawTableInfo.Type))
+		if rawTableInfo.IsStruct {
+			if rawTableInfo.IsStruct && rawTableInfo.Type.NumField() == 0 {
+				_, ok := reflect.Indirect(reflect.New(rawTableInfo.Type)).Interface().(DefaultStruct)
+				if !ok {
+					return nil, errors.New(fmt.Sprintf("[%s] was a \"empty struct\",it has no field or All fields has been ignored", rawTableInfo.Type.Name()))
+				} else {
+					return &DefaultModel{}, nil
+				}
+			}
+			columnNames, columns, columnIdxMap := getColumns(tempVal)
+			for _, column := range columns {
+				scanners = append(scanners, GetIScannerOfColumn(column.Data))
+			}
+			temp = &DefaultModel{rawScanners: scanners, rawType: rawTableInfo.Type, rawTable: rawTableInfo.RawTableName, rawColumns: columns, rawColumnNames: columnNames, rawColumnIdxMap: columnIdxMap, primaryAuto: columns[0].PrimaryAuto}
+		} else {
+			scanners = append(scanners, GetIScannerOfColumn(reflect.Indirect(reflect.New(rawTableInfo.Type)).Interface()))
+			temp = &DefaultModel{rawScanners: scanners, rawType: rawTableInfo.Type, rawTable: "", primaryAuto: false}
+		}
+		tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()] = temp
+		model = temp.Clone()
+	}
+	model.SetData(v, reflect.Indirect(reflect.ValueOf(v)), rawTableInfo.IsStruct, rawTableInfo.IsPtr, rawTableInfo.IsSlice)
+	er := model.SetColumns(choosedColumns)
+	return model, er
+}
+
 func (db *DB) CleanDb() *DB {
 	db.table = nil
 	db.page = nil
