@@ -1,6 +1,7 @@
 package mysql
 
 import (
+	"database/sql"
 	"errors"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/kmlixh/gom/v2"
@@ -13,9 +14,47 @@ type MyCndStruct struct {
 	Data       []interface{}
 }
 
+var keywordMap map[string]string
+
 var funcMap map[gom.SqlType]gom.GenerateSQLFunc
 
 type Factory struct {
+}
+
+func (m Factory) GetColumns(tableName string, db *sql.DB) []gom.Column {
+	dbSql := "SELECT DATABASE() as db;"
+	rows, er := db.Query(dbSql)
+	if er != nil {
+		return nil
+	}
+	dbName := ""
+	if !rows.Next() {
+		return nil
+	}
+	er = rows.Scan(&dbName)
+	if er != nil {
+		return nil
+	}
+	columnSql := "select COLUMN_NAME as columnName,DATA_TYPE as dataType,COLUMN_KEY as columnKey,EXTRA as extra from information_schema.columns  where table_schema=?  and table_name= ? order by ordinal_position;"
+	rows, er = db.Query(columnSql, dbName, tableName)
+	if er != nil {
+		return nil
+	}
+	columns := make([]gom.Column, 0)
+	for rows.Next() {
+		columnName := ""
+		columnType := ""
+		columnKey := ""
+		extra := ""
+		er = rows.Scan(&columnName, &columnType, &columnKey, &extra)
+		if er == nil {
+			columns = append(columns, gom.Column{ColumnName: columnName, ColumnType: columnType, Primary: columnKey == "PRI", PrimaryAuto: columnKey == "PRI" && extra == "auto_increment"})
+		} else {
+			return nil
+		}
+	}
+	return columns
+
 }
 
 func (m Factory) GetSqlFunc(sqlType gom.SqlType) gom.GenerateSQLFunc {
@@ -59,9 +98,18 @@ func (m Factory) ConditionToSql(preTag bool, cnd gom.Condition) (string, []inter
 	return sql, data
 
 }
+func initKeywordMap() {
+	keywordMap = make(map[string]string)
+	keys := strings.Split("ACTIVE,ADMIN,ARRAY,ATTRIBUTE,AUTHENTICATION,BUCKETS,BULK,CHALLENGE_RESPONSE,CLONE,COMPONENT,CUME_DIST,DEFINITION,DENSE_RANK,DESCRIPTION,EMPTY,ENFORCED,ENGINE_ATTRIBUTE,EXCEPT,EXCLUDE,FACTOR,FAILED_LOGIN_ATTEMPTS,FINISH,FIRST_VALUE,FOLLOWING,GENERATE,GEOMCOLLECTION,GET_MASTER_PUBLIC_KEY,GET_SOURCE_PUBLIC_KEY,GROUPING,GROUPS,GTID_ONLY,HISTOGRAM,HISTORY,INACTIVE,INITIAL,INITIATE,INTERSECT,INVISIBLE,JSON_TABLE,JSON_VALUE,KEYRING,LAG,LAST_VALUE,LATERAL,LEAD,LOCKED,MASTER_COMPRESSION_ALGORITHMS,MASTER_PUBLIC_KEY_PATH,MASTER_TLS_CIPHERSUITES,MASTER_ZSTD_COMPRESSION_LEVEL,MEMBER,NESTED,NETWORK_NAMESPACE,NOWAIT,NTH_VALUE,NTILE,NULLS,OF,OFF,OJ,OLD,OPTIONAL,ORDINALITY,ORGANIZATION,OTHERS,OVER,PASSWORD_LOCK_TIME,PATH,PERCENT_RANK,PERSIST,PERSIST_ONLY,PRECEDING,PRIVILEGE_CHECKS_USER,PROCESS,RANDOM,RANK,RECURSIVE,REFERENCE,REGISTRATION,REPLICA,REPLICAS,REQUIRE_ROW_FORMAT,RESOURCE,RESPECT,RESTART,RETAIN,RETURNING,REUSE,ROLE,ROW_NUMBER,SECONDARY,SECONDARY_ENGINE,SECONDARY_ENGINE_ATTRIBUTE,SECONDARY_LOAD,SECONDARY_UNLOAD,SKIP,SOURCE_AUTO_POSITION,SOURCE_BIND,SOURCE_COMPRESSION_ALGORITHMS,SOURCE_CONNECT_RETRY,SOURCE_DELAY,SOURCE_HEARTBEAT_PERIOD,SOURCE_HOST,SOURCE_LOG_FILE,SOURCE_LOG_POS,SOURCE_PASSWORD,SOURCE_PORT,SOURCE_PUBLIC_KEY_PATH,SOURCE_RETRY_COUNT,SOURCE_SSL,SOURCE_SSL_CA,SOURCE_SSL_CAPATH,SOURCE_SSL_CERT,SOURCE_SSL_CIPHER,SOURCE_SSL_CRL,SOURCE_SSL_CRLPATH,SOURCE_SSL_KEY,SOURCE_SSL_VERIFY_SERVER_CERT,SOURCE_TLS_CIPHERSUITES,SOURCE_TLS_VERSION,SOURCE_USER,SOURCE_ZSTD_COMPRESSION_LEVEL,SRID,STREAM,SYSTEM,THREAD_PRIORITY,TIES,TLS,UNBOUNDED,UNREGISTER,URL,VCPU,VISIBLE,WINDOW,ZONE", ",")
+	for _, key := range keys {
+		keywordMap[key] = key
+	}
+}
 
 func init() {
+
 	factory := Factory{}
+	initKeywordMap()
 	gom.Register("mysql", &factory)
 	funcMap = make(map[gom.SqlType]gom.GenerateSQLFunc)
 	funcMap[gom.Query] = func(models ...gom.TableModel) []gom.SqlProto {

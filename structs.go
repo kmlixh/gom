@@ -26,6 +26,7 @@ type Column struct {
 	FieldName   string
 	Primary     bool
 	PrimaryAuto bool //If Primary Key Auto Generate Or2 Not
+	ColumnType  string
 }
 
 type SqlProto struct {
@@ -35,6 +36,7 @@ type SqlProto struct {
 
 type GenerateSQLFunc func(model ...TableModel) []SqlProto
 type SqlFactory interface {
+	GetColumns(tableName string, db *sql.DB) []Column
 	GetSqlFunc(sqlType SqlType) GenerateSQLFunc
 	ConditionToSql(preTag bool, condition Condition) (string, []interface{})
 }

@@ -44,6 +44,7 @@ func GetRawTableInfo(v interface{}) RawTableInfo {
 var tableModelCache = make(map[string]TableModel)
 
 func GetTableModel(v interface{}, choosedColumns ...string) (TableModel, error) {
+	//2024年1月1号，此处的时间类型
 	//防止重复创建map，需要对map创建过程加锁
 	if v == nil {
 		return &DefaultModel{}, nil
