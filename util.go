@@ -112,29 +112,47 @@ func getColumnName(field reflect.StructField) string {
 	return tag
 }
 
-func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, []string, error) {
+func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, error) {
 	if vs == nil {
-		return nil, nil, errors.New("nil can't be used to create Map")
+		return nil, errors.New("nil can't be used to create Map")
 	}
 	rawInfo := GetRawTableInfo(vs)
 	if rawInfo.IsSlice {
-		return nil, nil, errors.New("can't convert slice or array to map")
+		return nil, errors.New("can't convert slice or array to map")
 	}
-
+	colMap := make(map[string]int)
+	if len(columns) > 0 {
+		for idx, col := range columns {
+			colMap[col] = idx
+		}
+	}
 	if rawInfo.Kind() == reflect.Struct {
 		if rawInfo.Type.NumField() == 0 {
 			//
-			return nil, nil, errors.New(fmt.Sprintf("[%s] was a \"empty struct\",it has no field or All fields has been ignored", rawInfo.Type.Name()))
+			return nil, errors.New(fmt.Sprintf("[%s] was a \"empty struct\",it has no field or All fields has been ignored", rawInfo.Type.Name()))
 		}
 		newMap := make(map[string]interface{})
 		cMap := getColumnToFieldNameMap(rawInfo)
-
+		for key, fieldName := range cMap {
+			if len(columns) > 0 {
+				_, ok := colMap[key]
+				if ok {
+					newMap[key] = reflect.ValueOf(vs).FieldByName(fieldName).Interface()
+				}
+			} else {
+				val := reflect.ValueOf(vs).FieldByName(fieldName)
+				if !val.IsZero() {
+					newMap[key] = val.Interface()
+				}
+			}
+		}
+		return newMap, nil
 	}
-	return nil, nil, errors.New(fmt.Sprintf("can't convert %s to map", rawInfo.Name()))
+	return nil, errors.New(fmt.Sprintf("can't convert %s to map", rawInfo.Name()))
 
 }
 func StructToCondition(vs interface{}, columns ...string) Condition {
-	maps, _, err := StructToMap(vs, columns...)
+	maps, err := StructToMap(vs, columns...)
 	if err != nil {
 		panic(err)
 	}
