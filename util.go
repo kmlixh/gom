@@ -10,6 +10,66 @@ import (
 	"time"
 )
 
+type RawTableInfo struct {
+	reflect.Type
+	RawTableName string
+	IsSlice      bool
+	IsPtr        bool
+	IsStruct     bool
+	RawData      interface{}
+}
+
+func getScanners(v interface{}) []IScanner {
+
+}
+
+var columnToFieldNameMapCache = make(map[reflect.Type]map[string]string)
+
+func getColumnToFieldNameMap(v RawTableInfo) map[string]string {
+	columnMap := make(map[string]string)
+	oo := v.Type
+	cc, ok := columnToFieldNameMapCache[oo]
+	if ok {
+		return cc
+	}
+	for i := 0; i < oo.NumField(); i++ {
+		field := oo.Field(i)
+		colName := getColumnName(field)
+		columnMap[colName] = field.Name
+	}
+	return columnMap
+}
+func GetRawTableInfo(v interface{}) RawTableInfo {
+	tt := reflect.TypeOf(v)
+	isStruct := false
+	isPtr := false
+	isSlice := false
+	if tt.Kind() == reflect.Ptr {
+		tt = tt.Elem()
+		isPtr = true
+	}
+	if tt.Kind() == reflect.Slice || tt.Kind() == reflect.Array {
+		tt = tt.Elem()
+		isSlice = true
+	}
+	isStruct = tt.Kind() == reflect.Struct
+
+	if Debug {
+		fmt.Println("Test GetRawTableInfo, result:", tt, isPtr, isSlice)
+	}
+	tableName := ""
+	if isStruct {
+		tableName = CamelToSnakeString(tt.Name())
+	}
+	vs := reflect.Indirect(reflect.New(tt))
+	iTable, ok := vs.Interface().(ITableName)
+	if ok {
+		tableName = iTable.TableName()
+	}
+
+	return RawTableInfo{tt, tableName, isSlice, isPtr, isStruct, v}
+}
+
 func getColumns(v reflect.Value) ([]string, []Column, map[string]int) {
 	var columnNames []string
 	var columns []Column
@@ -37,49 +97,19 @@ func getColumns(v reflect.Value) ([]string, []Column, map[string]int) {
 //		return hex.EncodeToString(h.Sum(nil))
 //	}
 func getColumnFromField(v reflect.Value, filed reflect.StructField) (Column, int) {
-	colName, tps := getColumnNameAndTypeFromField(filed)
+	colName, tps := getColumnName(filed)
 	if Debug {
 		fmt.Println("Tag is:", colName, "type is:", tps)
 	}
 	return Column{Data: v.Interface(), ColumnName: colName, FieldName: filed.Name, PrimaryAuto: tps == 2, Primary: tps == 1 || tps == 2}, tps
 
 }
-func getColumnNameAndTypeFromField(field reflect.StructField) (string, int) {
+func getColumnName(field reflect.StructField) string {
 	tag, hasTag := field.Tag.Lookup("gom")
-	if !hasTag {
+	if !hasTag || strings.EqualFold(tag, "-") {
 		tag = CamelToSnakeString(field.Name)
 	}
-	if strings.EqualFold(tag, "-") {
-		return "", -1
-	} else if len(tag) == 1 {
-		tps := 0
-		if strings.EqualFold(tag, "@") {
-			tps = 2
-		}
-		if strings.EqualFold(tag, "!") {
-			tps = 1
-		}
-		return CamelToSnakeString(field.Name), tps
-	} else {
-		if strings.Contains(tag, ",") {
-			tags := strings.Split(tag, ",")
-			if len(tags) == 2 {
-				if strings.EqualFold(tags[0], "!") || strings.EqualFold(tags[0], "primary") {
-					return tags[1], 1
-				} else if strings.EqualFold(tags[0], "@") || strings.EqualFold(tags[0], "auto") {
-					return tags[1], 2
-				} else if strings.EqualFold(tags[0], "#") || strings.EqualFold(tags[0], "column") {
-					return tags[1], 0
-				} else {
-					return "", -1
-				}
-			} else {
-				return "", -1
-			}
-		} else {
-			return tag, 0
-		}
-	}
+	return tag
 }
 
 func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, []string, error) {
@@ -90,22 +120,15 @@ func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, []s
 	if rawInfo.IsSlice {
 		return nil, nil, errors.New("can't convert slice or array to map")
 	}
+
 	if rawInfo.Kind() == reflect.Struct {
 		if rawInfo.Type.NumField() == 0 {
 			//
 			return nil, nil, errors.New(fmt.Sprintf("[%s] was a \"empty struct\",it has no field or All fields has been ignored", rawInfo.Type.Name()))
 		}
-		//TODO 下面的方法过于复杂
-		colNames, cols, _ := getColumns(reflect.ValueOf(vs))
-		if colNames == nil || len(colNames) == 0 {
-			panic(fmt.Sprintf("can't get any data from Type [%s]", rawInfo.Name()))
-		}
-		columns = ArrayIntersect(columns, colNames)
 		newMap := make(map[string]interface{})
-		for i, column := range columns {
-			newMap[column] = cols[i].Data
-		}
-		return newMap, columns, nil
+		cMap := getColumnToFieldNameMap(rawInfo)
+
 	}
 	return nil, nil, errors.New(fmt.Sprintf("can't convert %s to map", rawInfo.Name()))
 

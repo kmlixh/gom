@@ -2,6 +2,7 @@ package gom
 
 import (
 	"database/sql"
+	"fmt"
 	"reflect"
 )
 
@@ -12,14 +13,6 @@ type ITableName interface {
 	TableName() string
 }
 
-type RawTableInfo struct {
-	reflect.Type
-	RawTableName string
-	IsSlice      bool
-	IsPtr        bool
-	IsStruct     bool
-}
-
 type Column struct {
 	Data        interface{}
 	ColumnName  string
@@ -27,6 +20,8 @@ type Column struct {
 	Primary     bool
 	PrimaryAuto bool //If Primary Key Auto Generate Or2 Not
 	ColumnType  string
+	FieldType   reflect.Type
+	Scanner     IScanner
 }
 
 type SqlProto struct {
@@ -105,80 +100,20 @@ type CountResult struct {
 	Error error
 }
 
-type TableModel interface {
-	Table() string
-	SetTable(tableName string)
-	Columns() []string
-	SetColumns([]string) error
-	SetData(data interface{}, valueOfData reflect.Value, isStruct bool, isPtr bool, isSlice bool)
-	GetScanners(columns []string) ([]interface{}, int, error)
-	PrimaryAuto() bool
-	ColumnDataMap() map[string]interface{}
-	Condition() Condition
-	SetCondition(c Condition) error
-	OrderBys() []OrderBy
-	SetOrderBys(orders []OrderBy) error
-	Page() PageInfo
-	SetPage(p PageInfo) error
+type IRowScanner interface {
 	Scan(rows *sql.Rows) (interface{}, error)
-	Clone() TableModel
+}
+type DefaultScanner struct {
+	RawTableInfo
+	scanners []IScanner
 }
 
-type DefaultModel struct {
-	rawType         reflect.Type
-	rawTable        string
-	rawColumnNames  []string
-	rawColumns      []Column
-	rawScanners     []IScanner
-	rawColumnIdxMap map[string]int
-	primaryAuto     bool
-	isStruct        bool
+func getDefaultScanner(v interface{},columns ...string) DefaultScanner{
 
-	//以下内容动态添加
-	data          reflect.Value
-	isSlice       bool
-	isPtr         bool
-	table         string
-	columns       []string
-	columnsIdx    []int8
-	columnDataMap map[string]interface{}
-	condition     Condition
-	orderBys      []OrderBy
-	page          PageInfo
 }
 
-func (d DefaultModel) GetScanners(columns []string) ([]interface{}, int, error) {
-	var scanners []interface{}
-	simpleIdx := 0
-	if d.isStruct {
-		for _, column := range columns {
-			idx, ok := d.rawColumnIdxMap[column]
-			if ok {
-				scanners = append(scanners, d.rawScanners[idx])
-			} else {
-				scanners = append(scanners, EMPTY_SCANNER)
-			}
-		}
-	} else if d.columns == nil || len(d.Columns()) <= 1 {
-		colName := ""
-		if d.columns == nil {
-			colName = columns[0]
-		} else {
-			colName = d.columns[0]
-		}
-		for i, column := range columns {
-			if column == colName {
-				simpleIdx = i
-				scanners = append(scanners, d.rawScanners[0])
-			} else {
-				scanners = append(scanners, EMPTY_SCANNER)
-			}
-		}
-	}
-	return scanners, simpleIdx, nil
-}
 
-func (d DefaultModel) Scan(rows *sql.Rows) (interface{}, error) {
+func (d DefaultScanner) Scan(rows *sql.Rows) (interface{}, error) {
 	columns, er := rows.Columns()
 	if er != nil {
 		return nil, er
@@ -188,8 +123,8 @@ func (d DefaultModel) Scan(rows *sql.Rows) (interface{}, error) {
 	if err != nil {
 		return nil, er
 	}
-	results := d.data
-	if d.isSlice {
+	results := d.
+	if d.IsSlice {
 		for rows.Next() {
 			err := rows.Scan(scanners...)
 			if err != nil {
@@ -229,6 +164,84 @@ func (d DefaultModel) Scan(rows *sql.Rows) (interface{}, error) {
 	return results.Interface(), nil
 
 }
+
+type TableModel interface {
+	Table() string
+	SetTable(tableName string)
+	Columns() []string
+	SetColumns([]string) error
+	SetData(data interface{}, valueOfData reflect.Value, isStruct bool, isPtr bool, isSlice bool)
+	PrimaryAuto() bool
+	ColumnDataMap() map[string]interface{}
+	Condition() Condition
+	SetCondition(c Condition) error
+	OrderBys() []OrderBy
+	SetOrderBys(orders []OrderBy) error
+	Page() PageInfo
+	SetPage(p PageInfo) error
+	GetRowScanner() IRowScanner
+	Clone() TableModel
+}
+
+type DefaultModel struct {
+	rawType        reflect.Type
+	rawTable       string
+	rawColumnNames []string
+	rawColumns     []Column
+	primaryAuto    bool
+	isStruct       bool
+
+	//以下内容动态添加
+	data          reflect.Value
+	isSlice       bool
+	isPtr         bool
+	table         string
+	columns       []string
+	columnsIdx    []int8
+	columnDataMap map[string]interface{}
+	condition     Condition
+	orderBys      []OrderBy
+	page          PageInfo
+}
+
+func GetRowScanner() IRowScanner {
+	return d
+}
+func (d DefaultModel) GetRowScanner() IRowScanner {
+	return d
+}
+
+func (d DefaultModel) GetScanners(columns []string) ([]interface{}, int, error) {
+	var scanners []interface{}
+	simpleIdx := 0
+	if d.isStruct {
+		for idx, column := range columns {
+			idx, ok := d.rawColumnIdxMap[column]
+			if ok {
+				scanners = append(scanners, d.rawColumns[idx])
+			} else {
+				scanners = append(scanners, EMPTY_SCANNER)
+			}
+		}
+	} else if d.columns == nil || len(d.Columns()) <= 1 {
+		colName := ""
+		if d.columns == nil {
+			colName = columns[0]
+		} else {
+			colName = d.columns[0]
+		}
+		for i, column := range columns {
+			if column == colName {
+				simpleIdx = i
+				scanners = append(scanners, d.rawScanners[0])
+			} else {
+				scanners = append(scanners, EMPTY_SCANNER)
+			}
+		}
+	}
+	return scanners, simpleIdx, nil
+}
+
 func (d DefaultModel) Table() string {
 	if d.table != "" && len(d.table) > 0 {
 		return d.table

@@ -18,17 +18,18 @@ type DB struct {
 	tx       *sql.Tx
 	orderBys *[]OrderBy
 	page     *PageInfo
+	sqlType  SqlType
 }
 
 type TransactionWork func(databaseTx *DB) (interface{}, error)
 
-func (db DB) RawDb() *sql.DB {
+func (db DB) GetRawDb() *sql.DB {
 	return db.db
 }
 func (db DB) Factory() SqlFactory {
 	return db.factory
 }
-func (db DB) Table(table string) DB {
+func (db *DB) SetTable(table string) *DB {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.table = &table
 	return db
@@ -38,7 +39,7 @@ func (db *DB) cloneSelfIfDifferentGoRoutine() {
 		*db = db.Clone()
 	}
 }
-func (db *DB) Raw(sql string, datas ...interface{}) *DB {
+func (db *DB) RawSql(sql string, datas ...interface{}) *DB {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.rawSql = &sql
 	var temp = UnZipSlice(datas)
@@ -106,7 +107,7 @@ func (db DB) Count(columnName string) (int64, error) {
 	if er != nil {
 		panic(er)
 	}
-	_, er = db.query(statements, data, tb)
+	_, er = db.query(statements, data, tb.GetRowScanner())
 
 	return count, er
 }
@@ -124,47 +125,46 @@ func (db DB) Sum(columnName string) (int64, error) {
 	if er != nil {
 		panic(er)
 	}
-	_, er = db.query(statements, data, tb)
+	_, er = db.query(statements, data, tb.GetRowScanner())
 
 	return count, er
 }
 
 func (db DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 	db.cloneSelfIfDifferentGoRoutine()
+	db.sqlType = Query
 	model, er := db.GetTableModel(vs, columns...)
 	if er != nil {
 		return nil, er
 	}
 	if db.rawSql != nil && len(*db.rawSql) > 0 {
-		return db.query(*db.rawSql, *db.rawData, model)
+		return db.query(*db.rawSql, *db.rawData, model.GetRowScanner())
 	} else {
 		db.initTableModel(model)
-		return db.SelectByModel(model)
+		selectFunc := db.factory.GetSqlFunc(Query)
+		sqlProtos := selectFunc(model)
+		return db.query(sqlProtos[0].PreparedSql, sqlProtos[0].Data, model.GetRowScanner())
 	}
-}
-func (db DB) SelectByModel(model TableModel) (interface{}, error) {
-	//TODO 此处逻辑不合理，如果是自定义查询的话，无需生成Model，简单的查询也不需要生成model。
-	db.cloneSelfIfDifferentGoRoutine()
-	selectFunc := db.factory.GetSqlFunc(Query)
-	sqlProtos := selectFunc(model)
-	return db.query(sqlProtos[0].PreparedSql, sqlProtos[0].Data, model)
 }
 func (db DB) First(vs interface{}) (interface{}, error) {
 	return db.Page(0, 1).Select(vs)
 }
 func (db DB) Insert(v interface{}, columns ...string) (int64, int64, error) {
-	return db.execute(Insert, ArrayOf(v), columns...)
+	db.sqlType = Insert
+	return db.executeInside(ArrayOf(v), columns...)
 
 }
 func (db DB) Delete(vs ...interface{}) (int64, int64, error) {
-	return db.execute(Delete, vs)
+	db.sqlType = Delete
+	return db.executeInside(vs)
 
 }
 func (db DB) Update(v interface{}, columns ...string) (int64, int64, error) {
-	return db.execute(Update, ArrayOf(v), columns...)
+	db.sqlType = Update
+	return db.executeInside(ArrayOf(v), columns...)
 }
 
-func (db DB) execute(sqlType SqlType, v []interface{}, columns ...string) (int64, int64, error) {
+func (db DB) executeInside(v []interface{}, columns ...string) (int64, int64, error) {
 	var vs []interface{}
 	if v != nil && len(v) > 0 {
 		vs = append(vs, UnZipSlice(v)...)
@@ -182,7 +182,7 @@ func (db DB) execute(sqlType SqlType, v []interface{}, columns ...string) (int64
 		if len(vs) == 0 {
 			t, _ := db.GetTableModel(nil, columns...)
 			db.initTableModel(t)
-			if sqlType == Update && t.Condition() == nil {
+			if db.sqlType == Update && t.Condition() == nil {
 				return 0, 0, errors.New("can't update Database without Conditions")
 			}
 			vvs = append(vvs, t)
@@ -193,13 +193,13 @@ func (db DB) execute(sqlType SqlType, v []interface{}, columns ...string) (int64
 					panic(er)
 				}
 				db.initTableModel(t)
-				if sqlType == Update && t.Condition() == nil {
+				if db.sqlType == Update && t.Condition() == nil {
 					return 0, 0, errors.New("can't update Database without Conditions")
 				}
 				vvs = append(vvs, t)
 			}
 		}
-		return db.executeTableModel(sqlType, vvs)
+		return db.executeTableModel(db.sqlType, vvs)
 	}
 }
 func (db DB) ExecuteRaw() (int64, int64, error) {
@@ -279,7 +279,7 @@ func (db DB) GetCnd() Condition {
 	return nil
 }
 
-func (db DB) query(statement string, data []interface{}, model TableModel) (interface{}, error) {
+func (db DB) query(statement string, data []interface{}, rowScanner IRowScanner) (interface{}, error) {
 	if Debug {
 		fmt.Println("executeTableModel query,PreparedSql:", statement, "data was:", data)
 	}
@@ -313,8 +313,7 @@ func (db DB) query(statement string, data []interface{}, model TableModel) (inte
 			db.Rollback()
 		}
 	}(rows)
-	return model.Scan(rows)
-
+	return rowScanner.Scan(rows)
 }
 func (db *DB) Begin() error {
 	if db.tx != nil {
@@ -398,36 +397,6 @@ func (db *DB) initTableModel(t TableModel) {
 	}
 
 }
-func GetRawTableInfo(v interface{}) RawTableInfo {
-	tt := reflect.TypeOf(v)
-	isStruct := false
-	isPtr := false
-	isSlice := false
-	if tt.Kind() == reflect.Ptr {
-		tt = tt.Elem()
-		isPtr = true
-	}
-	if tt.Kind() == reflect.Slice || tt.Kind() == reflect.Array {
-		tt = tt.Elem()
-		isSlice = true
-	}
-	isStruct = tt.Kind() == reflect.Struct
-
-	if Debug {
-		fmt.Println("Test GetRawTableInfo, result:", tt, isPtr, isSlice)
-	}
-	tableName := ""
-	if isStruct {
-		tableName = CamelToSnakeString(tt.Name())
-	}
-	vs := reflect.Indirect(reflect.New(tt))
-	iTable, ok := vs.Interface().(ITableName)
-	if ok {
-		tableName = iTable.TableName()
-	}
-
-	return RawTableInfo{tt, tableName, isSlice, isPtr, isStruct}
-}
 
 var tableModelCache = make(map[string]TableModel)
 
@@ -441,13 +410,17 @@ func (db *DB) GetTableModel(v interface{}, choosedColumns ...string) (TableModel
 	if !rawTableInfo.IsStruct && (choosedColumns == nil || len(choosedColumns) != 1) {
 		return nil, errors.New("basic Type Only Support [1] Column Or2 nil")
 	}
-
+	tableName := rawTableInfo.RawTableName
+	if db.table != nil {
+		tableName = *db.table
+	}
 	var model TableModel
-	cachedModel, ok := tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()]
+	cacheName := rawTableInfo.PkgPath() + "-" + tableName
+	cachedModel, ok := tableModelCache[cacheName]
 	if ok {
 		model = cachedModel.Clone()
 	} else {
-
+		columns := db.factory.GetColumns(tableName, db.db)
 		var temp TableModel
 		var scanners []IScanner
 		tempVal := reflect.Indirect(reflect.New(rawTableInfo.Type))
@@ -460,7 +433,7 @@ func (db *DB) GetTableModel(v interface{}, choosedColumns ...string) (TableModel
 					return &DefaultModel{}, nil
 				}
 			}
-			columnNames, columns, columnIdxMap := getColumns(tempVal)
+			columns = combineColumns(tempVal, columns)
 			for _, column := range columns {
 				scanners = append(scanners, GetIScannerOfColumn(column.Data))
 			}
@@ -469,7 +442,7 @@ func (db *DB) GetTableModel(v interface{}, choosedColumns ...string) (TableModel
 			scanners = append(scanners, GetIScannerOfColumn(reflect.Indirect(reflect.New(rawTableInfo.Type)).Interface()))
 			temp = &DefaultModel{rawScanners: scanners, rawType: rawTableInfo.Type, rawTable: "", primaryAuto: false}
 		}
-		tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()] = temp
+		tableModelCache[cacheName] = temp
 		model = temp.Clone()
 	}
 	model.SetData(v, reflect.Indirect(reflect.ValueOf(v)), rawTableInfo.IsStruct, rawTableInfo.IsPtr, rawTableInfo.IsSlice)
