@@ -2,7 +2,7 @@ package gom
 
 import (
 	"database/sql"
-	"fmt"
+	"errors"
 	"reflect"
 )
 
@@ -29,10 +29,10 @@ type SqlProto struct {
 	Data        []interface{}
 }
 
-type GenerateSQLFunc func(model ...TableModel) []SqlProto
+type SqlFunc func(model ...TableModel) []SqlProto
 type SqlFactory interface {
 	GetColumns(tableName string, db *sql.DB) []Column
-	GetSqlFunc(sqlType SqlType) GenerateSQLFunc
+	GetSqlFunc(sqlType SqlType) SqlFunc
 	ConditionToSql(preTag bool, condition Condition) (string, []interface{})
 }
 
@@ -62,6 +62,30 @@ type OrderBy interface {
 type OrderByImpl struct {
 	name      string
 	orderType OrderType
+}
+type CommonSqlResult struct {
+	lastInsertId int64
+	rowsAffected int64
+	error
+}
+type RawMetaInfo struct {
+	reflect.Type
+	TableName string
+	IsSlice   bool
+	IsPtr     bool
+	IsStruct  bool
+	RawData   interface{}
+}
+
+func (c CommonSqlResult) LastInsertId() (int64, error) {
+	if c.lastInsertId == 0 {
+		return 0, errors.New("")
+	}
+	return c.lastInsertId, c.error
+}
+
+func (c CommonSqlResult) RowsAffected() (int64, error) {
+	return c.rowsAffected, c.error
 }
 
 func MakeOrderBy(name string, orderType OrderType) OrderBy {
@@ -104,37 +128,41 @@ type IRowScanner interface {
 	Scan(rows *sql.Rows) (interface{}, error)
 }
 type DefaultScanner struct {
-	RawTableInfo
-	scanners []IScanner
+	RawMetaInfo
+	scanners []interface{}
 }
 
-func getDefaultScanner(v interface{},columns ...string) DefaultScanner{
+func getDefaultScanner(v interface{}) DefaultScanner {
+	r := GetRawTableInfo(v)
 
+	if r.IsStruct {
+		return DefaultScanner{r, nil}
+	} else {
+		//说明对象是简单类型，直接取类型即可
+		return DefaultScanner{
+			r,
+			[]interface{}{GetIScannerOfColumn(reflect.New(r.Type).Elem())},
+		}
+	}
 }
-
 
 func (d DefaultScanner) Scan(rows *sql.Rows) (interface{}, error) {
 	columns, er := rows.Columns()
 	if er != nil {
 		return nil, er
 	}
-	//解析查询结果列与原始column的对应关系
-	var scanners, simpleIdx, err = d.GetScanners(columns)
-	if err != nil {
-		return nil, er
-	}
-	results := d.
+	results := reflect.ValueOf(d.RawMetaInfo.RawData)
 	if d.IsSlice {
 		for rows.Next() {
-			err := rows.Scan(scanners...)
+			err := rows.Scan(d.scanners...)
 			if err != nil {
 				panic(err)
 			}
 			var val reflect.Value
-			if d.isStruct {
-				val = ScannerResultToStruct(d.rawType, scanners, columns, d.rawColumnIdxMap)
+			if d.IsStruct {
+				val = ScannerResultToStruct(d.RawMetaInfo.Type, d.scanners, columns)
 			} else {
-				vv, er := (scanners[simpleIdx].(IScanner)).Value()
+				vv, er := (d.scanners[0].(IScanner)).Value()
 				if er != nil {
 					panic(er)
 				}
@@ -144,15 +172,15 @@ func (d DefaultScanner) Scan(rows *sql.Rows) (interface{}, error) {
 		}
 	} else {
 		if rows.Next() {
-			er := rows.Scan(scanners...)
+			er := rows.Scan(d.scanners...)
 			if er != nil {
 				panic(er)
 			}
 			var val reflect.Value
-			if d.isStruct {
-				val = ScannerResultToStruct(d.rawType, scanners, columns, d.rawColumnIdxMap)
+			if d.IsStruct {
+				val = ScannerResultToStruct(d.RawMetaInfo.Type, d.scanners, columns)
 			} else {
-				vv, er := (scanners[0].(IScanner)).Value()
+				vv, er := (d.scanners[0].(IScanner)).Value()
 				if er != nil {
 					panic(er)
 				}
@@ -167,127 +195,29 @@ func (d DefaultScanner) Scan(rows *sql.Rows) (interface{}, error) {
 
 type TableModel interface {
 	Table() string
-	SetTable(tableName string)
 	Columns() []string
-	SetColumns([]string) error
-	SetData(data interface{}, valueOfData reflect.Value, isStruct bool, isPtr bool, isSlice bool)
-	PrimaryAuto() bool
 	ColumnDataMap() map[string]interface{}
 	Condition() Condition
-	SetCondition(c Condition) error
 	OrderBys() []OrderBy
-	SetOrderBys(orders []OrderBy) error
 	Page() PageInfo
-	SetPage(p PageInfo) error
-	GetRowScanner() IRowScanner
 	Clone() TableModel
 }
 
 type DefaultModel struct {
-	rawType        reflect.Type
-	rawTable       string
-	rawColumnNames []string
-	rawColumns     []Column
-	primaryAuto    bool
-	isStruct       bool
-
-	//以下内容动态添加
-	data          reflect.Value
-	isSlice       bool
-	isPtr         bool
 	table         string
 	columns       []string
-	columnsIdx    []int8
 	columnDataMap map[string]interface{}
 	condition     Condition
 	orderBys      []OrderBy
 	page          PageInfo
 }
 
-func GetRowScanner() IRowScanner {
-	return d
-}
-func (d DefaultModel) GetRowScanner() IRowScanner {
-	return d
-}
-
-func (d DefaultModel) GetScanners(columns []string) ([]interface{}, int, error) {
-	var scanners []interface{}
-	simpleIdx := 0
-	if d.isStruct {
-		for idx, column := range columns {
-			idx, ok := d.rawColumnIdxMap[column]
-			if ok {
-				scanners = append(scanners, d.rawColumns[idx])
-			} else {
-				scanners = append(scanners, EMPTY_SCANNER)
-			}
-		}
-	} else if d.columns == nil || len(d.Columns()) <= 1 {
-		colName := ""
-		if d.columns == nil {
-			colName = columns[0]
-		} else {
-			colName = d.columns[0]
-		}
-		for i, column := range columns {
-			if column == colName {
-				simpleIdx = i
-				scanners = append(scanners, d.rawScanners[0])
-			} else {
-				scanners = append(scanners, EMPTY_SCANNER)
-			}
-		}
-	}
-	return scanners, simpleIdx, nil
-}
-
 func (d DefaultModel) Table() string {
-	if d.table != "" && len(d.table) > 0 {
-		return d.table
-	}
-	return d.rawTable
-}
-
-func (d *DefaultModel) SetTable(tableName string) {
-	d.table = tableName
+	return d.table
 }
 
 func (d DefaultModel) Columns() []string {
-	if d.columns != nil && len(d.columns) > 0 {
-		return d.columns
-	}
-	return d.rawColumnNames
-}
-
-func (d *DefaultModel) SetColumns(columns []string) error {
-	if columns != nil && len(columns) > 0 {
-		if d.isStruct {
-			d.columns = ArrayIntersect(d.rawColumnNames, append([]string{d.rawColumnNames[0]}, columns...))
-		} else {
-			d.columns = columns
-		}
-	}
-	return nil
-}
-
-func (d *DefaultModel) SetData(_ interface{}, valueOfData reflect.Value, isStruct bool, isPtr bool, isSlice bool) {
-	d.data = valueOfData
-	d.isStruct = isStruct
-	d.isPtr = isPtr
-	d.isSlice = isSlice
-	if isStruct && !isSlice { //为结构体并且非数组或切片的情况
-		dataMap := make(map[string]interface{})
-		_, columns, _ := getColumns(valueOfData)
-		for _, column := range columns {
-			dataMap[column.ColumnName] = column.Data
-		}
-		d.columnDataMap = dataMap
-	}
-}
-
-func (d DefaultModel) PrimaryAuto() bool {
-	return d.primaryAuto
+	return d.columns
 }
 
 func (d DefaultModel) ColumnDataMap() map[string]interface{} {
@@ -303,50 +233,24 @@ func (d DefaultModel) ColumnDataMap() map[string]interface{} {
 }
 
 func (d DefaultModel) Condition() Condition {
-	if d.condition != nil {
-		return d.condition
-	}
-	if d.columnDataMap != nil {
-		col, ok := d.columnDataMap[d.rawColumnNames[0]] //默认第一个为主键
-		v := reflect.ValueOf(col)
-		//TODO 此处逻辑不够完备，需要判断列本身是否为空
-		if ok && !v.IsZero() {
-			d.condition = Cnd(d.rawColumnNames[0], Eq, col)
-		}
-	}
 	return d.condition
-}
-
-func (d *DefaultModel) SetCondition(c Condition) error {
-	d.condition = c
-	return nil
 }
 
 func (d DefaultModel) OrderBys() []OrderBy {
 	return d.orderBys
 }
 
-func (d *DefaultModel) SetOrderBys(orders []OrderBy) error {
-	d.orderBys = orders
-	return nil
-}
-
 func (d DefaultModel) Page() PageInfo {
 	return d.page
 }
 
-func (d *DefaultModel) SetPage(p PageInfo) error {
-	d.page = p
-	return nil
-}
 func (d DefaultModel) Clone() TableModel {
 	return &DefaultModel{
-		rawScanners:     d.rawScanners,
-		rawType:         d.rawType,
-		rawTable:        d.rawTable,
-		rawColumnNames:  d.rawColumnNames,
-		rawColumns:      d.rawColumns,
-		rawColumnIdxMap: d.rawColumnIdxMap,
-		primaryAuto:     d.primaryAuto,
+		table:         d.table,
+		columns:       d.columns,
+		columnDataMap: d.columnDataMap,
+		condition:     d.condition,
+		orderBys:      d.orderBys,
+		page:          d.page,
 	}
 }

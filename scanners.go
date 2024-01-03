@@ -34,6 +34,8 @@ func (scanner ScannerImpl) Value() (driver.Value, error) {
 	return scanner.Object, nil
 }
 
+type CountScanner struct {
+}
 type EmptyScanner struct {
 	ColName string
 }

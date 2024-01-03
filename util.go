@@ -10,36 +10,40 @@ import (
 	"time"
 )
 
-type RawTableInfo struct {
-	reflect.Type
-	RawTableName string
-	IsSlice      bool
-	IsPtr        bool
-	IsStruct     bool
-	RawData      interface{}
-}
+var columnToFieldNameMapCache = make(map[reflect.Type]map[string]Column)
+var columnsCache = make(map[reflect.Type][]string)
 
-func getScanners(v interface{}) []IScanner {
-
-}
-
-var columnToFieldNameMapCache = make(map[reflect.Type]map[string]string)
-
-func getColumnToFieldNameMap(v RawTableInfo) map[string]string {
-	columnMap := make(map[string]string)
-	oo := v.Type
-	cc, ok := columnToFieldNameMapCache[oo]
-	if ok {
-		return cc
+func getColumnToFieldNameMap(v reflect.Type) (map[string]Column, []string) {
+	columns := make([]string, 0)
+	columnMap := make(map[string]Column)
+	cc, ok := columnToFieldNameMapCache[v]
+	cols, okk := columnsCache[v]
+	if ok && okk {
+		return cc, cols
 	}
-	for i := 0; i < oo.NumField(); i++ {
-		field := oo.Field(i)
+	for i := 0; i < v.NumField(); i++ {
+		field := v.Field(i)
 		colName := getColumnName(field)
-		columnMap[colName] = field.Name
+		if len(colName) > 0 {
+			scanner := GetIScannerOfColumn(reflect.New(field.Type).Elem())
+			columnMap[colName] = Column{
+				Data:        reflect.New(field.Type).Elem(),
+				ColumnName:  colName,
+				FieldName:   field.Name,
+				Primary:     false,
+				PrimaryAuto: false,
+				ColumnType:  "",
+				FieldType:   field.Type,
+				Scanner:     scanner,
+			}
+			columns = append(columns, colName)
+		}
 	}
-	return columnMap
+	columnToFieldNameMapCache[v] = columnMap
+	columnsCache[v] = columns
+	return columnMap, columns
 }
-func GetRawTableInfo(v interface{}) RawTableInfo {
+func GetRawTableInfo(v interface{}) RawMetaInfo {
 	tt := reflect.TypeOf(v)
 	isStruct := false
 	isPtr := false
@@ -67,47 +71,15 @@ func GetRawTableInfo(v interface{}) RawTableInfo {
 		tableName = iTable.TableName()
 	}
 
-	return RawTableInfo{tt, tableName, isSlice, isPtr, isStruct, v}
+	return RawMetaInfo{tt, tableName, isSlice, isPtr, isStruct, v}
 }
 
-func getColumns(v reflect.Value) ([]string, []Column, map[string]int) {
-	var columnNames []string
-	var columns []Column
-	var columnIdxMap = make(map[string]int)
-	oo := v.Type()
-
-	for i := 0; i < oo.NumField(); i++ {
-		field := oo.Field(i)
-		col, tps := getColumnFromField(v.Field(i), field)
-		columns = append(columns, col) //默认都插入一个
-		columnIdxMap[col.ColumnName] = i
-		if tps != -1 {
-			columnNames = append(columnNames, col.ColumnName)
-		}
-	}
-	if Debug {
-		fmt.Println("columns are:", columns)
-	}
-	return columnNames, columns, columnIdxMap
-}
-
-//	func Md5Text(str string) string {
-//		h := md5.New()
-//		h.Write([]byte(str))
-//		return hex.EncodeToString(h.Sum(nil))
-//	}
-func getColumnFromField(v reflect.Value, filed reflect.StructField) (Column, int) {
-	colName, tps := getColumnName(filed)
-	if Debug {
-		fmt.Println("Tag is:", colName, "type is:", tps)
-	}
-	return Column{Data: v.Interface(), ColumnName: colName, FieldName: filed.Name, PrimaryAuto: tps == 2, Primary: tps == 1 || tps == 2}, tps
-
-}
 func getColumnName(field reflect.StructField) string {
 	tag, hasTag := field.Tag.Lookup("gom")
-	if !hasTag || strings.EqualFold(tag, "-") {
+	if !hasTag {
 		tag = CamelToSnakeString(field.Name)
+	} else if strings.EqualFold(tag, "-") {
+		return ""
 	}
 	return tag
 }
@@ -132,15 +104,15 @@ func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, err
 			return nil, errors.New(fmt.Sprintf("[%s] was a \"empty struct\",it has no field or All fields has been ignored", rawInfo.Type.Name()))
 		}
 		newMap := make(map[string]interface{})
-		cMap := getColumnToFieldNameMap(rawInfo)
-		for key, fieldName := range cMap {
+		cMap, _ := getColumnToFieldNameMap(rawInfo.Type)
+		for key, column := range cMap {
 			if len(columns) > 0 {
 				_, ok := colMap[key]
 				if ok {
-					newMap[key] = reflect.ValueOf(vs).FieldByName(fieldName).Interface()
+					newMap[key] = reflect.ValueOf(vs).FieldByName(column.FieldName).Interface()
 				}
 			} else {
-				val := reflect.ValueOf(vs).FieldByName(fieldName)
+				val := reflect.ValueOf(vs).FieldByName(column.FieldName)
 				if !val.IsZero() {
 					newMap[key] = val.Interface()
 				}
@@ -242,17 +214,18 @@ func getGrouteId() int64 {
 	return int64(id)
 }
 
-func ScannerResultToStruct(t reflect.Type, scanners []interface{}, columnNames []string, columnIdxMap map[string]int) reflect.Value {
+func ScannerResultToStruct(t reflect.Type, scanners []interface{}, columnNames []string) reflect.Value {
 	v := reflect.Indirect(reflect.New(t))
+	colsMap, _ := getColumnToFieldNameMap(t)
 	for i, name := range columnNames {
 		if _, ok := scanners[i].(EmptyScanner); !ok { //不能时空扫描器
 			val, er := scanners[i].(IScanner).Value()
 			if er != nil {
 				panic(er)
 			}
-			idx, ok := columnIdxMap[name]
+			colData, ok := colsMap[name]
 			if ok && val != nil {
-				v.Field(idx).Set(reflect.ValueOf(val))
+				v.FieldByName(colData.FieldName).Set(reflect.ValueOf(val))
 			}
 		}
 

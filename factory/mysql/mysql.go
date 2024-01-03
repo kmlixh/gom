@@ -3,6 +3,7 @@ package mysql
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/kmlixh/gom/v2"
 	"strings"
@@ -16,12 +17,17 @@ type MyCndStruct struct {
 
 var keywordMap map[string]string
 
-var funcMap map[gom.SqlType]gom.GenerateSQLFunc
+var funcMap map[gom.SqlType]gom.SqlFunc
 
 type Factory struct {
 }
 
+var columnsCache = make(map[string][]gom.Column)
+
 func (m Factory) GetColumns(tableName string, db *sql.DB) []gom.Column {
+	if cols, ok := columnsCache[tableName+"-"+fmt.Sprint(&db)]; ok {
+		return cols
+	}
 	dbSql := "SELECT DATABASE() as db;"
 	rows, er := db.Query(dbSql)
 	if er != nil {
@@ -53,11 +59,12 @@ func (m Factory) GetColumns(tableName string, db *sql.DB) []gom.Column {
 			return nil
 		}
 	}
+	columnsCache[tableName+"-"+fmt.Sprint(&db)] = columns
 	return columns
 
 }
 
-func (m Factory) GetSqlFunc(sqlType gom.SqlType) gom.GenerateSQLFunc {
+func (m Factory) GetSqlFunc(sqlType gom.SqlType) gom.SqlFunc {
 	return funcMap[sqlType]
 }
 func (m Factory) ConditionToSql(preTag bool, cnd gom.Condition) (string, []interface{}) {
@@ -111,7 +118,7 @@ func init() {
 	factory := Factory{}
 	initKeywordMap()
 	gom.Register("mysql", &factory)
-	funcMap = make(map[gom.SqlType]gom.GenerateSQLFunc)
+	funcMap = make(map[gom.SqlType]gom.SqlFunc)
 	funcMap[gom.Query] = func(models ...gom.TableModel) []gom.SqlProto {
 		model := models[0]
 		var datas []interface{}
@@ -200,17 +207,15 @@ func init() {
 			sql := "INSERT INTO " + model.Table() + " ("
 			valuesPattern := "VALUES("
 			i := 0
-			for j, c := range model.Columns() {
-				if !model.PrimaryAuto() || j > 0 {
-					if i > 0 {
-						sql += ","
-						valuesPattern += ","
-					}
-					sql += wrapperName(c)
-					valuesPattern += "?"
-					datas = append(datas, model.ColumnDataMap()[c])
-					i++
+			for _, c := range model.Columns() {
+				if i > 0 {
+					sql += ","
+					valuesPattern += ","
 				}
+				sql += wrapperName(c)
+				valuesPattern += "?"
+				datas = append(datas, model.ColumnDataMap()[c])
+				i++
 			}
 			sql += ")"
 			valuesPattern += ");"

@@ -103,11 +103,7 @@ func (db DB) Count(columnName string) (int64, error) {
 		statements = statements + " WHERE " + cndString
 	}
 	var count int64
-	tb, er := db.GetTableModel(&count, "count")
-	if er != nil {
-		panic(er)
-	}
-	_, er = db.query(statements, data, tb.GetRowScanner())
+	_, er := db.query(statements, data, getDefaultScanner(&count))
 
 	return count, er
 }
@@ -121,11 +117,7 @@ func (db DB) Sum(columnName string) (int64, error) {
 		statements = statements + " WHERE " + cndString
 	}
 	var count int64
-	tb, er := db.GetTableModel(&count, "count")
-	if er != nil {
-		panic(er)
-	}
-	_, er = db.query(statements, data, tb.GetRowScanner())
+	_, er := db.query(statements, data, getDefaultScanner(&count))
 
 	return count, er
 }
@@ -133,113 +125,229 @@ func (db DB) Sum(columnName string) (int64, error) {
 func (db DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.sqlType = Query
-	model, er := db.GetTableModel(vs, columns...)
-	if er != nil {
-		return nil, er
-	}
 	if db.rawSql != nil && len(*db.rawSql) > 0 {
-		return db.query(*db.rawSql, *db.rawData, model.GetRowScanner())
+		return db.query(*db.rawSql, *db.rawData, getDefaultScanner(vs))
 	} else {
-		db.initTableModel(model)
+		rawInfo := GetRawTableInfo(vs)
+		//检查列缺失
+		colMap, cols := getColumnToFieldNameMap(rawInfo.Type)
+		if len(columns) > 0 {
+			for _, c := range columns {
+				if _, ok := colMap[c]; !ok {
+					return nil, errors.New(fmt.Sprintf("'%s' not exist in variable "))
+				}
+			}
+		}
+		if columns == nil || len(columns) == 0 {
+			columns = cols
+		}
+		table := *db.table
+		if len(table) == 0 {
+			table = rawInfo.TableName
+		}
+		cnd := *db.cnd
+		model := &DefaultModel{
+			table:         table,
+			columns:       columns,
+			columnDataMap: nil,
+			condition:     cnd,
+			orderBys:      *db.orderBys,
+			page:          *db.page,
+		}
 		selectFunc := db.factory.GetSqlFunc(Query)
 		sqlProtos := selectFunc(model)
-		return db.query(sqlProtos[0].PreparedSql, sqlProtos[0].Data, model.GetRowScanner())
+		return db.query(sqlProtos[0].PreparedSql, sqlProtos[0].Data, getDefaultScanner(vs))
 	}
 }
 func (db DB) First(vs interface{}) (interface{}, error) {
 	return db.Page(0, 1).Select(vs)
 }
-func (db DB) Insert(v interface{}, columns ...string) (int64, int64, error) {
+func (db DB) Insert(v interface{}, columns ...string) (sql.Result, error) {
 	db.sqlType = Insert
 	return db.executeInside(ArrayOf(v), columns...)
 
 }
-func (db DB) Delete(vs ...interface{}) (int64, int64, error) {
+func (db DB) Delete(vs ...interface{}) (sql.Result, error) {
 	db.sqlType = Delete
 	return db.executeInside(vs)
 
 }
-func (db DB) Update(v interface{}, columns ...string) (int64, int64, error) {
+func (db DB) Update(v interface{}, columns ...string) (sql.Result, error) {
 	db.sqlType = Update
 	return db.executeInside(ArrayOf(v), columns...)
 }
 
-func (db DB) executeInside(v []interface{}, columns ...string) (int64, int64, error) {
+func (db DB) executeInside(vi []interface{}, columns ...string) (sql.Result, error) {
 	var vs []interface{}
-	if v != nil && len(v) > 0 {
-		vs = append(vs, UnZipSlice(v)...)
+	if vi != nil && len(vi) > 0 {
+		vs = append(vs, UnZipSlice(vi)...)
 	}
 	if db.rawSql != nil && len(*db.rawSql) > 0 {
 		if vs != nil && len(vs) > 0 {
-			return 0, 0, errors.New("when the RawSql is not nil or empty,data should be nil")
+			return nil, errors.New("when the RawSql is not nil or empty,data should be nil")
 		}
-		return db.ExecuteRaw()
+		return db.ExecuteRaw(*db.rawSql, db.rawData)
 	}
 	if len(vs) == 0 && db.table == nil && db.cnd == nil {
-		return 0, 0, errors.New("there was nothing to do")
+		return nil, errors.New("there was nothing to do")
 	} else {
 		var vvs []TableModel
-		if len(vs) == 0 {
-			t, _ := db.GetTableModel(nil, columns...)
-			db.initTableModel(t)
-			if db.sqlType == Update && t.Condition() == nil {
-				return 0, 0, errors.New("can't update Database without Conditions")
-			}
-			vvs = append(vvs, t)
-		} else {
-			for _, v := range vs {
-				t, er := db.GetTableModel(v, columns...)
-				if er != nil {
-					panic(er)
-				}
-				db.initTableModel(t)
-				if db.sqlType == Update && t.Condition() == nil {
-					return 0, 0, errors.New("can't update Database without Conditions")
-				}
-				vvs = append(vvs, t)
-			}
+		if len(vs) > 1 && db.cnd != nil {
+			return nil, errors.New("condition was Exist And Variables were too many")
 		}
-		return db.executeTableModel(db.sqlType, vvs)
-	}
-}
-func (db DB) ExecuteRaw() (int64, int64, error) {
-	rs, er := db.ExecuteStatement(*db.rawSql, *db.rawData...)
-	if er != nil {
-		return 0, 0, er
-	}
-	c, er := rs.RowsAffected()
-	return c, 0, er
-}
+		for _, v := range vs {
+			rawInfo := GetRawTableInfo(v)
+			table := *db.table
+			if len(table) == 0 {
+				table = rawInfo.TableName
+			}
+			//检查列缺失
+			colMap, rawCols := getColumnToFieldNameMap(rawInfo.Type)
+			dbCols := db.factory.GetColumns(table, db.db)
+			if dbCols == nil || len(dbCols) == 0 {
+				return nil, errors.New("query table struct fail ")
+			}
+			primaryKey := make([]string, 0)
+			primaryAuto := make([]string, 0)
+			dbColMap := make(map[string]Column)
+			dbColNames := make([]string, 0)
+			for _, dbCol := range dbCols {
+				dbColNames = append(dbColNames, dbCol.ColumnName)
+				dbColMap[dbCol.ColumnName] = dbCol
+				if dbCol.Primary && !dbCol.PrimaryAuto {
+					primaryKey = append(primaryKey, dbCol.ColumnName)
+				}
+				if dbCol.PrimaryAuto {
+					primaryAuto = append(primaryAuto, dbCol.ColumnName)
+				}
+			}
 
-func (db DB) executeTableModel(sqlType SqlType, models []TableModel) (int64, int64, error) {
-	db.cloneSelfIfDifferentGoRoutine()
-	var lastInsertId = int64(0)
-	genFunc := db.factory.GetSqlFunc(sqlType)
-	//此处应当判断是否已经在事物中，如果不在事务中才开启事物
-	count := int64(0)
-	sqlProtos := genFunc(models...)
-	for _, sqlProto := range sqlProtos {
-		if Debug {
-			fmt.Println(sqlProto)
-		}
-		rs, er := db.ExecuteStatement(sqlProto.PreparedSql, sqlProto.Data...)
-		if er != nil {
-			return 0, 0, er
-		}
-		cs, err := rs.RowsAffected()
-		if cs == 1 && len(sqlProtos) == len(models) && sqlType == Insert {
-			//
-			id, er := rs.LastInsertId()
-			if er == nil {
-				lastInsertId = id
+			if len(columns) > 0 {
+				for _, c := range columns {
+					if _, ok := colMap[c]; !ok {
+						return nil, errors.New(fmt.Sprintf("'%s' not exist in variable ", c))
+					}
+					if _, ok := dbColMap[c]; !ok {
+						return nil, errors.New(fmt.Sprintf("'%s' not exist in table '%s' ", c, table))
+					}
+
+				}
 			}
+
+			if columns == nil || len(columns) == 0 {
+				columns = ArrayIntersect(dbColNames, rawCols)
+			} else {
+				columns = ArrayIntersect(dbColNames, columns)
+				columns = ArrayIntersect(columns, rawCols)
+			}
+			dataMap := make(map[string]interface{})
+			cnd := *db.cnd
+			if cnd == nil {
+				if db.sqlType == Update {
+					rawDataMap, er := StructToMap(v, ArrayIntersect(dbColNames, append(append(primaryKey, primaryAuto...), columns...))...)
+					if er != nil {
+						return nil, er
+					}
+					if len(primaryKey) == 0 {
+						return nil, errors.New("can't find primary Key")
+					}
+					cndMap := make(map[string]interface{})
+					for _, key := range primaryKey {
+						data, ok := rawDataMap[key]
+						if !ok {
+							return nil, errors.New(fmt.Sprintf("can't find data for primary Key '%s'", key))
+						}
+						if reflect.ValueOf(data).IsZero() {
+							return nil, errors.New(fmt.Sprintf("value of Key '%s' can't be nil or empty", key))
+						}
+						cndMap[key] = data
+						delete(rawDataMap, key)
+					}
+					cnd = MapToCondition(cndMap)
+					for _, col := range columns {
+						data, ok := rawDataMap[col]
+						if ok && (len(columns) != len(dbCols) || !reflect.ValueOf(data).IsZero()) {
+							dataMap[col] = data
+						}
+					}
+
+				} else if db.sqlType == Delete {
+					rawDataMap, er := StructToMap(v, columns...)
+					if er != nil {
+						return nil, er
+					}
+					cnd = MapToCondition(rawDataMap)
+				}
+			}
+			if db.sqlType == Insert {
+
+				rawDataMap, er := StructToMap(v, ArrayIntersect(dbColNames, append(primaryKey, columns...))...)
+				if er != nil {
+					return nil, er
+				}
+				if len(primaryKey) > 0 {
+					for _, key := range primaryKey {
+						_, ok := rawDataMap[key]
+						if !dbColMap[key].PrimaryAuto && !ok {
+							return nil, errors.New("primary key was null")
+						}
+						if dbColMap[key].PrimaryAuto && ok {
+							//自增情况下，从dataMap中删除key
+
+							delete(rawDataMap, key)
+						}
+					}
+				}
+				dataMap = rawDataMap
+				columns = ArrayIntersect(dbColNames, append(primaryKey, columns...))
+
+			}
+			dm := &DefaultModel{
+				table:         table,
+				columns:       columns,
+				columnDataMap: dataMap,
+				condition:     cnd,
+				orderBys:      *db.orderBys,
+				page:          *db.page,
+			}
+
+			if db.sqlType == Update && cnd == nil {
+				return nil, errors.New("can't update Database without Conditions")
+			}
+			vvs = append(vvs, dm)
 		}
-		if err != nil {
-			return cs, 0, err
+		var lastInsertId = int64(0)
+		genFunc := db.factory.GetSqlFunc(db.sqlType)
+		//此处应当判断是否已经在事物中，如果不在事务中才开启事物
+		count := int64(0)
+		sqlProtos := genFunc(vvs...)
+		for _, sqlProto := range sqlProtos {
+			if Debug {
+				fmt.Println(sqlProto)
+			}
+			rs, er := db.ExecuteStatement(sqlProto.PreparedSql, sqlProto.Data...)
+			if er != nil {
+				return CommonSqlResult{0, 0, er}, nil
+			}
+			cs, err := rs.RowsAffected()
+			if cs == 1 && len(sqlProtos) == len(vvs) && db.sqlType == Insert {
+				//
+				id, er := rs.LastInsertId()
+				if er == nil {
+					lastInsertId = id
+				}
+			}
+			if err != nil {
+				return nil, err
+			}
+			count += cs
 		}
-		count += cs
+		return CommonSqlResult{count, lastInsertId, nil}, nil
 	}
-	return count, lastInsertId, nil
+}
+func (db DB) ExecuteRaw(rawSql string, datas ...interface{}) (sql.Result, error) {
+	return db.ExecuteStatement(rawSql, datas...)
+
 }
 
 func (db DB) ExecuteStatement(statement string, data ...interface{}) (sql.Result, error) {
@@ -372,82 +480,6 @@ func (db DB) GetPage() (int64, int64) {
 		return (*db.page).Page()
 	}
 	return 0, 0
-}
-func (db *DB) initTableModel(t TableModel) {
-	if db.table != nil {
-		t.SetTable(*db.table)
-	}
-	if db.cnd != nil && *db.cnd != nil {
-		err := t.SetCondition(*db.cnd)
-		if err != nil {
-			panic(err)
-		}
-	}
-	if db.page != nil {
-		err := t.SetPage(*db.page)
-		if err != nil {
-			panic(err)
-		}
-	}
-	if db.orderBys != nil {
-		err := t.SetOrderBys(*db.orderBys)
-		if err != nil {
-			panic(err)
-		}
-	}
-
-}
-
-var tableModelCache = make(map[string]TableModel)
-
-func (db *DB) GetTableModel(v interface{}, choosedColumns ...string) (TableModel, error) {
-	//2024年1月1号，此处的时间类型
-	//防止重复创建map，需要对map创建过程加锁
-	if v == nil {
-		return &DefaultModel{}, nil
-	}
-	rawTableInfo := GetRawTableInfo(v)
-	if !rawTableInfo.IsStruct && (choosedColumns == nil || len(choosedColumns) != 1) {
-		return nil, errors.New("basic Type Only Support [1] Column Or2 nil")
-	}
-	tableName := rawTableInfo.RawTableName
-	if db.table != nil {
-		tableName = *db.table
-	}
-	var model TableModel
-	cacheName := rawTableInfo.PkgPath() + "-" + tableName
-	cachedModel, ok := tableModelCache[cacheName]
-	if ok {
-		model = cachedModel.Clone()
-	} else {
-		columns := db.factory.GetColumns(tableName, db.db)
-		var temp TableModel
-		var scanners []IScanner
-		tempVal := reflect.Indirect(reflect.New(rawTableInfo.Type))
-		if rawTableInfo.IsStruct {
-			if rawTableInfo.IsStruct && rawTableInfo.Type.NumField() == 0 {
-				_, ok := reflect.Indirect(reflect.New(rawTableInfo.Type)).Interface().(DefaultStruct)
-				if !ok {
-					return nil, errors.New(fmt.Sprintf("[%s] was a \"empty struct\",it has no field or All fields has been ignored", rawTableInfo.Type.Name()))
-				} else {
-					return &DefaultModel{}, nil
-				}
-			}
-			columns = combineColumns(tempVal, columns)
-			for _, column := range columns {
-				scanners = append(scanners, GetIScannerOfColumn(column.Data))
-			}
-			temp = &DefaultModel{rawScanners: scanners, rawType: rawTableInfo.Type, rawTable: rawTableInfo.RawTableName, rawColumns: columns, rawColumnNames: columnNames, rawColumnIdxMap: columnIdxMap, primaryAuto: columns[0].PrimaryAuto}
-		} else {
-			scanners = append(scanners, GetIScannerOfColumn(reflect.Indirect(reflect.New(rawTableInfo.Type)).Interface()))
-			temp = &DefaultModel{rawScanners: scanners, rawType: rawTableInfo.Type, rawTable: "", primaryAuto: false}
-		}
-		tableModelCache[cacheName] = temp
-		model = temp.Clone()
-	}
-	model.SetData(v, reflect.Indirect(reflect.ValueOf(v)), rawTableInfo.IsStruct, rawTableInfo.IsPtr, rawTableInfo.IsSlice)
-	er := model.SetColumns(choosedColumns)
-	return model, er
 }
 
 func (db *DB) CleanDb() *DB {
