@@ -180,15 +180,13 @@ func init() {
 			sql := "UPDATE "
 			sql += " " + model.Table() + " SET "
 			i := 0
-			for j, k := range model.Columns() {
-				if j > 0 { //默认第一个是主键，需要去掉
-					if i > 0 {
-						sql += ", "
-					}
-					sql += wrapperName(k) + " = ? "
-					datas = append(datas, model.ColumnDataMap()[k])
-					i++
+			for _, k := range model.Columns() {
+				if i > 0 {
+					sql += ", "
 				}
+				sql += wrapperName(k) + " = ? "
+				datas = append(datas, model.ColumnDataMap()[k])
+				i++
 			}
 			conditionSql, dds := factory.ConditionToSql(false, model.Condition())
 			if len(conditionSql) > 0 {

@@ -14,7 +14,7 @@ type DB struct {
 	cnd      Condition
 	table    *string
 	rawSql   *string
-	rawData  *[]interface{}
+	rawData  []any
 	tx       *sql.Tx
 	orderBys *[]OrderBy
 	page     PageInfo
@@ -46,11 +46,11 @@ func (db *DB) cloneSelfIfDifferentGoRoutine() {
 		*db = db.Clone()
 	}
 }
-func (db *DB) RawSql(sql string, datas ...interface{}) *DB {
+func (db *DB) RawSql(sql string, datas ...any) *DB {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.rawSql = &sql
 	var temp = UnZipSlice(datas)
-	db.rawData = &temp
+	db.rawData = temp
 	return db
 }
 
@@ -119,7 +119,7 @@ func (db DB) Count(columnName string) (int64, error) {
 	return count, er
 }
 
-func (db DB) Sum(columnName string) (int64, error) {
+func (db *DB) Sum(columnName string) (int64, error) {
 	statements := fmt.Sprintf("select SUM(`%s`) as count from `%s`", columnName, *db.table)
 	var data []interface{}
 	if db.cnd != nil {
@@ -137,7 +137,7 @@ func (db DB) Sum(columnName string) (int64, error) {
 	return count, er
 }
 
-func (db DB) Select(vs interface{}, columns ...string) (interface{}, error) {
+func (db *DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.sqlType = Query
 	if db.rawSql != nil && len(*db.rawSql) > 0 {
@@ -145,7 +145,7 @@ func (db DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 		if er != nil {
 			return 0, er
 		}
-		return db.query(*db.rawSql, *db.rawData, scanners)
+		return db.query(*db.rawSql, db.rawData, scanners)
 	} else {
 		rawInfo := GetRawTableInfo(vs)
 		//检查列缺失
@@ -182,29 +182,29 @@ func (db DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 		return db.query(sqlProtos[0].PreparedSql, sqlProtos[0].Data, scanner)
 	}
 }
-func (db DB) First(vs interface{}) (interface{}, error) {
+func (db *DB) First(vs interface{}) (interface{}, error) {
 	db.cloneSelfIfDifferentGoRoutine()
 	return db.Page(0, 1).Select(vs)
 }
-func (db DB) Insert(v interface{}, columns ...string) (sql.Result, error) {
+func (db *DB) Insert(v interface{}, columns ...string) (sql.Result, error) {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.sqlType = Insert
 	return db.executeInside(ArrayOf(v), columns...)
 
 }
-func (db DB) Delete(vs ...interface{}) (sql.Result, error) {
+func (db *DB) Delete(vs ...interface{}) (sql.Result, error) {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.sqlType = Delete
 	return db.executeInside(vs)
 
 }
-func (db DB) Update(v interface{}, columns ...string) (sql.Result, error) {
+func (db *DB) Update(v interface{}, columns ...string) (sql.Result, error) {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.sqlType = Update
 	return db.executeInside(ArrayOf(v), columns...)
 }
 
-func (db DB) executeInside(vi []interface{}, customColumns ...string) (sql.Result, error) {
+func (db *DB) executeInside(vi []interface{}, customColumns ...string) (sql.Result, error) {
 	var vs []interface{}
 	if vi != nil && len(vi) > 0 {
 		vs = append(vs, UnZipSlice(vi)...)
@@ -213,7 +213,7 @@ func (db DB) executeInside(vi []interface{}, customColumns ...string) (sql.Resul
 		if vs != nil && len(vs) > 0 {
 			return nil, errors.New("when the RawSql is not nil or empty,data should be nil")
 		}
-		return db.ExecuteRaw(*db.rawSql, db.rawData)
+		return db.ExecuteRaw(*db.rawSql, db.rawData...)
 	}
 	if len(vs) == 0 && db.table == nil && db.cnd == nil {
 		return nil, errors.New("there was nothing to do")
@@ -227,7 +227,7 @@ func (db DB) executeInside(vi []interface{}, customColumns ...string) (sql.Resul
 					table = rawInfo.TableName
 				}
 				//检查列缺失
-				colMap, rawCols := getDefaultsColumnFieldMap(rawInfo.Type)
+				colMap, _ := getDefaultsColumnFieldMap(rawInfo.Type)
 				dbCols, er := db.factory.GetColumns(table, db.db)
 				if er != nil {
 					return nil, er
@@ -239,6 +239,9 @@ func (db DB) executeInside(vi []interface{}, customColumns ...string) (sql.Resul
 				for _, dbCol := range dbCols {
 					dbColNames = append(dbColNames, dbCol.ColumnName)
 					dbColMap[dbCol.ColumnName] = dbCol
+					if _, ok := colMap[dbCol.ColumnName]; !ok && dbCol.Primary {
+						return nil, errors.New(fmt.Sprintf("column '%s' not exist in variable ", dbCol.ColumnName))
+					}
 					if dbCol.Primary && !dbCol.PrimaryAuto {
 						primaryKey = append(primaryKey, dbCol.ColumnName)
 					}
@@ -255,31 +258,33 @@ func (db DB) executeInside(vi []interface{}, customColumns ...string) (sql.Resul
 						if _, ok := dbColMap[c]; !ok {
 							return nil, errors.New(fmt.Sprintf("'%s' not exist in table '%s' ", c, table))
 						}
-
 					}
 				}
 
-				if columns == nil || len(columns) == 0 {
-					columns = ArrayIntersect(dbColNames, rawCols)
-				} else {
-					columns = ArrayIntersect(dbColNames, columns)
-					columns = ArrayIntersect(columns, rawCols)
+				if len(columns) > 0 {
+					columns = append(primaryKey, append(primaryAuto, columns...)...)
 				}
-				dataMap := make(map[string]interface{})
 				var cnd Condition
 				cnd = db.GetCondition()
-				if cnd == nil {
-					if db.sqlType == Update {
-						rawDataMap, er := StructToMap(v, ArrayIntersect(dbColNames, append(append(primaryKey, primaryAuto...), columns...))...)
+				dataMap, er := StructToMap(v, columns...)
+				dataCol := make([]string, 0)
+				for key, _ := range dataMap {
+					dataCol = append(dataCol, key)
+				}
+				columns = ArrayIntersect(dbColNames, dataCol)
+
+				if db.sqlType == Update {
+					if cnd == nil {
 						if er != nil {
 							return nil, er
 						}
-						if len(primaryKey) == 0 {
+						prs := append(primaryKey, primaryAuto...)
+						if len(prs) == 0 {
 							return nil, errors.New("can't find primary Key")
 						}
 						cndMap := make(map[string]interface{})
-						for _, key := range primaryKey {
-							data, ok := rawDataMap[key]
+						for _, key := range prs {
+							data, ok := dataMap[key]
 							if !ok {
 								return nil, errors.New(fmt.Sprintf("can't find data for primary Key '%s'", key))
 							}
@@ -287,46 +292,25 @@ func (db DB) executeInside(vi []interface{}, customColumns ...string) (sql.Resul
 								return nil, errors.New(fmt.Sprintf("value of Key '%s' can't be nil or empty", key))
 							}
 							cndMap[key] = data
-							delete(rawDataMap, key)
 						}
 						cnd = MapToCondition(cndMap)
-						for _, col := range columns {
-							data, ok := rawDataMap[col]
-							if ok && (len(columns) != len(dbCols) || !reflect.ValueOf(data).IsZero()) {
-								dataMap[col] = data
-							}
-						}
-
-					} else if db.sqlType == Delete {
-						rawDataMap, er := StructToMap(v, columns...)
-						if er != nil {
-							return nil, er
-						}
-						cnd = MapToCondition(rawDataMap)
 					}
-				}
-				if db.sqlType == Insert {
 
-					rawDataMap, er := StructToMap(v, ArrayIntersect(dbColNames, append(primaryKey, columns...))...)
+					columns, _, _ = ArrayIntersect2(columns, append(primaryKey, primaryAuto...))
+
+				} else if db.sqlType == Delete && cnd == nil {
 					if er != nil {
 						return nil, er
 					}
-					if len(primaryKey) > 0 {
-						for _, key := range primaryKey {
-							_, ok := rawDataMap[key]
-							if !dbColMap[key].PrimaryAuto && !ok {
-								return nil, errors.New("primary key was null")
-							}
-							if dbColMap[key].PrimaryAuto && ok {
-								//自增情况下，从dataMap中删除key
+					cnd = MapToCondition(dataMap)
+					columns = make([]string, 0)
+				}
 
-								delete(rawDataMap, key)
-							}
-						}
+				if db.sqlType == Insert {
+					columns = ArrayIntersect(dbColNames, columns)
+					if len(primaryAuto) > 0 {
+						columns, _, _ = ArrayIntersect2(columns, primaryAuto)
 					}
-					dataMap = rawDataMap
-					columns = ArrayIntersect(dbColNames, append(primaryKey, columns...))
-
 				}
 
 				dm := &DefaultModel{
@@ -384,13 +368,13 @@ func (db DB) executeInside(vi []interface{}, customColumns ...string) (sql.Resul
 		return CommonSqlResult{lastInsertId, count, nil}, nil
 	}
 }
-func (db DB) ExecuteRaw(rawSql string, datas ...interface{}) (sql.Result, error) {
+func (db *DB) ExecuteRaw(rawSql string, datas ...any) (sql.Result, error) {
 	db.cloneSelfIfDifferentGoRoutine()
 	return db.ExecuteStatement(rawSql, datas...)
 
 }
 
-func (db DB) ExecuteStatement(statement string, data ...interface{}) (sql.Result, error) {
+func (db *DB) ExecuteStatement(statement string, data ...any) (sql.Result, error) {
 	db.cloneSelfIfDifferentGoRoutine()
 	st, err := db.prepare(statement)
 	if err != nil {
@@ -411,7 +395,7 @@ func (db DB) ExecuteStatement(statement string, data ...interface{}) (sql.Result
 	return rs, er
 }
 
-func (db DB) prepare(query string) (*sql.Stmt, error) {
+func (db *DB) prepare(query string) (*sql.Stmt, error) {
 	if db.IsInTransaction() {
 		st, er := db.tx.Prepare(query)
 		if er != nil {
@@ -422,14 +406,14 @@ func (db DB) prepare(query string) (*sql.Stmt, error) {
 	return db.db.Prepare(query)
 }
 
-func (db DB) GetCondition() Condition {
+func (db *DB) GetCondition() Condition {
 	if db.cnd != nil {
 		return db.cnd
 	}
 	return nil
 }
 
-func (db DB) query(statement string, data []interface{}, rowScanner IRowScanner) (interface{}, error) {
+func (db *DB) query(statement string, data []interface{}, rowScanner IRowScanner) (interface{}, error) {
 	if Debug {
 		fmt.Println("executeTableModel query,PreparedSql:", statement, "data was:", data)
 	}
@@ -474,18 +458,24 @@ func (db *DB) Begin() error {
 	db.tx = tx
 	return err
 }
-func (db DB) IsInTransaction() bool {
+func (db *DB) IsInTransaction() bool {
 	return db.tx != nil
 }
 func (db *DB) Commit() {
 	if db.IsInTransaction() {
-		db.tx.Commit()
+		err := db.tx.Commit()
+		if err != nil {
+			panic(err)
+		}
 		db.tx = nil
 	}
 }
 func (db *DB) Rollback() {
 	if db.tx != nil {
-		db.tx.Rollback()
+		err := db.tx.Rollback()
+		if err != nil {
+			panic(err)
+		}
 		db.tx = nil
 	}
 }
@@ -511,20 +501,20 @@ func (db DB) DoTransaction(work TransactionWork) (interface{}, error) {
 	return i, es
 }
 
-func (db DB) GetOrderBys() []OrderBy {
+func (db *DB) GetOrderBys() []OrderBy {
 	if db.orderBys != nil && *db.orderBys != nil {
 		return *db.orderBys
 	}
 	return nil
 }
 
-func (db DB) GetPageInfo() PageInfo {
+func (db *DB) GetPageInfo() PageInfo {
 	if db.page != nil {
 		return db.page
 	}
 	return nil
 }
-func (db DB) GetPage() (int64, int64) {
+func (db *DB) GetPage() (int64, int64) {
 	if db.page != nil {
 		return db.page.Page()
 	}

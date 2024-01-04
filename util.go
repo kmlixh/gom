@@ -154,8 +154,8 @@ func MapToCondition(maps map[string]interface{}) Condition {
 	}
 	return cnd
 }
-func UnZipSlice(vs interface{}) []interface{} {
-	var result = make([]interface{}, 0)
+func UnZipSlice(vs interface{}) []any {
+	var result = make([]any, 0)
 	t := reflect.TypeOf(vs)
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()

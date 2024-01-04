@@ -205,7 +205,9 @@ func (d DefaultScanner) Scan(rows *sql.Rows) (interface{}, error) {
 	if es != nil {
 		return nil, es
 	}
-
+	if d.columnMap == nil && len(columns) > 1 {
+		return nil, errors.New("columns were too many")
+	}
 	results := d.RawMetaInfo.RawData
 	if d.IsSlice {
 		for rows.Next() {
