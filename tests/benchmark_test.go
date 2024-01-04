@@ -83,5 +83,5 @@ func selectDataByRawDb() {
 }
 func selectDataByGom() {
 	var users []User
-	db.Raw("select * from user limit 0,1000").Select(&users)
+	db.RawSql("select * from user limit 0,1000").Select(&users)
 }

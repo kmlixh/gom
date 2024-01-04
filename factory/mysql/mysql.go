@@ -24,27 +24,28 @@ type Factory struct {
 
 var columnsCache = make(map[string][]gom.Column)
 
-func (m Factory) GetColumns(tableName string, db *sql.DB) []gom.Column {
-	if cols, ok := columnsCache[tableName+"-"+fmt.Sprint(&db)]; ok {
-		return cols
-	}
+func (m Factory) GetColumns(tableName string, db *sql.DB) ([]gom.Column, error) {
+
 	dbSql := "SELECT DATABASE() as db;"
 	rows, er := db.Query(dbSql)
 	if er != nil {
-		return nil
+		return nil, er
 	}
 	dbName := ""
 	if !rows.Next() {
-		return nil
+		return nil, errors.New(fmt.Sprint("column of table %s was empty", tableName))
 	}
 	er = rows.Scan(&dbName)
 	if er != nil {
-		return nil
+		return nil, errors.New(fmt.Sprint("column of table %s was empty", tableName))
+	}
+	if cols, ok := columnsCache[dbName+"-"+tableName]; ok {
+		return cols, nil
 	}
 	columnSql := "select COLUMN_NAME as columnName,DATA_TYPE as dataType,COLUMN_KEY as columnKey,EXTRA as extra from information_schema.columns  where table_schema=?  and table_name= ? order by ordinal_position;"
 	rows, er = db.Query(columnSql, dbName, tableName)
 	if er != nil {
-		return nil
+		return nil, er
 	}
 	columns := make([]gom.Column, 0)
 	for rows.Next() {
@@ -56,11 +57,11 @@ func (m Factory) GetColumns(tableName string, db *sql.DB) []gom.Column {
 		if er == nil {
 			columns = append(columns, gom.Column{ColumnName: columnName, ColumnType: columnType, Primary: columnKey == "PRI", PrimaryAuto: columnKey == "PRI" && extra == "auto_increment"})
 		} else {
-			return nil
+			return nil, er
 		}
 	}
-	columnsCache[tableName+"-"+fmt.Sprint(&db)] = columns
-	return columns
+	columnsCache[dbName+"-"+tableName] = columns
+	return columns, nil
 
 }
 

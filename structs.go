@@ -3,6 +3,7 @@ package gom
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"reflect"
 )
 
@@ -14,14 +15,14 @@ type ITableName interface {
 }
 
 type Column struct {
-	Data        interface{}
 	ColumnName  string
-	FieldName   string
 	Primary     bool
 	PrimaryAuto bool //If Primary Key Auto Generate Or2 Not
 	ColumnType  string
-	FieldType   reflect.Type
-	Scanner     IScanner
+}
+type FieldInfo struct {
+	FieldName string
+	FieldType reflect.Type
 }
 
 type SqlProto struct {
@@ -31,7 +32,7 @@ type SqlProto struct {
 
 type SqlFunc func(model ...TableModel) []SqlProto
 type SqlFactory interface {
-	GetColumns(tableName string, db *sql.DB) []Column
+	GetColumns(tableName string, db *sql.DB) ([]Column, error)
 	GetSqlFunc(sqlType SqlType) SqlFunc
 	ConditionToSql(preTag bool, condition Condition) (string, []interface{})
 }
@@ -74,7 +75,7 @@ type RawMetaInfo struct {
 	IsSlice   bool
 	IsPtr     bool
 	IsStruct  bool
-	RawData   interface{}
+	RawData   reflect.Value
 }
 
 func (c CommonSqlResult) LastInsertId() (int64, error) {
@@ -129,40 +130,101 @@ type IRowScanner interface {
 }
 type DefaultScanner struct {
 	RawMetaInfo
-	scanners []interface{}
+	columnMap map[string]FieldInfo
 }
 
-func getDefaultScanner(v interface{}) DefaultScanner {
+func getRowScanner(v interface{}, colFieldNameMap map[string]string) (IRowScanner, error) {
 	r := GetRawTableInfo(v)
-
 	if r.IsStruct {
-		return DefaultScanner{r, nil}
+		resultMap := make(map[string]FieldInfo)
+
+		for col, fieldName := range colFieldNameMap {
+			f, ok := r.Type.FieldByName(fieldName)
+			if !ok {
+				return nil, errors.New(fmt.Sprintf("field [%s] not exist or can not be access", fieldName))
+			}
+			resultMap[col] = FieldInfo{
+				FieldName: f.Name,
+				FieldType: f.Type,
+			}
+		}
+		return DefaultScanner{r, resultMap}, nil
 	} else {
 		//说明对象是简单类型，直接取类型即可
 		return DefaultScanner{
 			r,
-			[]interface{}{GetIScannerOfColumn(reflect.New(r.Type).Elem())},
-		}
+			nil,
+		}, nil
 	}
 }
 
-func (d DefaultScanner) Scan(rows *sql.Rows) (interface{}, error) {
-	columns, er := rows.Columns()
-	if er != nil {
-		return nil, er
+func getDefaultScanner(v interface{}, columns ...string) (IRowScanner, error) {
+	r := GetRawTableInfo(v)
+	if r.IsStruct {
+		colMap, cols := getDefaultsColumnFieldMap(r.Type)
+		if len(columns) > 0 {
+			_, cc, right := ArrayIntersect2(cols, columns)
+			if len(right) > 0 {
+				return nil, errors.New(fmt.Sprintf("columns [%s] not compatible", fmt.Sprint(right)))
+			}
+			cols = cc
+		}
+		for _, col := range cols {
+			_, ok := colMap[col]
+			if !ok {
+				return nil, errors.New(fmt.Sprintf("column %s not compatible", col))
+			}
+		}
+		return DefaultScanner{r, colMap}, nil
+	} else {
+		//说明对象是简单类型，直接取类型即可
+		return DefaultScanner{
+			r,
+			nil,
+		}, nil
 	}
-	results := reflect.ValueOf(d.RawMetaInfo.RawData)
+}
+func (d DefaultScanner) getScanners(columns ...string) ([]any, error) {
+	scanners := make([]any, 0)
+	if d.IsStruct {
+		for _, col := range columns {
+			f, ok := d.columnMap[col]
+			if !ok {
+				return nil, errors.New(fmt.Sprintf("column [%s] is not compatible", col))
+			}
+			scanners = append(scanners, GetIScannerOfColumn(reflect.New(f.FieldType).Elem().Interface()))
+		}
+	} else {
+		scanners = append(scanners, GetIScannerOfColumn(reflect.New(d.Type).Elem().Interface()))
+	}
+	return scanners, nil
+}
+
+func (d DefaultScanner) Scan(rows *sql.Rows) (interface{}, error) {
+	columns, es := rows.Columns()
+	if es != nil {
+		return nil, es
+	}
+
+	results := d.RawMetaInfo.RawData
 	if d.IsSlice {
 		for rows.Next() {
-			err := rows.Scan(d.scanners...)
+			scanners, er := d.getScanners(columns...)
+			if er != nil {
+				return nil, er
+			}
+			if len(columns) != len(scanners) {
+				return nil, errors.New("columns of query not compatible with input")
+			}
+			err := rows.Scan(scanners...)
 			if err != nil {
 				panic(err)
 			}
 			var val reflect.Value
 			if d.IsStruct {
-				val = ScannerResultToStruct(d.RawMetaInfo.Type, d.scanners, columns)
+				val = ScannerResultToStruct(d.RawMetaInfo.Type, scanners, columns)
 			} else {
-				vv, er := (d.scanners[0].(IScanner)).Value()
+				vv, er := (scanners[0].(IScanner)).Value()
 				if er != nil {
 					panic(er)
 				}
@@ -172,15 +234,19 @@ func (d DefaultScanner) Scan(rows *sql.Rows) (interface{}, error) {
 		}
 	} else {
 		if rows.Next() {
-			er := rows.Scan(d.scanners...)
+			scanners, er := d.getScanners(columns...)
+			if er != nil {
+				return nil, er
+			}
+			er = rows.Scan(scanners...)
 			if er != nil {
 				panic(er)
 			}
 			var val reflect.Value
 			if d.IsStruct {
-				val = ScannerResultToStruct(d.RawMetaInfo.Type, d.scanners, columns)
+				val = ScannerResultToStruct(d.RawMetaInfo.Type, scanners, columns)
 			} else {
-				vv, er := (d.scanners[0].(IScanner)).Value()
+				vv, er := (scanners[0].(IScanner)).Value()
 				if er != nil {
 					panic(er)
 				}

@@ -160,7 +160,7 @@ func Test_StructToMap(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gots, _, er := gom.StructToMap(tt.args)
+			gots, er := gom.StructToMap(tt.args)
 			if !reflect.DeepEqual(gots, tt.wants.result) && tt.wants.err && er == nil {
 				t.Errorf("Test_StructToMap Fail, resource was: = %v, want: %v,er result:%v,er wants:%v", gots, tt.wants.result, er.Error(), tt.wants.err)
 			}
@@ -177,14 +177,18 @@ func TestDB_Insert(t *testing.T) {
 		{"测试单个插入", func(t *testing.T) {
 			nck := uuid.New().String()
 			user := User{NickName: nck, Email: nck + "@nck.com", RegDate: time.Now()}
-			c, _, er := db.Insert(user)
-			if c != 1 && er != nil {
+			c, er := db.Insert(user)
+			if c == nil && er != nil {
+				t.Error("插入异常：", er.Error())
+			}
+			cc, er := c.RowsAffected()
+			if cc != 1 && er != nil {
 				t.Error("插入异常：", er.Error())
 			}
 			var tmp User
-			_, err := db.Where2("nick_name=?", nck).Select(&tmp)
+			r, err := db.Where2("nick_name=?", nck).Select(&tmp)
 			if err != nil {
-				t.Error(err)
+				t.Error(err, r)
 			}
 			if tmp.Id == 0 {
 				t.Error("插入成功但查询失败")
@@ -201,7 +205,7 @@ func TestDB_Insert(t *testing.T) {
 					user := User{NickName: nck, Pwd: "pwd" + strconv.Itoa(i), Email: nck + "@nck.com", RegDate: time.Now()}
 					users = append(users, user)
 				}
-				c, _, er := db.Insert(users)
+				c, er := db.Insert(users)
 				if er != nil {
 					t.Error("批量插入报错", c, er)
 				}
@@ -231,13 +235,19 @@ func TestDB_Delete(t *testing.T) {
 		{"测试单个插入后删除", func(t *testing.T) {
 			nck := uuid.New().String()
 			user := User{NickName: nck, Pwd: "1213", Email: nck + "@nck.com", RegDate: time.Now()}
-			c, _, er := db.Insert(user)
-			if c != 1 || er != nil {
-				t.Error("插入异常：", er.Error())
+			r, er := db.Insert(user)
+			if r == nil || er != nil {
+				t.Error("单个插入失败1", er)
 			}
-			c, _, er = db.Table("user").Where2("nick_name=?", nck).Delete()
-			if c != 1 || er != nil {
-				t.Error("删除失败")
+			c1, er := r.RowsAffected()
+			if c1 == 0 || er != nil {
+				t.Error("单个插入失败2", er)
+			}
+			r2, ers := db.Table("user").Where2("nick_name=?", nck).Delete()
+			c2, er := r2.RowsAffected()
+
+			if c2 != 1 || ers != nil {
+				t.Error("批量删除失败", c2, er)
 			}
 		}},
 		{
@@ -250,10 +260,23 @@ func TestDB_Delete(t *testing.T) {
 					user := User{NickName: nck, Pwd: "pwd" + strconv.Itoa(i), Email: nck + "@nck.com", Valid: 1, RegDate: time.Now()}
 					users = append(users, user)
 				}
-				c, _, er := db.Insert(users)
-				c, _, er = db.Table("user").Where(gom.CndRaw("valid=?", 1).In("nick_name", ncks...)).Delete()
-				if c != 100 || er != nil {
-					t.Error("批量删除失败", c, er)
+				r, er := db.Insert(users)
+				if r == nil || er != nil {
+					t.Error("批量插入失败1", er)
+				}
+				c1, er := r.RowsAffected()
+				if c1 == 0 || er != nil {
+					t.Error("批量插入失败2", er)
+				}
+				lastId, er := r.LastInsertId()
+				if lastId == 0 || er != nil {
+					t.Error("批量插入失败2", er)
+				}
+				r2, ers := db.Table("user").Where(gom.CndRaw("valid=?", 1).In("nick_name", ncks...)).Delete()
+				c2, er := r2.RowsAffected()
+
+				if c2 != 100 || ers != nil {
+					t.Error("批量删除失败", c2, er)
 				}
 			}},
 	}
@@ -271,8 +294,16 @@ func TestDB_Update(t *testing.T) {
 		{"默认单个更新", func(t *testing.T) {
 			nck := uuid.New().String()
 			user := User{NickName: nck, Pwd: "1213", Valid: 1, Email: nck + "@nck.com", RegDate: time.Now()}
-			c, id, er := db.Insert(user)
-			if c != 1 && er != nil {
+			r, er := db.Insert(user)
+			if er != nil {
+				t.Error("插入异常：", er.Error())
+			}
+			c, er := r.RowsAffected()
+			if c == 0 || er != nil {
+				t.Error("插入异常：", er.Error())
+			}
+			id, er := r.LastInsertId()
+			if id == 0 || er != nil {
 				t.Error("插入异常：", er.Error())
 			}
 			var temp User
@@ -284,23 +315,32 @@ func TestDB_Update(t *testing.T) {
 				t.Error("插入失败")
 			}
 			temp.Email = "changed@cc.cc"
-			c, _, er = db.Update(temp, "email")
-			if c != 1 {
+			r, er = db.Update(temp, "email")
+			ce, er := r.RowsAffected()
+			if ce != 1 || er != nil {
 				t.Error("更新失败", c, er)
 			}
 		}},
 		{"指定表名更新", func(t *testing.T) {
 			nck := uuid.New().String()
 			user := User{NickName: nck, Pwd: "1213", Email: nck + "@nck.com", RegDate: time.Now()}
-			c, _, er := db.Insert(user)
-			if c != 1 && er != nil {
+			r, er := db.Insert(user)
+			if er != nil {
 				t.Error("插入异常：", er.Error())
-				return
 			}
-			c, _, er = db.Table("user").Where2("nick_name=?", nck).Update(User{RegDate: time.Now().Add(10 * time.Minute)})
-			if c != 1 {
+			c, er := r.RowsAffected()
+			if c == 0 || er != nil {
+				t.Error("插入异常：", er.Error())
+			}
+			id, er := r.LastInsertId()
+			if id == 0 || er != nil {
+				t.Error("插入异常：", er.Error())
+			}
+			rr, er := db.Table("user").Where2("nick_name=?", nck).Update(User{RegDate: time.Now().Add(10 * time.Minute)})
+
+			ce, er := rr.RowsAffected()
+			if ce != 1 || er != nil {
 				t.Error("更新失败", c, er)
-				return
 			}
 		}},
 		{"带事务处理批量插入后操作更新", func(t *testing.T) {
@@ -313,9 +353,10 @@ func TestDB_Update(t *testing.T) {
 					user := User{NickName: nck, Pwd: "pwd" + strconv.Itoa(i), Email: nck + "@nck.com", Valid: 1, RegDate: time.Now()}
 					users = append(users, user)
 				}
-				c, _, er := db.Insert(users)
-				if er != nil || c != 100 {
-					t.Error("插入后查询失败", er)
+				r, er := db.Insert(users)
+				c, err := r.RowsAffected()
+				if er != nil || c != 100 || err != nil {
+					t.Error("插入后查询失败", er, err)
 				}
 				var temps []User
 				_, er = db.Where(gom.CndIn("nick_name", ncks...)).Select(&temps)
@@ -327,27 +368,30 @@ func TestDB_Update(t *testing.T) {
 					temp.NickName = temp.NickName + "_change_" + strconv.Itoa(i)
 					inserts = append(inserts, temp)
 				}
-				c, _, er = db.Update(inserts)
-				return c, er
+				rr, er := db.Update(inserts)
+				if er != nil {
+					t.Error("更新失败", er)
+				}
+				return rr.RowsAffected()
 			})
 			if er != nil || c == 0 {
 				t.Error("带事务批量操作失败", c, er)
 			}
 		}},
 		{"测试Update Raw", func(t *testing.T) {
-			c, _, er := db.Raw("update user2 set age= ?", 101).Update(nil)
+			r, er := db.RawSql("update user2 set age= ?", 101).Update(nil)
 			if er != nil {
-				t.Error("raw executeTableModel failed", c, er)
+				t.Error("raw executeTableModel failed", r, er)
 			}
 		}},
 		{"测试Update2 空状态", func(t *testing.T) {
-			c, _, er := db.Update(nil)
+			c, er := db.Update(nil)
 			if er == nil {
 				t.Error("空白更新未抛出一场", c, er)
 			}
 		}},
 		{"测试Insert Raw", func(t *testing.T) {
-			c, _, er := db.Raw("update user2 set age= ?", 101).Insert(nil)
+			c, er := db.RawSql("insert user2 set age= ?", 101).Insert(nil)
 			if er != nil {
 				t.Error("raw executeTableModel failed", c, er)
 			}
@@ -365,7 +409,7 @@ func TestDB_Update(t *testing.T) {
 			}
 		}},
 		{"Get Cnd", func(t *testing.T) {
-			cnd := db.Where(gom.CndEq("name", "kmlixh")).GetCnd()
+			cnd := db.Where(gom.CndEq("name", "kmlixh")).GetCondition()
 			if cnd == nil {
 				t.Error(cnd)
 			}
@@ -385,35 +429,35 @@ func TestDB_Select(t *testing.T) {
 	tests := []Tt{
 		{"测试RawSql", func(t *testing.T) {
 			var users []UserInfo
-			_, ser := db.Raw("select * from user_info limit ?,?", 0, 1000).Select(&users)
+			_, ser := db.RawSql("select * from user_info limit ?,?", 0, 1000).Select(&users)
 			if ser != nil {
 				t.Error("counts :", len(users), db)
 			}
 		}},
 		{"测试RawSql查询单列", func(t *testing.T) {
 			var users []UserInfo
-			_, ser := db.Raw("select * from user_info limit ?,?", 0, 1000).Select(&users, "id")
+			_, ser := db.RawSql("select * from user_info limit ?,?", 0, 1000).Select(&users, "id")
 			if ser != nil {
 				t.Error("counts :", len(users), db)
 			}
 		}},
 		{"测试RawSql查询单列进简单数组", func(t *testing.T) {
 			var ids []int64
-			_, ser := db.Raw("select * from user_info limit ?,?", 0, 1000).Select(&ids, "id")
+			_, ser := db.RawSql("select * from user_info limit ?,?", 0, 1000).Select(&ids, "id")
 			if ser != nil {
 				t.Error("counts :", len(ids), db)
 			}
 		}},
 		{"测试RawSql查询单列进简单数组column为空是否报错", func(t *testing.T) {
 			var ids []int64
-			_, ser := db.Raw("select * from user_info limit ?,?", 0, 1000).Select(&ids, "id", "sdfa")
+			_, ser := db.RawSql("select * from user_info limit ?,?", 0, 1000).Select(&ids, "id", "sdfa")
 			if ser == nil {
 				t.Error("简单类型columns不为1时必须报错")
 			}
 		}},
 		{"测试RawSql时限定列数", func(t *testing.T) {
 			var users []UserInfo
-			_, ser := db.Raw("select * from user_info limit ?,?", 0, 1000).Select(&users, "id", "valid")
+			_, ser := db.RawSql("select * from user_info limit ?,?", 0, 1000).Select(&users, "id", "valid")
 			if ser != nil {
 				t.Error("counts :", len(users), db)
 			}

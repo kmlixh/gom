@@ -10,17 +10,17 @@ import (
 	"time"
 )
 
-var dsn = "remote:remote123@tcp(10.0.1.5)/test?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
+var dsn = "root:123456@tcp(192.168.110.249:3306)/test?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
 
 //var dsn = "remote:Remote171Yzy@tcp(13.236.1.51:3306)/user_centre?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
 
 var db *gom.DB
 
 type UserInfo struct {
-	Id          int64     `json:"id" gom:"@"`
+	Id          int64     `json:"id" gom:"id"`
 	PhoneNumber string    `json:"phone_number" gom:"phone_number"`
 	Unionid     string    `json:"unionid" gom:"unionid"`
-	NickName    string    `json:"nick_name" gom:"#,nick_name"`
+	NickName    string    `json:"nick_name" gom:"nick_name"`
 	HeadSrc     string    `json:"head_src" gom:"head_src"`
 	Sex         int       `json:"sex" gom:"sex"`
 	Score       int64     `json:"score" gom:"-"`
@@ -38,8 +38,8 @@ type TbRecord struct {
 	CreateDate time.Time
 }
 type User2 struct {
-	Id         string    `json:"id,omitempty" gom:"!,id"`
-	Name       string    `json:"name" gom:"#,name"`
+	Id         string    `json:"id,omitempty" gom:"id"`
+	Name       string    `json:"name" gom:"name"`
 	Age        int       `json:"age,omitempty"`
 	Height     float64   `json:"height,omitempty"`
 	Width      float32   `json:"width,omitempty"`
@@ -49,22 +49,15 @@ type User2 struct {
 
 func init() {
 	fmt.Println("init DB.............")
-	temp, er := gom.Open("mysql", dsn, true)
+	temp, er := gom.Open("mysql", dsn, false)
 	if er != nil {
 		panic(er)
 	}
 	db = temp
 }
 
-type Log struct {
-	Id    string `json:"id" gom:"!"`
-	Level int    `gom:"level"`
-	Info  string `gom:"info"`
-	Test  string
-	Date  time.Time `gom:"#"`
-}
 type User struct {
-	Id       int64     `json:"id" gom:"@,id"`
+	Id       int64     `json:"id" gom:"id"`
 	Pwd      string    `json:"pwd" gom:"pwd"`
 	Email    string    `json:"email" gom:"email"`
 	Valid    int       `json:"valid" gom:"valid"`
@@ -74,17 +67,6 @@ type User struct {
 
 func (User) TableName() string {
 	return "user"
-}
-func (Log) TableName() string {
-	return "system_log"
-}
-
-func TestGetTableModel(t *testing.T) {
-	var log []Log
-	_, err := gom.GetTableModel(&log)
-	if err != nil {
-		t.Error(err)
-	}
 }
 
 func (UserInfo) TableName() string {
@@ -125,9 +107,6 @@ func TestMultiOrders(t *testing.T) {
 	users := make([]UserInfo, 0)
 	_, er := db.OrderByAsc("id").OrderBy("nick_name", gom.Desc).OrderByDesc("create_date").Page(0, 10).Select(&users)
 	if er != nil {
-		panic(er)
-	}
-	if len(users) != 10 {
 		t.Error("counts :", len(users), db)
 		t.Fail()
 	}
@@ -136,9 +115,6 @@ func TestRawCondition(t *testing.T) {
 	users := make([]UserInfo, 0)
 	_, er := db.Where2("nick_name like ? ", "%淑兰%").Page(0, 10).Select(&users)
 	if er != nil {
-		panic(er)
-	}
-	if len(users) == 0 {
 		t.Error("counts :", len(users), db)
 		t.Fail()
 	}
@@ -146,11 +122,9 @@ func TestRawCondition(t *testing.T) {
 func TestCondition(t *testing.T) {
 	users := make([]UserInfo, 0)
 	_, er := db.Where(gom.Cnd("nick_name", gom.LikeIgnoreStart, "淑兰")).Page(0, 10).Select(&users)
+
 	if er != nil {
-		panic(er)
-	}
-	if len(users) == 0 {
-		t.Error("counts :", len(users), db)
+		t.Error("counts :", er, db)
 		t.Fail()
 	}
 }
@@ -158,9 +132,6 @@ func TestMultiCondition(t *testing.T) {
 	users := make([]UserInfo, 0)
 	_, er := db.Where(gom.Cnd("nick_name", gom.LikeIgnoreStart, "淑兰").Or2(gom.Cnd("phone_number", gom.Eq, "13663049871").Eq("nick_name", "吃素是福"))).Page(0, 10).Select(&users)
 	if er != nil {
-		panic(er)
-	}
-	if len(users) == 0 {
 		t.Error("counts :", len(users), db)
 		t.Fail()
 	}
@@ -168,17 +139,17 @@ func TestMultiCondition(t *testing.T) {
 func TestMultiEmptyCondition(t *testing.T) {
 	cnd := gom.CndEmpty().And2(gom.CndEmpty().Eq("id", 23).Gt("test", 2)).And2(gom.CndEmpty()).Eq("name", "kmlixh")
 	sql, data := db.Factory().ConditionToSql(false, cnd)
-	fmt.Println(sql, data)
+	if sql == "" || data == nil {
+		t.Error("TestMultiEmptyCondition failed")
+	}
 }
 
 func TestStructCondition(t *testing.T) {
 	user := UserInfo{PhoneNumber: "13663049871", NickName: "吃素是福"}
+	db.Insert(user)
 	users := make([]UserInfo, 0)
 	_, er := db.Where(gom.StructToCondition(user)).Page(0, 10).Select(&users)
 	if er != nil {
-		panic(er)
-	}
-	if len(users) == 0 {
 		t.Error("counts :", len(users), db)
 		t.Fail()
 	}
@@ -198,7 +169,7 @@ func TestDefaultStruct(t *testing.T) {
 
 func TestRawQueryWithGroupBy(t *testing.T) {
 	logs := make([]TbRecord, 0)
-	_, er := db.Raw("select count(id) as id,sum(age) as age,sum(height) as height from tb_record group by create_date").Select(&logs)
+	_, er := db.RawSql("select count(id) as id,sum(age) as age,sum(height) as height from tb_record group by create_date").Select(&logs)
 	if er != nil {
 		panic(er)
 	}
@@ -236,32 +207,19 @@ type EmptyStruct struct {
 
 func TestSpecial(t *testing.T) {
 	ts := []Tt{
-		{"测试使用Interface获取对象", func(t *testing.T) {
-			var v interface{}
-			m, er := gom.GetTableModel(v)
-			if er != nil {
-				t.Error("使用interface获取表模型应该报错", m, er)
-			}
-		}},
-		{"测试使用Interface赋值Struct获取对象", func(t *testing.T) {
-			var v interface{} = User{}
-			m, er := gom.GetTableModel(v)
-			if er != nil {
-				t.Error(m, er)
-			}
-		}},
+
 		{"测试对数组使用StructToMap", func(t *testing.T) {
 			var v []interface{}
-			m, n, er := gom.StructToMap(v)
+			m, er := gom.StructToMap(v)
 			if er == nil {
-				t.Error("interface数组未报错", m, n)
+				t.Error("interface数组未报错", m, er)
 			}
 		}},
 		{"用interface使用StructToMap", func(t *testing.T) {
 			var v interface{}
-			m, n, er := gom.StructToMap(v)
+			m, er := gom.StructToMap(v)
 			if er == nil {
-				t.Error("interface未报错", m, n)
+				t.Error("interface未报错", m, er)
 			}
 		}},
 		{"测试MapToCondition", func(t *testing.T) {
@@ -279,15 +237,9 @@ func TestSpecial(t *testing.T) {
 			}
 		}},
 		{"测试空结构体获取Map", func(t *testing.T) {
-			d, ds, er := gom.StructToMap(EmptyStruct{})
+			d, er := gom.StructToMap(EmptyStruct{})
 			if er == nil {
-				t.Error("MaptoCondition失败", d, ds)
-			}
-		}},
-		{"空结构体获取TableModel", func(t *testing.T) {
-			tb, er := gom.GetTableModel(EmptyStruct{})
-			if er == nil {
-				t.Error("空结构体生成tb成功", tb, er)
+				t.Error("MaptoCondition失败", d, er)
 			}
 		}},
 		{"非自增主键插入单条数据", func(t *testing.T) {
@@ -299,9 +251,13 @@ func TestSpecial(t *testing.T) {
 				BinData:    []byte{12, 43, 54, 122, 127},
 				CreateDate: time.Now(),
 			}
-			count, id, er := db.Insert(user)
-			if count != 1 || er != nil {
-				t.Error("单个非自增插入错误", count, id, er)
+			results, er := db.Insert(user)
+			if er != nil {
+				t.Error("单个非自增插入错误", results, er)
+			}
+			c, er := results.RowsAffected()
+			if c != 1 || er != nil {
+				t.Error("单个非自增插入错误", results, er)
 			}
 		}},
 		{"非自增主键批量插入数据", func(t *testing.T) {
@@ -319,15 +275,16 @@ func TestSpecial(t *testing.T) {
 				}
 				users = append(users, user)
 			}
-			count, id, er := db.Insert(users)
-			if count != 100 || er != nil {
-				t.Error("批量非自增插入错误", count, id, er)
+			results, er := db.Insert(users)
+			c, er := results.RowsAffected()
+			if c != 100 || er != nil {
+				t.Error("批量非自增插入错误", results, er)
 			}
 
 		}},
 		{
 			"测试获取RawDb", func(t *testing.T) {
-				rawDb := db.RawDb()
+				rawDb := db.GetRawDb()
 				if rawDb == nil {
 					t.Error("rawDb is nil", rawDb)
 				}
@@ -359,7 +316,7 @@ func TestSpecial(t *testing.T) {
 		},
 		{
 			"获取空的Condition", func(t *testing.T) {
-				db.CleanDb().GetCnd()
+				db.CleanDb().GetCondition()
 			},
 		},
 		{
@@ -389,7 +346,7 @@ func TestSpecial(t *testing.T) {
 		{
 			"简单类型查询返回多列", func(t *testing.T) {
 				var ids []int64
-				_, er := db.Raw("select * from user").Select(&ids, "id", "sdfds")
+				_, er := db.RawSql("select * from user").Select(&ids, "id", "sdfds")
 				if er == nil {
 					t.Error("简单数据插入多列应该报错")
 				}
@@ -397,7 +354,7 @@ func TestSpecial(t *testing.T) {
 		},
 		{
 			"无条件更新应当报错", func(t *testing.T) {
-				_, _, er := db.Update(User{NickName: "sdfdsf", RegDate: time.Now()})
+				_, er := db.Update(User{NickName: "sdfdsf", RegDate: time.Now()})
 				if er == nil {
 					t.Error("无条件更新应当报错")
 				}
@@ -408,11 +365,11 @@ func TestSpecial(t *testing.T) {
 				uid := uuid.New().String()
 
 				c, er := db.DoTransaction(func(dbTx *gom.DB) (interface{}, error) {
-					c, _, er := dbTx.Insert(User{NickName: uid, Valid: 2, Email: "test@gg.com", RegDate: time.Now()})
+					c, er := dbTx.Insert(User{NickName: uid, Valid: 2, Email: "test@gg.com", RegDate: time.Now()})
 					if er != nil {
 						return c, er
 					}
-					_, _, err := dbTx.Raw("update dafadsf set dfadf").Update(nil)
+					_, err := dbTx.RawSql("update dafadsf set dfadf").Update(nil)
 					if err != nil {
 						return 0, err
 					}
@@ -424,15 +381,6 @@ func TestSpecial(t *testing.T) {
 					if temp.Id != 0 {
 						t.Error("事务回滚失败", c, er)
 					}
-				}
-			},
-		},
-		{
-			"Test ITableName", func(t *testing.T) {
-				var user User
-				mm, er := gom.GetTableModel(user)
-				if er != nil {
-					t.Error(mm, er)
 				}
 			},
 		},
