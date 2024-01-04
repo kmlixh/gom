@@ -480,15 +480,17 @@ func (db *DB) Rollback() {
 	}
 }
 
-func (db DB) DoTransaction(work TransactionWork) (interface{}, error) {
+func (db *DB) DoTransaction(work TransactionWork) (interface{}, error) {
 	//Create A New Db And set Tx for it
 	dbTx := db.Clone()
 	eb := dbTx.Begin()
 	if eb != nil {
 		return nil, eb
 	}
-	defer func(dbTx *DB) { //catch the panic of 'work' function
-		if r := recover(); r != nil {
+	defer func(dbTx *DB) {
+		//catch the panic of 'work' function
+		r := recover()
+		if r != nil {
 			dbTx.Rollback()
 		}
 	}(&dbTx)
@@ -526,6 +528,5 @@ func (db *DB) CleanDb() *DB {
 	db.orderBys = nil
 	db.rawSql = nil
 	db.cnd = nil
-	db.tx = nil
 	return db
 }
