@@ -135,21 +135,8 @@ func InitPgFactory() {
 				i++
 			}
 			sql += ")"
-			valuesPattern += ") "
-			if len(model.PrimaryKeys()) > 0 {
-				//PG插入后返回列id
-				rts := "RETURNING ("
-				for j, c := range model.PrimaryKeys() {
-					if j > 0 {
-						rts += ","
-					}
-					rts += wrapperName(c)
-				}
-				rts += " )"
-				valuesPattern += rts
-			} else {
-				valuesPattern += ";"
-			}
+			valuesPattern += ");"
+
 			sql += valuesPattern
 			result = append(result, defines.SqlProto{pgSql(sql), datas})
 		}
