@@ -1,8 +1,6 @@
-package tests
+package gom
 
 import (
-	"github.com/kmlixh/gom/v2"
-	_ "github.com/kmlixh/gom/v2/factory/mysql"
 	"testing"
 )
 
@@ -13,13 +11,13 @@ func TestOpen(t *testing.T) {
 		t    func(t *testing.T)
 	}{
 		{"默认创建测试", func(t *testing.T) {
-			db, er := gom.Open("mysql", dsn, false)
+			db, er := Open("Postgres", pgDsn, false)
 			if er != nil {
 				t.Error(er, db)
 			}
 		}},
 		{"带配置的创建", func(t *testing.T) {
-			db, er := gom.OpenWithConfig("mysql", dsn, 10, 20, false)
+			db, er := OpenWithConfig("Postgres", pgDsn, 10, 20, false)
 			if er != nil {
 				t.Error(er, db)
 			}

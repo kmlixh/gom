@@ -1,28 +1,35 @@
-package tests
+package gom
 
 import (
+	"fmt"
 	"github.com/google/uuid"
-	"github.com/kmlixh/gom/v2"
+	"github.com/kmlixh/gom/v2/defines"
+	"github.com/kmlixh/gom/v2/register"
+	"github.com/kmlixh/gom/v2/register/postgres"
 	"reflect"
 	"strconv"
 	"testing"
 	"time"
 )
 
+var mysqlDsn = "root:123456@tcp(192.168.110.249:3306)/test?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
+
+var pgDsn = "postgres://postgres:123456@192.168.110.249:5432/test?sslmode=disable"
+
 func TestDB_CleanOrders(t *testing.T) {
-	db1 := gom.DB{}
-	db2 := gom.DB{}
-	db3 := gom.DB{}
-	db2.OrderBy("name", gom.Desc)
-	db2.OrderBy("name", gom.Desc).OrderByDesc("use")
+	db1 := DB{}
+	db2 := DB{}
+	db3 := DB{}
+	db2.OrderBy("name", defines.Desc)
+	db2.OrderBy("name", defines.Desc).OrderByDesc("use")
 	tests := []struct {
 		name string
-		raw  gom.DB
-		want []gom.OrderBy
+		raw  DB
+		want []defines.OrderBy
 	}{
-		{"empty orders clean", db1, []gom.OrderBy{}},
-		{"有一个时除去", db2, []gom.OrderBy{}},
-		{"有多个时清空", db3, []gom.OrderBy{}},
+		{"empty orders clean", db1, []defines.OrderBy{}},
+		{"有一个时除去", db2, []defines.OrderBy{}},
+		{"有多个时清空", db3, []defines.OrderBy{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -42,7 +49,7 @@ func TestDB_Count(t *testing.T) {
 	}
 	tests := []struct {
 		name string
-		db   *gom.DB
+		db   *DB
 		args args
 		want int64
 	}{
@@ -71,7 +78,7 @@ func Test_UnzipSlice(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gots := gom.UnZipSlice(tt.args)
+			gots := UnZipSlice(tt.args)
 			if !reflect.DeepEqual(gots, tt.wants) {
 				t.Errorf("Test_UnzipSlice resource was: = %v, want: %v", gots, tt.wants)
 			}
@@ -108,11 +115,11 @@ func Test_UnzipSliceToMapSlice(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gots := gom.SliceToGroupSlice(tt.args)
+			gots := SliceToGroupSlice(tt.args)
 			if !reflect.DeepEqual(gots, tt.wants) {
 				t.Errorf("Test_UnzipSlice resource was: = %v, want: %v", gots, tt.wants)
 			} else {
-				if gom.Debug {
+				if Debug {
 					t.Logf("Test_UnzipSlice ok resource was: = %v, want: %v", gots, tt.wants)
 				}
 
@@ -160,7 +167,7 @@ func Test_StructToMap(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gots, er := gom.StructToMap(tt.args)
+			gots, er := StructToMap(tt.args)
 			if !reflect.DeepEqual(gots, tt.wants.result) && tt.wants.err && er == nil {
 				t.Errorf("Test_StructToMap Fail, resource was: = %v, want: %v,er result:%v,er wants:%v", gots, tt.wants.result, er.Error(), tt.wants.err)
 			}
@@ -176,7 +183,7 @@ func TestDB_Insert(t *testing.T) {
 	}{
 		{"测试单个插入", func(t *testing.T) {
 			nck := uuid.New().String()
-			user := User{NickName: nck, Email: nck + "@nck.com", RegDate: time.Now()}
+			user := User{NickName: nck, Pwd: "aaa", Valid: 111, Email: nck + "@nck.com", RegDate: time.Now()}
 			c, er := db.Insert(user)
 			if c == nil && er != nil {
 				t.Error("插入异常：", er.Error())
@@ -210,7 +217,7 @@ func TestDB_Insert(t *testing.T) {
 					t.Error("批量插入报错", c, er)
 				}
 				var tempUsers []User
-				_, err := db.Where(gom.CndRaw("id > ?", 0).In("nick_name", ncks...)).Select(&tempUsers)
+				_, err := db.Where(CndRaw("id > ?", 0).In("nick_name", ncks...)).Select(&tempUsers)
 
 				if err != nil {
 					t.Error("查询出错")
@@ -224,6 +231,390 @@ func TestDB_Insert(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.t(t)
 		})
+	}
+}
+
+var db *DB
+
+type UserInfo struct {
+	Id          int64     `json:"id" gom:"id"`
+	PhoneNumber string    `json:"phone_number" gom:"phone_number"`
+	Unionid     string    `json:"unionid" gom:"unionid"`
+	NickName    string    `json:"nick_name" gom:"nick_name"`
+	HeadSrc     string    `json:"head_src" gom:"head_src"`
+	Sex         int       `json:"sex" gom:"sex"`
+	Score       int64     `json:"score" gom:"-"`
+	DonateTag   int64     `json:"donate_tag" gom:"donate_tag"`
+	Title       string    `json:"title" gom:"-"`
+	CheckIn     bool      `json:"check_in" gom:"-"`
+	CreateDate  time.Time `json:"create_date" gom:"create_date"`
+}
+type TbRecord struct {
+	Id         string
+	Age        int
+	Height     int
+	Width      int
+	Length     int
+	CreateDate time.Time
+}
+type User2 struct {
+	Id         string    `json:"id,omitempty" gom:"id"`
+	Name       string    `json:"name" gom:"name"`
+	Age        int       `json:"age,omitempty"`
+	Height     float64   `json:"height,omitempty"`
+	Width      float32   `json:"width,omitempty"`
+	BinData    []byte    `json:"bin_data,omitempty"`
+	CreateDate time.Time `json:"create_date"`
+}
+
+func init() {
+	fmt.Println("init DB.............")
+	if f, ok := register.Get("Postgres"); f == nil || ok {
+		postgres.InitPgFactory()
+	}
+	temp, er := Open("Postgres", pgDsn, true)
+	if er != nil {
+		panic(er)
+	}
+	db = temp
+}
+
+type User struct {
+	Id       int64     `json:"id" gom:"id"`
+	Pwd      string    `json:"pwd" gom:"pwd"`
+	Email    string    `json:"email" gom:"email"`
+	Valid    int       `json:"valid" gom:"valid"`
+	NickName string    `json:"nicks" gom:"nick_name"`
+	RegDate  time.Time `json:"reg_date" gom:"reg_date"`
+}
+
+func (User) TableName() string {
+	return "user"
+}
+
+func (UserInfo) TableName() string {
+	return "user_info"
+}
+
+func TestDefaultTableQuery(t *testing.T) {
+	var users []User
+	_, ser := db.Select(&users)
+	if ser != nil {
+		panic(ser)
+	}
+}
+func TestDefaultTableQueryLimit(t *testing.T) {
+	users := make([]UserInfo, 0)
+	_, ser := db.Page(0, 1000).Select(&users)
+	if ser != nil {
+		t.Error("counts :", len(users), db)
+		t.Fail()
+	}
+}
+func TestCustomTableName(t *testing.T) {
+	users := make([]UserInfo, 0)
+	_, ser := db.Table("user_info2").Page(0, 1000).Select(&users)
+	if ser != nil {
+		t.Error("counts :", len(users), db)
+		t.Fail()
+	}
+}
+
+func TestMultiOrders(t *testing.T) {
+	users := make([]UserInfo, 0)
+	_, er := db.OrderByAsc("id").OrderBy("nick_name", defines.Desc).OrderByDesc("create_date").Page(0, 10).Select(&users)
+	if er != nil {
+		t.Error("counts :", len(users), db)
+		t.Fail()
+	}
+}
+func TestRawCondition(t *testing.T) {
+	users := make([]UserInfo, 0)
+	_, er := db.Where2("nick_name like ? ", "%淑兰%").Page(0, 10).Select(&users)
+	if er != nil {
+		t.Error("counts :", len(users), db)
+		t.Fail()
+	}
+}
+func TestCondition(t *testing.T) {
+	users := make([]UserInfo, 0)
+	_, er := db.Where(Cnd("nick_name", defines.LikeIgnoreStart, "淑兰")).Page(0, 10).Select(&users)
+
+	if er != nil {
+		t.Error("counts :", er, db)
+		t.Fail()
+	}
+}
+func TestMultiCondition(t *testing.T) {
+	users := make([]UserInfo, 0)
+	_, er := db.Where(Cnd("nick_name", defines.LikeIgnoreStart, "淑兰").Or2(Cnd("phone_number", defines.Eq, "13663049871").Eq("nick_name", "吃素是福"))).Page(0, 10).Select(&users)
+	if er != nil {
+		t.Error("counts :", len(users), db)
+		t.Fail()
+	}
+}
+func TestMultiEmptyCondition(t *testing.T) {
+	cnd := CndEmpty().And2(CndEmpty().Eq("id", 23).Gt("test", 2)).And2(CndEmpty()).Eq("name", "kmlixh")
+	sql, data := db.Factory().ConditionToSql(false, cnd)
+	if sql == "" || data == nil {
+		t.Error("TestMultiEmptyCondition failed")
+	}
+}
+
+func TestStructCondition(t *testing.T) {
+	user := UserInfo{PhoneNumber: "13663049871", NickName: "吃素是福"}
+	db.Insert(user)
+	users := make([]UserInfo, 0)
+	_, er := db.Where(StructToCondition(user)).Page(0, 10).Select(&users)
+	if er != nil {
+		t.Error("counts :", len(users), db)
+		t.Fail()
+	}
+}
+
+func TestDefaultStruct(t *testing.T) {
+	logs := make([]TbRecord, 0)
+	_, er := db.Select(&logs)
+	if er != nil {
+		t.Error("counts :", len(logs), db)
+		t.Fail()
+	}
+}
+
+func TestRawQueryWithGroupBy(t *testing.T) {
+	logs := make([]TbRecord, 0)
+	_, er := db.RawSql("select count(id) as id,sum(age) as age,sum(height) as height from tb_record group by create_date").Select(&logs)
+	if er != nil {
+		t.Error("counts :", len(logs), db)
+		t.Fail()
+	}
+}
+func TestCount(t *testing.T) {
+	_, er := db.Table("user_info").Count("id")
+	if er != nil {
+		t.Error("counts :", db)
+		t.Fail()
+	}
+}
+func TestSum(t *testing.T) {
+	count, er := db.Table("tb_record").Sum("age")
+	if er != nil {
+		t.Error("counts :", count, er)
+	}
+	print(count)
+}
+func TestFirst(t *testing.T) {
+	var log TbRecord
+	_, er := db.First(&log)
+	if er != nil {
+		t.Error("log :", log, db)
+	}
+}
+
+type EmptyStruct struct {
+}
+
+func TestSpecial(t *testing.T) {
+	ts := []Tt{
+
+		{"测试对数组使用StructToMap", func(t *testing.T) {
+			var v []interface{}
+			m, er := StructToMap(v)
+			if er == nil {
+				t.Error("interface数组未报错", m, er)
+			}
+		}},
+		{"用interface使用StructToMap", func(t *testing.T) {
+			var v interface{}
+			m, er := StructToMap(v)
+			if er == nil {
+				t.Error("interface未报错", m, er)
+			}
+		}},
+		{"测试MapToCondition", func(t *testing.T) {
+			maps := map[string]interface{}{"name": "kmlixh", "age": 12, "sex": "big cook"}
+			c := MapToCondition(maps)
+			if c == nil {
+				t.Error("MaptoCondition失败", c)
+			}
+		}},
+		{"测试MapToCondition", func(t *testing.T) {
+			maps := map[string]interface{}{"name": "kmlixh", "age": 12, "sex": "big cook"}
+			c := MapToCondition(maps)
+			if c == nil {
+				t.Error("MaptoCondition失败", c)
+			}
+		}},
+		{"测试空结构体获取Map", func(t *testing.T) {
+			d, er := StructToMap(EmptyStruct{})
+			if er == nil {
+				t.Error("MaptoCondition失败", d, er)
+			}
+		}},
+		{"非自增主键插入单条数据", func(t *testing.T) {
+			user := User2{
+				Id:         uuid.New().String(),
+				Age:        20,
+				Height:     120.23,
+				Width:      123.11,
+				BinData:    []byte{12, 43, 54, 122, 127},
+				CreateDate: time.Now(),
+			}
+			results, er := db.Insert(user)
+			if er != nil {
+				t.Error("单个非自增插入错误", results, er)
+			}
+			c, er := results.RowsAffected()
+			if c != 1 || er != nil {
+				t.Error("单个非自增插入错误", results, er)
+			}
+		}},
+		{"非自增主键批量插入数据", func(t *testing.T) {
+			var users []User2
+			for i := 0; i < 100; i++ {
+				uid := uuid.New().String()
+				user := User2{
+					Id:         uid,
+					Name:       uid + "_" + strconv.Itoa(i),
+					Age:        20,
+					Height:     120.23,
+					Width:      123.11,
+					BinData:    []byte{12, 43, 54, 122, 127},
+					CreateDate: time.Now(),
+				}
+				users = append(users, user)
+			}
+			results, er := db.Insert(users)
+			c, er := results.RowsAffected()
+			if c != 100 || er != nil {
+				t.Error("批量非自增插入错误", results, er)
+			}
+
+		}},
+		{
+			"测试获取RawDb", func(t *testing.T) {
+				rawDb := db.GetRawDb()
+				if rawDb == nil {
+					t.Error("rawDb is nil", rawDb)
+				}
+			},
+		},
+		{
+			"测试CleanDb", func(t *testing.T) {
+				db.CleanDb()
+			},
+		},
+		{
+			"非自增主键查询", func(t *testing.T) {
+				var users []User2
+				_, err := db.Select(&users)
+				if err != nil {
+					t.Error(err)
+				}
+			},
+		},
+		{
+			"获取空的OrderBys", func(t *testing.T) {
+				db.CleanDb().GetOrderBys()
+			},
+		},
+		{
+			"获取空的Page", func(t *testing.T) {
+				db.CleanDb().GetPage()
+			},
+		},
+		{
+			"获取空的Condition", func(t *testing.T) {
+				db.CleanDb().GetCondition()
+			},
+		},
+		{
+			"open by wrong driver", func(t *testing.T) {
+				ddb, er := Open("sdf", mysqlDsn, false)
+				if er == nil {
+					t.Error(ddb, er)
+				}
+				ddbs, ers := OpenWithConfig("sdf", mysqlDsn, 1000, 1000, false)
+				if ers == nil {
+					t.Error(ddbs, ers)
+				}
+			},
+		},
+		{
+			"open by wrong Config", func(t *testing.T) {
+				ddb, er := Open("sdf", mysqlDsn, false)
+				if er == nil {
+					t.Error(ddb, er)
+				}
+				ddbs, ers := OpenWithConfig("mysql", mysqlDsn, -1000, -1000, false)
+				if ers != nil {
+					t.Error(ddbs, ers)
+				}
+			},
+		},
+		{
+			"简单类型查询返回多列", func(t *testing.T) {
+				var ids []int64
+				_, er := db.RawSql("select * from user").Select(&ids, "id", "sdfds")
+				if er == nil {
+					t.Error("简单数据插入多列应该报错")
+				}
+			},
+		},
+		{
+			"无条件更新应当报错", func(t *testing.T) {
+				_, er := db.Update(User{NickName: "sdfdsf", RegDate: time.Now()})
+				if er == nil {
+					t.Error("无条件更新应当报错")
+				}
+			},
+		},
+		{
+			"事务回滚测试", func(t *testing.T) {
+				uid := uuid.New().String()
+
+				c, er := db.DoTransaction(func(dbTx *DB) (interface{}, error) {
+					c, er := dbTx.Insert(User{NickName: uid, Valid: 2, Email: "test@gg.com", RegDate: time.Now()})
+					if er != nil {
+						return c, er
+					}
+					_, err := dbTx.RawSql("update dafadsf set dfadf").Update(nil)
+					if err != nil {
+						return 0, err
+					}
+					return 0, nil
+				})
+				if er != nil {
+					var temp User
+					db.Where2("nick_name=?", uid).Select(&temp)
+					if temp.Id != 0 {
+						t.Error("事务回滚失败", c, er)
+					}
+				}
+			},
+		},
+		{
+			"test order by", func(t *testing.T) {
+				var users []User
+				_, er := db.OrderByDesc("id").Select(&users)
+				if er != nil {
+					t.Error(users, er)
+				}
+			},
+		},
+		{
+			"test in one", func(t *testing.T) {
+				var users []User
+				_, er := db.Where(CndEmpty().In("id", "sss")).OrderByDesc("id").Select(&users)
+				if er != nil {
+					t.Error(users, er)
+				}
+			},
+		},
+	}
+
+	for _, tt := range ts {
+		t.Run(tt.name, tt.t)
 	}
 }
 
@@ -272,7 +663,7 @@ func TestDB_Delete(t *testing.T) {
 				if lastId == 0 || er != nil {
 					t.Error("批量插入失败2", er)
 				}
-				r2, ers := db.Table("user").Where(gom.CndRaw("valid=?", 1).In("nick_name", ncks...)).Delete()
+				r2, ers := db.Table("user").Where(CndRaw("valid=?", 1).In("nick_name", ncks...)).Delete()
 				c2, er := r2.RowsAffected()
 
 				if c2 != 100 || ers != nil {
@@ -307,7 +698,7 @@ func TestDB_Update(t *testing.T) {
 				t.Error("插入异常：", er.Error())
 			}
 			var temp User
-			_, err := db.Where(gom.CndRaw("id=?", id)).Select(&temp)
+			_, err := db.Where(CndRaw("id=?", id)).Select(&temp)
 			if err != nil {
 				t.Error("插入后查询失败：", err)
 			}
@@ -344,7 +735,7 @@ func TestDB_Update(t *testing.T) {
 			}
 		}},
 		{"带事务处理批量插入", func(t *testing.T) {
-			c, er := db.DoTransaction(func(db *gom.DB) (interface{}, error) {
+			c, er := db.DoTransaction(func(db *DB) (interface{}, error) {
 				var users []User
 				var ncks []interface{}
 				for i := 0; i < 100; i++ {
@@ -378,7 +769,7 @@ func TestDB_Update(t *testing.T) {
 			}
 		}},
 		{"GetOrderBys", func(t *testing.T) {
-			orderbys := db.OrderBy("name", gom.Desc).OrderBy("id", gom.Asc).GetOrderBys()
+			orderbys := db.OrderBy("name", defines.Desc).OrderBy("id", defines.Asc).GetOrderBys()
 			if orderbys == nil || len(orderbys) == 0 {
 				t.Error(orderbys)
 			}
@@ -390,7 +781,7 @@ func TestDB_Update(t *testing.T) {
 			}
 		}},
 		{"Get Cnd", func(t *testing.T) {
-			cnd := db.Where(gom.CndEq("name", "kmlixh")).GetCondition()
+			cnd := db.Where(CndEq("name", "kmlixh")).GetCondition()
 			if cnd == nil {
 				t.Error(cnd)
 			}
@@ -445,7 +836,7 @@ func TestDB_Select(t *testing.T) {
 		}},
 		{
 			"测试Count时cnd为nil", func(t *testing.T) {
-				var cnd gom.Condition
+				var cnd defines.Condition
 				cc, er := db.Where(cnd).Table(UserInfo{}.TableName()).Count("id")
 				if er != nil {
 					t.Error("count failed:", er, cc)

@@ -4,21 +4,22 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/kmlixh/gom/v2/defines"
 	"reflect"
 )
 
 type DB struct {
 	id       int64
-	factory  SqlFactory
+	factory  defines.SqlFactory
 	db       *sql.DB
-	cnd      Condition
+	cnd      defines.Condition
 	table    *string
 	rawSql   *string
 	rawData  []any
 	tx       *sql.Tx
-	orderBys *[]OrderBy
-	page     PageInfo
-	sqlType  SqlType
+	orderBys *[]defines.OrderBy
+	page     defines.PageInfo
+	sqlType  defines.SqlType
 }
 
 type TransactionWork func(databaseTx *DB) (interface{}, error)
@@ -26,7 +27,7 @@ type TransactionWork func(databaseTx *DB) (interface{}, error)
 func (db DB) GetRawDb() *sql.DB {
 	return db.db
 }
-func (db DB) Factory() SqlFactory {
+func (db DB) Factory() defines.SqlFactory {
 	return db.factory
 }
 
@@ -54,38 +55,38 @@ func (db *DB) RawSql(sql string, datas ...any) *DB {
 	return db
 }
 
-func (db *DB) OrderBy(field string, t OrderType) *DB {
+func (db *DB) OrderBy(field string, t defines.OrderType) *DB {
 	db.cloneSelfIfDifferentGoRoutine()
-	var temp []OrderBy
+	var temp []defines.OrderBy
 	temp = append(temp, MakeOrderBy(field, t))
 	db.orderBys = &temp
 	return db
 }
-func (db *DB) OrderBys(orderbys []OrderBy) *DB {
+func (db *DB) OrderBys(orderbys []defines.OrderBy) *DB {
 	db.cloneSelfIfDifferentGoRoutine()
-	var temp []OrderBy
+	var temp []defines.OrderBy
 	temp = append(temp, orderbys...)
 	db.orderBys = &temp
 	return db
 }
 func (db *DB) CleanOrders() *DB {
 	db.cloneSelfIfDifferentGoRoutine()
-	temp := make([]OrderBy, 0)
+	temp := make([]defines.OrderBy, 0)
 	db.orderBys = &temp
 	return db
 }
 func (db *DB) OrderByAsc(field string) *DB {
-	return db.OrderBy(field, Asc)
+	return db.OrderBy(field, defines.Asc)
 }
 func (db *DB) OrderByDesc(field string) *DB {
-	return db.OrderBy(field, Desc)
+	return db.OrderBy(field, defines.Desc)
 }
 
 func (db *DB) Where2(sql string, patches ...interface{}) *DB {
 	db.cloneSelfIfDifferentGoRoutine()
 	return db.Where(CndRaw(sql, patches...))
 }
-func (db *DB) Where(cnd Condition) *DB {
+func (db *DB) Where(cnd defines.Condition) *DB {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.cnd = cnd
 	return db
@@ -109,7 +110,7 @@ func (db DB) Count(columnName string) (int64, error) {
 		data = append(data, cndData...)
 		statements = statements + " WHERE " + cndString
 	}
-	var count int64
+	var count int64 = 0
 	scanners, er := getDefaultScanner(&count)
 	if er != nil {
 		return 0, er
@@ -127,7 +128,7 @@ func (db *DB) Sum(columnName string) (int64, error) {
 		data = append(data, cndData...)
 		statements = statements + " WHERE " + cndString
 	}
-	var count int64
+	var count int64 = 0
 	scanners, er := getDefaultScanner(&count)
 	if er != nil {
 		return 0, er
@@ -139,7 +140,7 @@ func (db *DB) Sum(columnName string) (int64, error) {
 
 func (db *DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 	db.cloneSelfIfDifferentGoRoutine()
-	db.sqlType = Query
+	db.sqlType = defines.Query
 	if db.rawSql != nil && len(*db.rawSql) > 0 {
 		scanners, er := getDefaultScanner(vs, columns...)
 		if er != nil {
@@ -153,7 +154,7 @@ func (db *DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 		if len(columns) > 0 {
 			for _, c := range columns {
 				if _, ok := colMap[c]; !ok {
-					return nil, errors.New(fmt.Sprintf("'%s' not exist in variable "))
+					return nil, errors.New(fmt.Sprintf("'%s' not exist in variable ", c))
 				}
 			}
 		}
@@ -173,7 +174,7 @@ func (db *DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 			orderBys:      db.GetOrderBys(),
 			page:          db.GetPageInfo(),
 		}
-		selectFunc := db.factory.GetSqlFunc(Query)
+		selectFunc := db.factory.GetSqlFunc(defines.Query)
 		sqlProtos := selectFunc(model)
 		scanner, er := getDefaultScanner(vs)
 		if er != nil {
@@ -188,19 +189,19 @@ func (db *DB) First(vs interface{}) (interface{}, error) {
 }
 func (db *DB) Insert(v interface{}, columns ...string) (sql.Result, error) {
 	db.cloneSelfIfDifferentGoRoutine()
-	db.sqlType = Insert
+	db.sqlType = defines.Insert
 	return db.executeInside(ArrayOf(v), columns...)
 
 }
 func (db *DB) Delete(vs ...interface{}) (sql.Result, error) {
 	db.cloneSelfIfDifferentGoRoutine()
-	db.sqlType = Delete
+	db.sqlType = defines.Delete
 	return db.executeInside(vs)
 
 }
 func (db *DB) Update(v interface{}, columns ...string) (sql.Result, error) {
 	db.cloneSelfIfDifferentGoRoutine()
-	db.sqlType = Update
+	db.sqlType = defines.Update
 	return db.executeInside(ArrayOf(v), columns...)
 }
 
@@ -218,7 +219,7 @@ func (db *DB) executeInside(vi []interface{}, customColumns ...string) (sql.Resu
 	if len(vs) == 0 && db.table == nil && db.cnd == nil {
 		return nil, errors.New("there was nothing to do")
 	} else {
-		var vvs []TableModel
+		var vvs []defines.TableModel
 		if vs != nil && len(vs) > 0 {
 			for _, v := range vs {
 				rawInfo := GetRawTableInfo(v)
@@ -234,7 +235,7 @@ func (db *DB) executeInside(vi []interface{}, customColumns ...string) (sql.Resu
 				}
 				primaryKey := make([]string, 0)
 				primaryAuto := make([]string, 0)
-				dbColMap := make(map[string]Column)
+				dbColMap := make(map[string]defines.Column)
 				dbColNames := make([]string, 0)
 				for _, dbCol := range dbCols {
 					dbColNames = append(dbColNames, dbCol.ColumnName)
@@ -264,7 +265,7 @@ func (db *DB) executeInside(vi []interface{}, customColumns ...string) (sql.Resu
 				if len(columns) > 0 {
 					columns = append(primaryKey, append(primaryAuto, columns...)...)
 				}
-				var cnd Condition
+				var cnd defines.Condition
 				cnd = db.GetCondition()
 				dataMap, er := StructToMap(v, columns...)
 				dataCol := make([]string, 0)
@@ -273,7 +274,7 @@ func (db *DB) executeInside(vi []interface{}, customColumns ...string) (sql.Resu
 				}
 				columns = ArrayIntersect(dbColNames, dataCol)
 
-				if db.sqlType == Update {
+				if db.sqlType == defines.Update {
 					if cnd == nil {
 						if er != nil {
 							return nil, er
@@ -298,7 +299,7 @@ func (db *DB) executeInside(vi []interface{}, customColumns ...string) (sql.Resu
 
 					columns, _, _ = ArrayIntersect2(columns, append(primaryKey, primaryAuto...))
 
-				} else if db.sqlType == Delete && cnd == nil {
+				} else if db.sqlType == defines.Delete && cnd == nil {
 					if er != nil {
 						return nil, er
 					}
@@ -306,7 +307,7 @@ func (db *DB) executeInside(vi []interface{}, customColumns ...string) (sql.Resu
 					columns = make([]string, 0)
 				}
 
-				if db.sqlType == Insert {
+				if db.sqlType == defines.Insert {
 					columns = ArrayIntersect(dbColNames, columns)
 					if len(primaryAuto) > 0 {
 						columns, _, _ = ArrayIntersect2(columns, primaryAuto)
@@ -320,14 +321,15 @@ func (db *DB) executeInside(vi []interface{}, customColumns ...string) (sql.Resu
 					condition:     cnd,
 					orderBys:      db.GetOrderBys(),
 					page:          db.GetPageInfo(),
+					primaryKeys:   append(primaryKey, primaryAuto...),
 				}
 
-				if db.sqlType == Update && cnd == nil {
+				if db.sqlType == defines.Update && cnd == nil {
 					return nil, errors.New("can't update Database without Conditions")
 				}
 				vvs = append(vvs, dm)
 			}
-		} else if db.sqlType == Delete && db.GetTable() != "" && db.GetCondition() != nil {
+		} else if db.sqlType == defines.Delete && db.GetTable() != "" && db.GetCondition() != nil {
 			dm := &DefaultModel{
 				table:         db.GetTable(),
 				columns:       nil,
@@ -352,7 +354,7 @@ func (db *DB) executeInside(vi []interface{}, customColumns ...string) (sql.Resu
 				return CommonSqlResult{0, 0, er}, nil
 			}
 			cs, err := rs.RowsAffected()
-			if cs == 1 && len(sqlProtos) == len(vvs) && db.sqlType == Insert {
+			if cs == 1 && len(sqlProtos) == len(vvs) && db.sqlType == defines.Insert {
 				//
 				id, er := rs.LastInsertId()
 				if er == nil {
@@ -406,7 +408,7 @@ func (db *DB) prepare(query string) (*sql.Stmt, error) {
 	return db.db.Prepare(query)
 }
 
-func (db *DB) GetCondition() Condition {
+func (db *DB) GetCondition() defines.Condition {
 	if db.cnd != nil {
 		return db.cnd
 	}
@@ -503,14 +505,14 @@ func (db *DB) DoTransaction(work TransactionWork) (interface{}, error) {
 	return i, es
 }
 
-func (db *DB) GetOrderBys() []OrderBy {
+func (db *DB) GetOrderBys() []defines.OrderBy {
 	if db.orderBys != nil && *db.orderBys != nil {
 		return *db.orderBys
 	}
 	return nil
 }
 
-func (db *DB) GetPageInfo() PageInfo {
+func (db *DB) GetPageInfo() defines.PageInfo {
 	if db.page != nil {
 		return db.page
 	}

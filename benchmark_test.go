@@ -1,4 +1,4 @@
-package tests
+package gom
 
 import (
 	"database/sql"
@@ -11,7 +11,7 @@ import (
 var rawDb *sql.DB
 
 func init() {
-	rawDb, _ = sql.Open("mysql", dsn)
+	rawDb, _ = sql.Open("mysql", mysqlDsn)
 }
 func TestNothing(t *testing.T) {
 

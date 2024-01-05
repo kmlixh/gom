@@ -4,65 +4,24 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/kmlixh/gom/v2/defines"
 	"reflect"
 )
 
 type DefaultStruct struct {
 }
 
-type ITableName interface {
-	TableName() string
-}
-
-type Column struct {
-	ColumnName  string
-	Primary     bool
-	PrimaryAuto bool //If Primary Key Auto Generate Or2 Not
-	ColumnType  string
-}
 type FieldInfo struct {
 	FieldName string
 	FieldType reflect.Type
 }
-
-type SqlProto struct {
-	PreparedSql string
-	Data        []interface{}
-}
-
-type SqlFunc func(model ...TableModel) []SqlProto
-type SqlFactory interface {
-	GetColumns(tableName string, db *sql.DB) ([]Column, error)
-	GetSqlFunc(sqlType SqlType) SqlFunc
-	ConditionToSql(preTag bool, condition Condition) (string, []interface{})
-}
-
-type OrderType int
-
-type SqlType int
-
-const (
-	_ SqlType = iota
-	Query
-	Insert
-	Update
-	Delete
-)
-
-const (
-	_ OrderType = iota
-	Asc
-	Desc
-)
-
-type OrderBy interface {
-	Name() string
-	Type() OrderType
+type ITableName interface {
+	TableName() string
 }
 
 type OrderByImpl struct {
 	name      string
-	orderType OrderType
+	orderType defines.OrderType
 }
 type CommonSqlResult struct {
 	lastInsertId int64
@@ -89,18 +48,14 @@ func (c CommonSqlResult) RowsAffected() (int64, error) {
 	return c.rowsAffected, c.error
 }
 
-func MakeOrderBy(name string, orderType OrderType) OrderBy {
+func MakeOrderBy(name string, orderType defines.OrderType) defines.OrderBy {
 	return OrderByImpl{name, orderType}
 }
 func (o OrderByImpl) Name() string {
 	return o.name
 }
-func (o OrderByImpl) Type() OrderType {
+func (o OrderByImpl) Type() defines.OrderType {
 	return o.orderType
-}
-
-type PageInfo interface {
-	Page() (int64, int64)
 }
 
 type PageImpl struct {
@@ -108,7 +63,7 @@ type PageImpl struct {
 	size  int64
 }
 
-func MakePage(page int64, size int64) PageInfo {
+func MakePage(page int64, size int64) defines.PageInfo {
 	if page <= 0 {
 		page = 1
 	}
@@ -252,7 +207,12 @@ func (d DefaultScanner) Scan(rows *sql.Rows) (interface{}, error) {
 				if er != nil {
 					panic(er)
 				}
-				val = reflect.ValueOf(vv)
+				if vv != nil {
+					val = reflect.ValueOf(vv)
+				} else {
+					val = reflect.New(d.RawMetaInfo.Type).Elem()
+				}
+
 			}
 			results.Set(val)
 		}
@@ -261,23 +221,18 @@ func (d DefaultScanner) Scan(rows *sql.Rows) (interface{}, error) {
 
 }
 
-type TableModel interface {
-	Table() string
-	Columns() []string
-	ColumnDataMap() map[string]interface{}
-	Condition() Condition
-	OrderBys() []OrderBy
-	Page() PageInfo
-	Clone() TableModel
-}
-
 type DefaultModel struct {
 	table         string
 	columns       []string
 	columnDataMap map[string]interface{}
-	condition     Condition
-	orderBys      []OrderBy
-	page          PageInfo
+	condition     defines.Condition
+	orderBys      []defines.OrderBy
+	page          defines.PageInfo
+	primaryKeys   []string
+}
+
+func (d DefaultModel) PrimaryKeys() []string {
+	return d.primaryKeys
 }
 
 func (d DefaultModel) Table() string {
@@ -300,19 +255,19 @@ func (d DefaultModel) ColumnDataMap() map[string]interface{} {
 	}
 }
 
-func (d DefaultModel) Condition() Condition {
+func (d DefaultModel) Condition() defines.Condition {
 	return d.condition
 }
 
-func (d DefaultModel) OrderBys() []OrderBy {
+func (d DefaultModel) OrderBys() []defines.OrderBy {
 	return d.orderBys
 }
 
-func (d DefaultModel) Page() PageInfo {
+func (d DefaultModel) Page() defines.PageInfo {
 	return d.page
 }
 
-func (d DefaultModel) Clone() TableModel {
+func (d DefaultModel) Clone() defines.TableModel {
 	return &DefaultModel{
 		table:         d.table,
 		columns:       d.columns,
