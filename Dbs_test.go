@@ -3,7 +3,7 @@ package gom
 import (
 	"fmt"
 	"github.com/google/uuid"
-	"github.com/kmlixh/gom/v2/factory/postgres"
+	"github.com/kmlixh/gom/v3/factory/postgres"
 	"reflect"
 	"strconv"
 	"testing"
