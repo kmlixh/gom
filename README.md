@@ -12,37 +12,30 @@ gom - An Easy ORM library for Golang
 
 gom是一个基于golang语言的关系型数据库ORM框架（CRUD工具库，支持事务）
 
-目前最新版本为v2.1.4，于2023年12月30   修复发布。修复问题详见下方的迭代注记
+目前最新版本为v3.0.0，于2024年1月6日发布。详见下方的迭代注记
 
-**当前支持的数据库类型仅为* `mysql`*及其衍生品* `mariadb`*
+**当前支持的数据库类型为* `mysql`*及其衍生品* `mariadb`*，`Postgres`*
 
 数据库类型支持自定义扩展（参考factory/mysql/mysql.go）
 
 gom是goroutine安全的（自认为的安全）
 
-## 稳定性及性能
 
-和原生查询接近的查询性能（甚至更好），增删改性能略比原生差一些。
-
-单元测试覆盖率90%,测试比较充分，但是仍不排除还有漏网之BUG
-
-但是逻辑覆盖率没法做到百分之百，如使用过程中如出现问题，欢迎邮件我：kmlixh@foxmail.com或者直接给PR
-
-本地测试的结果详见*迭代注记*
 
 ## 快速入门
 
 使用go mod的情况下：
 
 ```go
-require github.com/kmlixh/gom/v2 v2.1.4
-require github.com/go-sql-driver/mysql v1.6.0 // indirect,
+
+require github.com/kmlixh/gom/v2 v3.0.0
+
 ```
 
 或者
 
 ```shell
-go get github.com/kmlixh/gom/v2@v2.1.4
+go get github.com/kmlixh/gom/v3@v3.0.0
 ```
 
 ### 一个简单的CRUD示例
@@ -60,10 +53,10 @@ import (
 var dsn = "remote:remote123@tcp(10.0.1.5)/test?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
 
 type User struct {
-	Id       int64     `json:"id" gom:"@,id"`
+	Id       int64     `json:"id" gom:"id"`
 	Pwd      string    `json:"pwd" gom:"pwd"`
 	Email    string    `json:"email" gom:"email"`
-	Valid    int       `json:"valid" gom:"valid"`
+	Valid    int       `json:"valid" gom:"-"`
 	NickName string    `json:"nicks" gom:"nick_name"`
 	RegDate  time.Time `json:"reg_date" gom:"reg_date"`
 }
@@ -104,6 +97,21 @@ func main() {
 
 ```
 
+#### 用于接收实体的对象，可以增加gom标记（TAG）来实现数据库字段到实体字段的特殊映射。正常情况下，其实什么都不需要做。
+```go
+type User struct {
+Id       int64     `json:"id" gom:"id"`
+Pwd      string    `json:"pwd" gom:"pwd"`
+Email    string    `json:"email" gom:"email"`
+Valid    int       `json:"valid" gom:"-"`
+NickName string    `json:"nicks" gom:"nick_name"`
+RegDate  time.Time `json:"reg_date" gom:"reg_date"`
+}
+
+
+```
+    短划线“-”标记此字段在数据库中不映射。除非特别使用gom标记指定了数据库映射关系，gom会自动将数据库字段按照驼峰转蛇形的方式转换，例如：CamelName会被转换为camel_name.而正常情况下，这些操作都是不必要的，甚至你什么都不用做
+
 ### DB结构体具有的方法（函数）如下：
 
 ```go
@@ -138,6 +146,20 @@ CleanDb
 
 ## 迭代注记
 
+#### 2024年1月6日 v3.0版本发布
+    
+##### 1.增加了对Postgres数据库的兼容。
+    
+    底层使用的是github.com/jackc/pgx/v5，所以配置数据的dsn和此库一致
+    例如标准的jdbc连接串：postgres://username:password@localhost:5432/database_name
+    或者是DSN："user=postgres password=secret host=localhost port=5432 database=pgx_test sslmode=disable"
+    
+    
+##### 2.重构了底层逻辑，简化了业务流程。
+    
+    去除了大量无关的代码逻辑。简化了对tag的使用。
+
+
 #### 2023年12月30日 修复查询迭代是sql必须存在于一行的bug
 
     例如 使用db.Where()...之后，如果换行调用db.Select之类的CRUD语句，前面的状态会丢失。主要 是由于没有遵守Golang的参数传递的原则导致的。
@@ -166,36 +188,6 @@ v2.0
 代码测试覆盖率93.0%(相关的测试覆盖率结果可以看test_cover.html以及cover.out)
 ```
 
-此处略作测试摘录证明一下我真的做过测试了：
-
-```shell
-go test  -cover -coverprofile=cover.out -coverpkg=./...
-
-init DB.............
-PASS
-coverage: 93.0% of statements in ./...
-ok      github.com/kmlixh/gom   9.112s
-```
-
-然后Benchmark也顺手写了粗糙的两个：
-
-```shell
-go test -bench="." -benchmem -run="TestNothing" 
-   
-init DB.............
-goos: darwin
-goarch: amd64
-pkg: github.com/kmlixh/gom
-cpu: Intel(R) Core(TM) i9-9980HK CPU @ 2.40GHz
-BenchmarkBaseSelect-16                       138           8654269 ns/op          662728 B/op      10397 allocs/op
-BenchmarkBaseSelectGom-16                    122           8936071 ns/op          679967 B/op      14406 allocs/op
-BenchmarkDB_InsertSingle-16                   74          19828957 ns/op            5403 B/op        109 allocs/op
-BenchmarkRaw_InsertSingle-16                  66          17606781 ns/op            1175 B/op         22 allocs/op
-PASS
-ok      github.com/kmlixh/gom   6.176s
-```
-
-查询的性能比原始查询是差了一些的，这个需要承认
 
 #### 2019年6月19日 17:44:18
 

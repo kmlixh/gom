@@ -1,4 +1,4 @@
-package defines
+package gom
 
 import (
 	"database/sql"
@@ -142,7 +142,6 @@ type TableModel interface {
 	OrderBys() []OrderBy
 	Page() PageInfo
 	Clone() TableModel
-	PrimaryKeys() []string
 }
 type SqlFunc func(model ...TableModel) []SqlProto
 type SqlFactory interface {

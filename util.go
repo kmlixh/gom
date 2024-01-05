@@ -3,7 +3,6 @@ package gom
 import (
 	"errors"
 	"fmt"
-	"github.com/kmlixh/gom/v2/defines"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -118,18 +117,18 @@ func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, err
 	return nil, errors.New(fmt.Sprintf("can't convert %s to map", rawInfo.Name()))
 
 }
-func StructToCondition(vs interface{}, columns ...string) defines.Condition {
+func StructToCondition(vs interface{}, columns ...string) Condition {
 	maps, err := StructToMap(vs, columns...)
 	if err != nil {
 		panic(err)
 	}
 	return MapToCondition(maps)
 }
-func MapToCondition(maps map[string]interface{}) defines.Condition {
+func MapToCondition(maps map[string]interface{}) Condition {
 	if maps == nil {
 		return nil
 	}
-	var cnd defines.Condition
+	var cnd Condition
 	for k, v := range maps {
 		t := reflect.TypeOf(v)
 		if t.Kind() == reflect.Ptr {
@@ -145,9 +144,9 @@ func MapToCondition(maps map[string]interface{}) defines.Condition {
 				}
 			} else {
 				if cnd == nil {
-					cnd = Cnd(k, defines.Eq, value)
+					cnd = Cnd(k, Eq, value)
 				} else {
-					cnd.And(k, defines.Eq, value)
+					cnd.And(k, Eq, value)
 				}
 			}
 

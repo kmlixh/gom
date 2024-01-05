@@ -4,12 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/kmlixh/gom/v2/defines"
 	"reflect"
 )
-
-type DefaultStruct struct {
-}
 
 type FieldInfo struct {
 	FieldName string
@@ -21,7 +17,7 @@ type ITableName interface {
 
 type OrderByImpl struct {
 	name      string
-	orderType defines.OrderType
+	orderType OrderType
 }
 type CommonSqlResult struct {
 	lastInsertId int64
@@ -48,13 +44,13 @@ func (c CommonSqlResult) RowsAffected() (int64, error) {
 	return c.rowsAffected, c.error
 }
 
-func MakeOrderBy(name string, orderType defines.OrderType) defines.OrderBy {
+func MakeOrderBy(name string, orderType OrderType) OrderBy {
 	return OrderByImpl{name, orderType}
 }
 func (o OrderByImpl) Name() string {
 	return o.name
 }
-func (o OrderByImpl) Type() defines.OrderType {
+func (o OrderByImpl) Type() OrderType {
 	return o.orderType
 }
 
@@ -63,7 +59,7 @@ type PageImpl struct {
 	size  int64
 }
 
-func MakePage(page int64, size int64) defines.PageInfo {
+func MakePage(page int64, size int64) PageInfo {
 	if page <= 0 {
 		page = 1
 	}
@@ -225,14 +221,9 @@ type DefaultModel struct {
 	table         string
 	columns       []string
 	columnDataMap map[string]interface{}
-	condition     defines.Condition
-	orderBys      []defines.OrderBy
-	page          defines.PageInfo
-	primaryKeys   []string
-}
-
-func (d DefaultModel) PrimaryKeys() []string {
-	return d.primaryKeys
+	condition     Condition
+	orderBys      []OrderBy
+	page          PageInfo
 }
 
 func (d DefaultModel) Table() string {
@@ -255,19 +246,19 @@ func (d DefaultModel) ColumnDataMap() map[string]interface{} {
 	}
 }
 
-func (d DefaultModel) Condition() defines.Condition {
+func (d DefaultModel) Condition() Condition {
 	return d.condition
 }
 
-func (d DefaultModel) OrderBys() []defines.OrderBy {
+func (d DefaultModel) OrderBys() []OrderBy {
 	return d.orderBys
 }
 
-func (d DefaultModel) Page() defines.PageInfo {
+func (d DefaultModel) Page() PageInfo {
 	return d.page
 }
 
-func (d DefaultModel) Clone() defines.TableModel {
+func (d DefaultModel) Clone() TableModel {
 	return &DefaultModel{
 		table:         d.table,
 		columns:       d.columns,

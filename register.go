@@ -1,16 +1,15 @@
-package register
+package gom
 
 import (
-	"github.com/kmlixh/gom/v2/defines"
 	"sync"
 )
 
 var (
 	mux       sync.RWMutex
-	factories = make(map[string]defines.SqlFactory)
+	factories = make(map[string]SqlFactory)
 )
 
-func Register(name string, inter defines.SqlFactory) {
+func Register(name string, inter SqlFactory) {
 	mux.Lock()
 	defer mux.Unlock()
 	if inter == nil {
@@ -21,7 +20,7 @@ func Register(name string, inter defines.SqlFactory) {
 	}
 	factories[name] = inter
 }
-func Get(name string) (defines.SqlFactory, bool) {
+func Get(name string) (SqlFactory, bool) {
 	data, ok := factories[name]
 	return data, ok
 }

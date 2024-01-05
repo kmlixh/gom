@@ -3,9 +3,7 @@ package gom
 import (
 	"fmt"
 	"github.com/google/uuid"
-	"github.com/kmlixh/gom/v2/defines"
-	"github.com/kmlixh/gom/v2/register"
-	"github.com/kmlixh/gom/v2/register/postgres"
+	"github.com/kmlixh/gom/v2/factory/postgres"
 	"reflect"
 	"strconv"
 	"testing"
@@ -20,16 +18,16 @@ func TestDB_CleanOrders(t *testing.T) {
 	db1 := DB{}
 	db2 := DB{}
 	db3 := DB{}
-	db2.OrderBy("name", defines.Desc)
-	db2.OrderBy("name", defines.Desc).OrderByDesc("use")
+	db2.OrderBy("name", Desc)
+	db2.OrderBy("name", Desc).OrderByDesc("use")
 	tests := []struct {
 		name string
 		raw  DB
-		want []defines.OrderBy
+		want []OrderBy
 	}{
-		{"empty orders clean", db1, []defines.OrderBy{}},
-		{"有一个时除去", db2, []defines.OrderBy{}},
-		{"有多个时清空", db3, []defines.OrderBy{}},
+		{"empty orders clean", db1, []OrderBy{}},
+		{"有一个时除去", db2, []OrderBy{}},
+		{"有多个时清空", db3, []OrderBy{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -269,7 +267,7 @@ type User2 struct {
 
 func init() {
 	fmt.Println("init DB.............")
-	if f, ok := register.Get("Postgres"); f == nil || ok {
+	if f, ok := Get("Postgres"); f == nil || ok {
 		postgres.InitPgFactory()
 	}
 	temp, er := Open("Postgres", pgDsn, true)
@@ -322,7 +320,7 @@ func TestCustomTableName(t *testing.T) {
 
 func TestMultiOrders(t *testing.T) {
 	users := make([]UserInfo, 0)
-	_, er := db.OrderByAsc("id").OrderBy("nick_name", defines.Desc).OrderByDesc("create_date").Page(0, 10).Select(&users)
+	_, er := db.OrderByAsc("id").OrderBy("nick_name", Desc).OrderByDesc("create_date").Page(0, 10).Select(&users)
 	if er != nil {
 		t.Error("counts :", len(users), db)
 		t.Fail()
@@ -338,7 +336,7 @@ func TestRawCondition(t *testing.T) {
 }
 func TestCondition(t *testing.T) {
 	users := make([]UserInfo, 0)
-	_, er := db.Where(Cnd("nick_name", defines.LikeIgnoreStart, "淑兰")).Page(0, 10).Select(&users)
+	_, er := db.Where(Cnd("nick_name", LikeIgnoreStart, "淑兰")).Page(0, 10).Select(&users)
 
 	if er != nil {
 		t.Error("counts :", er, db)
@@ -347,7 +345,7 @@ func TestCondition(t *testing.T) {
 }
 func TestMultiCondition(t *testing.T) {
 	users := make([]UserInfo, 0)
-	_, er := db.Where(Cnd("nick_name", defines.LikeIgnoreStart, "淑兰").Or2(Cnd("phone_number", defines.Eq, "13663049871").Eq("nick_name", "吃素是福"))).Page(0, 10).Select(&users)
+	_, er := db.Where(Cnd("nick_name", LikeIgnoreStart, "淑兰").Or2(Cnd("phone_number", Eq, "13663049871").Eq("nick_name", "吃素是福"))).Page(0, 10).Select(&users)
 	if er != nil {
 		t.Error("counts :", len(users), db)
 		t.Fail()
@@ -769,7 +767,7 @@ func TestDB_Update(t *testing.T) {
 			}
 		}},
 		{"GetOrderBys", func(t *testing.T) {
-			orderbys := db.OrderBy("name", defines.Desc).OrderBy("id", defines.Asc).GetOrderBys()
+			orderbys := db.OrderBy("name", Desc).OrderBy("id", Asc).GetOrderBys()
 			if orderbys == nil || len(orderbys) == 0 {
 				t.Error(orderbys)
 			}
@@ -836,7 +834,7 @@ func TestDB_Select(t *testing.T) {
 		}},
 		{
 			"测试Count时cnd为nil", func(t *testing.T) {
-				var cnd defines.Condition
+				var cnd Condition
 				cc, er := db.Where(cnd).Table(UserInfo{}.TableName()).Count("id")
 				if er != nil {
 					t.Error("count failed:", er, cc)
