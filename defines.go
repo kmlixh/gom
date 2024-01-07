@@ -143,6 +143,7 @@ type TableModel interface {
 	OrderBys() []OrderBy
 	Page() PageInfo
 	Clone() TableModel
+	SetColumns(columns []string) error
 }
 type SqlFunc func(model ...TableModel) []SqlProto
 type SqlFactory interface {
@@ -156,4 +157,6 @@ type Column struct {
 	Primary     bool
 	PrimaryAuto bool //If Primary Key Auto Generate Or2 Not
 	ColumnType  string
+}
+type ColumnField struct {
 }

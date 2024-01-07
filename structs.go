@@ -218,17 +218,27 @@ func (d DefaultScanner) Scan(rows *sql.Rows) (interface{}, error) {
 }
 
 type DefaultModel struct {
-	table         string
-	primaryKeys   []string
-	columns       []string
-	columnDataMap map[string]interface{}
-	condition     Condition
-	orderBys      []OrderBy
-	page          PageInfo
+	table          string
+	primaryKeys    []string
+	primaryAuto    []string
+	columns        []string
+	columnFieldMap map[string]string
+	columnDataMap  map[string]interface{}
+	condition      Condition
+	orderBys       []OrderBy
+	page           PageInfo
+}
+
+func (d *DefaultModel) SetColumns(columns []string) error {
+	d.columns = columns
+	return nil
 }
 
 func (d DefaultModel) PrimaryKeys() []string {
 	return d.primaryKeys
+}
+func (d DefaultModel) PrimaryAuto() []string {
+	return d.primaryAuto
 }
 
 func (d DefaultModel) Table() string {

@@ -1,6 +1,8 @@
 package gom
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
@@ -12,6 +14,124 @@ import (
 
 var columnToFieldNameMapCache = make(map[reflect.Type]map[string]FieldInfo)
 var columnsCache = make(map[reflect.Type][]string)
+var tableModelCache = make(map[string]TableModel)
+
+func GetTableModel(v interface{}, choosedColumns ...string) (TableModel, error) {
+	//防止重复创建map，需要对map创建过程加锁
+	if v == nil {
+		return &DefaultModel{}, nil
+	}
+	rawTableInfo := GetRawTableInfo(v)
+	if !rawTableInfo.IsStruct && (choosedColumns == nil || len(choosedColumns) != 1) {
+		return nil, errors.New("basic Type Only Support [1] Column Or2 nil")
+	}
+
+	var model TableModel
+	cachedModel, ok := tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()]
+	if ok {
+		model = cachedModel.Clone()
+	} else {
+
+		tempVal := reflect.Indirect(reflect.New(rawTableInfo.Type))
+		if rawTableInfo.IsStruct {
+			if rawTableInfo.IsStruct && rawTableInfo.Type.NumField() == 0 {
+				return nil, errors.New(fmt.Sprintf("[%s] was a \"empty struct\",it has no field or All fields has been ignored", rawTableInfo.Type.Name()))
+			}
+			columnNames, primaryKeys, primaryAuto, columnIdxMap := getColumns(tempVal)
+
+			temp := &DefaultModel{
+				table:          "",
+				primaryKeys:    primaryKeys,
+				primaryAuto:    primaryAuto,
+				columns:        columnNames,
+				columnFieldMap: columnIdxMap,
+				condition:      nil,
+				orderBys:       nil,
+				page:           nil,
+			}
+			tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()] = temp
+			model = temp.Clone()
+			return model, nil
+		} else {
+			return nil, nil
+		}
+
+	}
+	er := model.SetColumns(choosedColumns)
+	return model, er
+}
+
+func Md5Text(str string) string {
+	h := md5.New()
+	h.Write([]byte(str))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func getColumns(v reflect.Value) ([]string, []string, []string, map[string]string) {
+	//返回非主键列，非自增主键，自增主键
+	var columnNames []string
+	var primaryKeys []string
+	var primaryAuto []string
+	var columnIdxMap = make(map[string]string)
+	oo := v.Type()
+
+	for i := 0; i < oo.NumField(); i++ {
+		field := oo.Field(i)
+		col, tps := getColumnNameAndTypeFromField(field)
+		if tps != -1 {
+			columnIdxMap[col] = field.Name
+			if tps == 1 {
+				primaryKeys = append(primaryKeys, col)
+			} else if tps == 2 {
+				primaryAuto = append(primaryAuto, col)
+			} else {
+				columnNames = append(columnNames, col)
+			}
+		}
+	}
+	if Debug {
+		fmt.Println("columns are:", columnNames)
+	}
+	return columnNames, primaryKeys, primaryAuto, columnIdxMap
+}
+
+func getColumnNameAndTypeFromField(field reflect.StructField) (string, int) {
+	tag, hasTag := field.Tag.Lookup("gom")
+	if !hasTag {
+		tag = CamelToSnakeString(field.Name)
+	}
+	if strings.EqualFold(tag, "-") {
+		return "", -1
+	} else if len(tag) == 1 {
+		tps := 0
+		if strings.EqualFold(tag, "@") {
+			tps = 2
+		}
+		if strings.EqualFold(tag, "!") {
+			tps = 1
+		}
+		return CamelToSnakeString(field.Name), tps
+	} else {
+		if strings.Contains(tag, ",") {
+			tags := strings.Split(tag, ",")
+			if len(tags) == 2 {
+				if strings.EqualFold(tags[0], "!") || strings.EqualFold(tags[0], "primary") {
+					return tags[1], 1
+				} else if strings.EqualFold(tags[0], "@") || strings.EqualFold(tags[0], "auto") {
+					return tags[1], 2
+				} else if strings.EqualFold(tags[0], "#") || strings.EqualFold(tags[0], "column") {
+					return tags[1], 0
+				} else {
+					return "", -1
+				}
+			} else {
+				return "", -1
+			}
+		} else {
+			return tag, 0
+		}
+	}
+}
 
 func getDefaultsColumnFieldMap(v reflect.Type) (map[string]FieldInfo, []string) {
 	columns := make([]string, 0)
@@ -23,7 +143,7 @@ func getDefaultsColumnFieldMap(v reflect.Type) (map[string]FieldInfo, []string) 
 	}
 	for i := 0; i < v.NumField(); i++ {
 		field := v.Field(i)
-		colName := getColumnName(field)
+		colName, _ := getColumnNameAndTypeFromField(field)
 		if len(colName) > 0 {
 
 			columnMap[colName] = FieldInfo{
@@ -66,16 +186,6 @@ func GetRawTableInfo(v interface{}) RawMetaInfo {
 	}
 
 	return RawMetaInfo{tt, tableName, isSlice, isPtr, isStruct, reflect.Indirect(reflect.ValueOf(v))}
-}
-
-func getColumnName(field reflect.StructField) string {
-	tag, hasTag := field.Tag.Lookup("gom")
-	if !hasTag {
-		tag = CamelToSnakeString(field.Name)
-	} else if strings.EqualFold(tag, "-") {
-		return ""
-	}
-	return tag
 }
 
 func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, error) {
