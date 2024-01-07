@@ -136,6 +136,7 @@ type PageInfo interface {
 }
 type TableModel interface {
 	Table() string
+	PrimaryKeys() []string
 	Columns() []string
 	ColumnDataMap() map[string]interface{}
 	Condition() Condition

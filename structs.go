@@ -219,11 +219,16 @@ func (d DefaultScanner) Scan(rows *sql.Rows) (interface{}, error) {
 
 type DefaultModel struct {
 	table         string
+	primaryKeys   []string
 	columns       []string
 	columnDataMap map[string]interface{}
 	condition     Condition
 	orderBys      []OrderBy
 	page          PageInfo
+}
+
+func (d DefaultModel) PrimaryKeys() []string {
+	return d.primaryKeys
 }
 
 func (d DefaultModel) Table() string {
@@ -261,6 +266,7 @@ func (d DefaultModel) Page() PageInfo {
 func (d DefaultModel) Clone() TableModel {
 	return &DefaultModel{
 		table:         d.table,
+		primaryKeys:   d.primaryKeys,
 		columns:       d.columns,
 		columnDataMap: d.columnDataMap,
 		condition:     d.condition,

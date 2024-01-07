@@ -167,6 +167,7 @@ func (db *DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 		cnd := db.cnd
 		model := &DefaultModel{
 			table:         table,
+			primaryKeys:   nil,
 			columns:       columns,
 			columnDataMap: nil,
 			condition:     cnd,
@@ -315,6 +316,7 @@ func (db *DB) executeInside(vi []interface{}, customColumns ...string) (sql.Resu
 
 				dm := &DefaultModel{
 					table:         table,
+					primaryKeys:   append(primaryKey, primaryAuto...),
 					columns:       columns,
 					columnDataMap: dataMap,
 					condition:     cnd,
@@ -330,6 +332,7 @@ func (db *DB) executeInside(vi []interface{}, customColumns ...string) (sql.Resu
 		} else if db.sqlType == Delete && db.GetTable() != "" && db.GetCondition() != nil {
 			dm := &DefaultModel{
 				table:         db.GetTable(),
+				primaryKeys:   nil,
 				columns:       nil,
 				columnDataMap: nil,
 				condition:     db.GetCondition(),
