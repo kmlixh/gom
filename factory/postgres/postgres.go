@@ -290,6 +290,11 @@ func cndToMyCndStruct(cnd gom.Condition) MyCndStruct {
 		vals := cnd.Values()
 		vals[0] = "%" + vals[0].(string) + "%"
 		cnd.SetValues(vals)
+	case gom.NotLike:
+		opers += " NOT LIKE ? "
+		vals := cnd.Values()
+		vals[0] = "%" + vals[0].(string) + "%"
+		cnd.SetValues(vals)
 	case gom.LikeIgnoreStart:
 		opers += " LIKE ? "
 		vals := cnd.Values()

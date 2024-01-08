@@ -25,6 +25,7 @@ const (
 	Like
 	LikeIgnoreStart
 	LikeIgnoreEnd
+	NotLike
 	In
 	NotIn
 	IsNull
@@ -81,6 +82,10 @@ type Condition interface {
 	LikeBool(b bool, field string, values interface{}) Condition
 	OrLike(field string, values interface{}) Condition
 	OrLikeBool(b bool, field string, values interface{}) Condition
+	NotLike(field string, values interface{}) Condition
+	NotLikeBool(b bool, field string, values interface{}) Condition
+	OrNotLike(field string, values interface{}) Condition
+	OrNotLikeBool(b bool, field string, values interface{}) Condition
 	LikeIgnoreStart(field string, values interface{}) Condition
 	LikeIgnoreStartBool(b bool, field string, values interface{}) Condition
 	OrLikeIgnoreStart(field string, values interface{}) Condition

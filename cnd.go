@@ -104,6 +104,36 @@ func (c *CndImpl) OrNotIn(field string, values ...interface{}) Condition {
 	return c.OrNotInBool(true, field, values...)
 }
 
+func (c *CndImpl) NotLike(field string, values interface{}) Condition {
+	return c.NotLikeBool(true, field, values)
+
+}
+
+func (c *CndImpl) NotLikeBool(b bool, field string, values interface{}) Condition {
+	if !b {
+		return c
+	}
+	condition := Cnd(field, NotLike, values)
+	cc := condition.(*CndImpl)
+	c.payloads += cc.payloads
+	c.items = append(c.items, cc)
+	return c
+}
+
+func (c *CndImpl) OrNotLike(field string, values interface{}) Condition {
+	return c.OrNotLikeBool(true, field, values)
+}
+
+func (c *CndImpl) OrNotLikeBool(b bool, field string, values interface{}) Condition {
+	if !b {
+		return c
+	}
+	condition := CndFull(Or, field, NotLike, "", values)
+	cc := condition.(*CndImpl)
+	c.payloads += cc.payloads
+	c.items = append(c.items, cc)
+	return c
+}
 func (c *CndImpl) Like(field string, values interface{}) Condition {
 	return c.LikeBool(true, field, values)
 }
