@@ -14,52 +14,6 @@ import (
 
 var columnToFieldNameMapCache = make(map[reflect.Type]map[string]FieldInfo)
 var columnsCache = make(map[reflect.Type][]string)
-var tableModelCache = make(map[string]TableModel)
-
-//func GetTableModel(v interface{}, choosedColumns ...string) (TableModel, error) {
-//	//防止重复创建map，需要对map创建过程加锁
-//	if v == nil {
-//		return &DefaultModel{}, nil
-//	}
-//	rawTableInfo := GetRawTableInfo(v)
-//	if !rawTableInfo.IsStruct && (choosedColumns == nil || len(choosedColumns) != 1) {
-//		return nil, errors.New("basic Type Only Support [1] Column Or2 nil")
-//	}
-//
-//	var model TableModel
-//	cachedModel, ok := tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()]
-//	if ok {
-//		model = cachedModel.Clone()
-//	} else {
-//
-//		tempVal := reflect.Indirect(reflect.New(rawTableInfo.Type))
-//		if rawTableInfo.IsStruct {
-//			if rawTableInfo.IsStruct && rawTableInfo.Type.NumField() == 0 {
-//				return nil, errors.New(fmt.Sprintf("[%s] was a \"empty struct\",it has no field or All fields has been ignored", rawTableInfo.Type.Name()))
-//			}
-//			columnNames, primaryKeys, primaryAuto, columnIdxMap := GetColumns(tempVal)
-//
-//			temp := &DefaultModel{
-//				table:          "",
-//				primaryKeys:    primaryKeys,
-//				primaryAuto:    primaryAuto,
-//				columns:        columnNames,
-//				columnFieldMap: columnIdxMap,
-//				condition:      nil,
-//				orderBys:       nil,
-//				page:           nil,
-//			}
-//			tableModelCache[rawTableInfo.PkgPath()+"-"+rawTableInfo.String()] = temp
-//			model = temp.Clone()
-//			return model, nil
-//		} else {
-//			return nil, nil
-//		}
-//
-//	}
-//	er := model.SetColumns(choosedColumns)
-//	return model, er
-//}
 
 func Md5Text(str string) string {
 	h := md5.New()
