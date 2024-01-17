@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/kmlixh/gom/v3/define"
 	"reflect"
 )
 
@@ -17,7 +18,7 @@ type ITableName interface {
 
 type OrderByImpl struct {
 	name      string
-	orderType OrderType
+	orderType define.OrderType
 }
 type CommonSqlResult struct {
 	lastInsertId int64
@@ -44,13 +45,13 @@ func (c CommonSqlResult) RowsAffected() (int64, error) {
 	return c.rowsAffected, c.error
 }
 
-func MakeOrderBy(name string, orderType OrderType) OrderBy {
+func MakeOrderBy(name string, orderType define.OrderType) define.OrderBy {
 	return OrderByImpl{name, orderType}
 }
 func (o OrderByImpl) Name() string {
 	return o.name
 }
-func (o OrderByImpl) Type() OrderType {
+func (o OrderByImpl) Type() define.OrderType {
 	return o.orderType
 }
 
@@ -59,7 +60,7 @@ type PageImpl struct {
 	size  int64
 }
 
-func MakePage(page int64, size int64) PageInfo {
+func MakePage(page int64, size int64) define.PageInfo {
 	if page <= 0 {
 		page = 1
 	}
@@ -224,9 +225,9 @@ type DefaultModel struct {
 	columns        []string
 	columnFieldMap map[string]string
 	columnDataMap  map[string]interface{}
-	condition      Condition
-	orderBys       []OrderBy
-	page           PageInfo
+	condition      define.Condition
+	orderBys       []define.OrderBy
+	page           define.PageInfo
 }
 
 func (d *DefaultModel) SetColumns(columns []string) error {
@@ -261,19 +262,19 @@ func (d DefaultModel) ColumnDataMap() map[string]interface{} {
 	}
 }
 
-func (d DefaultModel) Condition() Condition {
+func (d DefaultModel) Condition() define.Condition {
 	return d.condition
 }
 
-func (d DefaultModel) OrderBys() []OrderBy {
+func (d DefaultModel) OrderBys() []define.OrderBy {
 	return d.orderBys
 }
 
-func (d DefaultModel) Page() PageInfo {
+func (d DefaultModel) Page() define.PageInfo {
 	return d.page
 }
 
-func (d DefaultModel) Clone() TableModel {
+func (d DefaultModel) Clone() define.TableModel {
 	return &DefaultModel{
 		table:         d.table,
 		primaryKeys:   d.primaryKeys,

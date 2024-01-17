@@ -3,16 +3,17 @@ package gom
 import (
 	"errors"
 	"fmt"
+	"github.com/kmlixh/gom/v3/define"
 	"os"
 	"strings"
 )
 
-func GenTableModel(db *DB, packageName string, fileName string, tables ...string) error {
+func GenDefaultStructFromDatabase(db *DB, packageName string, fileName string, tables ...string) error {
 	f, er := os.Create(fileName)
 	if er != nil {
 		panic(er)
 	}
-	f.WriteString("pageckage " + packageName + "\r\n")
+	f.WriteString("package " + packageName + "\r\n")
 	for _, tt := range tables {
 		cols, er := db.factory.GetColumns(tt, db.db)
 		if er == nil && len(cols) == 0 {
@@ -48,7 +49,7 @@ func getTypeOfColumn(columnType string) string {
 		return "float64"
 	}
 	if inArray(columnType, datetimes) {
-		return "DateTime"
+		return "time.Time"
 	}
 	return "string"
 }
@@ -60,7 +61,7 @@ func inArray(s string, a []string) bool {
 	}
 	return false
 }
-func getColumnTag(col Column) string {
+func getColumnTag(col define.Column) string {
 	if col.Primary {
 		return fmt.Sprintf("`gom:\"!,%s\"`", col.ColumnName)
 	}

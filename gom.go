@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	factory2 "github.com/kmlixh/gom/v3/factory"
 	"time"
 )
 
@@ -19,7 +20,7 @@ func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int, deb
 	} else {
 		db.SetMaxOpenConns(maxOpen)
 		db.SetMaxIdleConns(maxIdle)
-		factory, ok := Get(driverName)
+		factory, ok := factory2.Get(driverName)
 		if !ok {
 			return nil, errors.New(fmt.Sprintf("can't find '%s' SqlFactory", driverName))
 		}
@@ -29,7 +30,7 @@ func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int, deb
 
 func Open(driverName string, dsn string, debugs bool) (*DB, error) {
 	Debug = debugs
-	factory, ok := Get(driverName)
+	factory, ok := factory2.Get(driverName)
 	if !ok {
 		return nil, errors.New(fmt.Sprintf("driver [%s] not factory", driverName))
 	}
@@ -38,7 +39,7 @@ func Open(driverName string, dsn string, debugs bool) (*DB, error) {
 		return nil, err
 	} else {
 		db.SetConnMaxLifetime(time.Minute * 1)
-		factory, ok := Get(driverName)
+		factory, ok := factory2.Get(driverName)
 		if !ok {
 			return nil, errors.New(fmt.Sprintf("can't find '%s' SqlFactory", driverName))
 		}

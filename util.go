@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/kmlixh/gom/v3/define"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -181,18 +182,18 @@ func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, err
 	return nil, errors.New(fmt.Sprintf("can't convert %s to map", rawInfo.Name()))
 
 }
-func StructToCondition(vs interface{}, columns ...string) Condition {
+func StructToCondition(vs interface{}, columns ...string) define.Condition {
 	maps, err := StructToMap(vs, columns...)
 	if err != nil {
 		panic(err)
 	}
 	return MapToCondition(maps)
 }
-func MapToCondition(maps map[string]interface{}) Condition {
+func MapToCondition(maps map[string]interface{}) define.Condition {
 	if maps == nil {
 		return nil
 	}
-	var cnd Condition
+	var cnd define.Condition
 	for k, v := range maps {
 		t := reflect.TypeOf(v)
 		if t.Kind() == reflect.Ptr {
@@ -208,9 +209,9 @@ func MapToCondition(maps map[string]interface{}) Condition {
 				}
 			} else {
 				if cnd == nil {
-					cnd = Cnd(k, Eq, value)
+					cnd = Cnd(k, define.Eq, value)
 				} else {
-					cnd.And(k, Eq, value)
+					cnd.And(k, define.Eq, value)
 				}
 			}
 

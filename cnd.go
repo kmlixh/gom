@@ -1,12 +1,14 @@
 package gom
 
+import "github.com/kmlixh/gom/v3/define"
+
 type CndImpl struct {
 	payloads      int64
-	linker        Linker
+	linker        define.Linker
 	field         string
-	operation     Operation
+	operation     define.Operation
 	values        []interface{}
-	items         []Condition
+	items         []define.Condition
 	rawExpression string
 }
 
@@ -14,13 +16,13 @@ func (c *CndImpl) PayLoads() int64 {
 	return c.payloads
 }
 
-func (c *CndImpl) Linker() Linker {
+func (c *CndImpl) Linker() define.Linker {
 	return c.linker
 }
 func (c *CndImpl) Field() string {
 	return c.field
 }
-func (c *CndImpl) Operation() Operation {
+func (c *CndImpl) Operation() define.Operation {
 	return c.operation
 }
 func (c *CndImpl) Values() []interface{} {
@@ -29,7 +31,7 @@ func (c *CndImpl) Values() []interface{} {
 func (c *CndImpl) SetValues(values []interface{}) {
 	c.values = values
 }
-func (c *CndImpl) Items() []Condition {
+func (c *CndImpl) Items() []define.Condition {
 	return c.items
 }
 func (c *CndImpl) HasSubConditions() bool {
@@ -39,533 +41,533 @@ func (c *CndImpl) RawExpression() string {
 	return c.rawExpression
 }
 
-func (c *CndImpl) Eq(field string, values interface{}) Condition {
+func (c *CndImpl) Eq(field string, values interface{}) define.Condition {
 	return c.EqBool(true, field, values)
 }
 
-func (c *CndImpl) OrEq(field string, values interface{}) Condition {
+func (c *CndImpl) OrEq(field string, values interface{}) define.Condition {
 	return c.OrEqBool(true, field, values)
 }
 
-func (c *CndImpl) Ge(field string, values interface{}) Condition {
+func (c *CndImpl) Ge(field string, values interface{}) define.Condition {
 	return c.GeBool(true, field, values)
 }
 
-func (c *CndImpl) OrGe(field string, values interface{}) Condition {
+func (c *CndImpl) OrGe(field string, values interface{}) define.Condition {
 	return c.OrGeBool(true, field, values)
 }
 
-func (c *CndImpl) Gt(field string, values interface{}) Condition {
+func (c *CndImpl) Gt(field string, values interface{}) define.Condition {
 	return c.GtBool(true, field, values)
 }
 
-func (c *CndImpl) OrGt(field string, values interface{}) Condition {
+func (c *CndImpl) OrGt(field string, values interface{}) define.Condition {
 	return c.OrGtBool(true, field, values)
 }
 
-func (c *CndImpl) Le(field string, values interface{}) Condition {
+func (c *CndImpl) Le(field string, values interface{}) define.Condition {
 	return c.LeBool(true, field, values)
 }
 
-func (c *CndImpl) OrLe(field string, values interface{}) Condition {
+func (c *CndImpl) OrLe(field string, values interface{}) define.Condition {
 	return c.OrLeBool(true, field, values)
 }
 
-func (c *CndImpl) Lt(field string, values interface{}) Condition {
+func (c *CndImpl) Lt(field string, values interface{}) define.Condition {
 	return c.LtBool(true, field, values)
 }
 
-func (c *CndImpl) OrLt(field string, values interface{}) Condition {
+func (c *CndImpl) OrLt(field string, values interface{}) define.Condition {
 	return c.OrLtBool(true, field, values)
 }
 
-func (c *CndImpl) NotEq(field string, values interface{}) Condition {
+func (c *CndImpl) NotEq(field string, values interface{}) define.Condition {
 	return c.NotEqBool(true, field, values)
 }
 
-func (c *CndImpl) OrNotEq(field string, values interface{}) Condition {
+func (c *CndImpl) OrNotEq(field string, values interface{}) define.Condition {
 	return c.OrNotEqBool(true, field, values)
 }
 
-func (c *CndImpl) In(field string, values ...interface{}) Condition {
+func (c *CndImpl) In(field string, values ...interface{}) define.Condition {
 	return c.InBool(true, field, values...)
 }
 
-func (c *CndImpl) OrIn(field string, values ...interface{}) Condition {
+func (c *CndImpl) OrIn(field string, values ...interface{}) define.Condition {
 	return c.OrInBool(true, field, values...)
 
 }
 
-func (c *CndImpl) NotIn(field string, values ...interface{}) Condition {
+func (c *CndImpl) NotIn(field string, values ...interface{}) define.Condition {
 	return c.NotInBool(true, field, values...)
 }
 
-func (c *CndImpl) OrNotIn(field string, values ...interface{}) Condition {
+func (c *CndImpl) OrNotIn(field string, values ...interface{}) define.Condition {
 	return c.OrNotInBool(true, field, values...)
 }
 
-func (c *CndImpl) NotLike(field string, values interface{}) Condition {
+func (c *CndImpl) NotLike(field string, values interface{}) define.Condition {
 	return c.NotLikeBool(true, field, values)
 
 }
 
-func (c *CndImpl) NotLikeBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) NotLikeBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := Cnd(field, NotLike, values)
+	condition := Cnd(field, define.NotLike, values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
 
-func (c *CndImpl) OrNotLike(field string, values interface{}) Condition {
+func (c *CndImpl) OrNotLike(field string, values interface{}) define.Condition {
 	return c.OrNotLikeBool(true, field, values)
 }
 
-func (c *CndImpl) OrNotLikeBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) OrNotLikeBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := CndFull(Or, field, NotLike, "", values)
+	condition := CndFull(define.Or, field, define.NotLike, "", values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) Like(field string, values interface{}) Condition {
+func (c *CndImpl) Like(field string, values interface{}) define.Condition {
 	return c.LikeBool(true, field, values)
 }
 
-func (c *CndImpl) OrLike(field string, values interface{}) Condition {
+func (c *CndImpl) OrLike(field string, values interface{}) define.Condition {
 	return c.OrLikeBool(true, field, values)
 }
 
-func (c *CndImpl) LikeIgnoreStart(field string, values interface{}) Condition {
+func (c *CndImpl) LikeIgnoreStart(field string, values interface{}) define.Condition {
 	return c.LikeIgnoreStartBool(true, field, values)
 }
 
-func (c *CndImpl) OrLikeIgnoreStart(field string, values interface{}) Condition {
+func (c *CndImpl) OrLikeIgnoreStart(field string, values interface{}) define.Condition {
 	return c.OrLikeIgnoreStartBool(true, field, values)
 }
 
-func (c *CndImpl) LikeIgnoreEnd(field string, values interface{}) Condition {
+func (c *CndImpl) LikeIgnoreEnd(field string, values interface{}) define.Condition {
 	return c.LikeIgnoreEndBool(true, field, values)
 }
 
-func (c *CndImpl) OrLikeIgnoreEnd(field string, values interface{}) Condition {
+func (c *CndImpl) OrLikeIgnoreEnd(field string, values interface{}) define.Condition {
 	return c.OrLikeIgnoreEndBool(true, field, values)
 }
 
-func (c *CndImpl) IsNull(filed string) Condition {
+func (c *CndImpl) IsNull(filed string) define.Condition {
 	return c.IsNullBool(true, filed)
 }
 
-func (c *CndImpl) IsNotNull(field string) Condition {
+func (c *CndImpl) IsNotNull(field string) define.Condition {
 	return c.IsNotNullBool(true, field)
 }
 
-func (c *CndImpl) And(field string, operation Operation, value ...interface{}) Condition {
+func (c *CndImpl) And(field string, operation define.Operation, value ...interface{}) define.Condition {
 	return c.AndBool(true, field, operation, value)
 }
-func (c *CndImpl) And2(condition Condition) Condition {
+func (c *CndImpl) And2(condition define.Condition) define.Condition {
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
-	cc.linker = And
+	cc.linker = define.And
 	c.items = append(c.items, cc)
 	return c
 }
 
-func (c *CndImpl) And3(rawExpresssion string, values ...interface{}) Condition {
+func (c *CndImpl) And3(rawExpresssion string, values ...interface{}) define.Condition {
 	return c.And3Bool(true, rawExpresssion, values...)
 }
 
-func (c *CndImpl) EqBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) EqBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := Cnd(field, Eq, values)
+	condition := Cnd(field, define.Eq, values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) OrEqBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) OrEqBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := CndFull(Or, field, Eq, "", values)
+	condition := CndFull(define.Or, field, define.Eq, "", values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) GeBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) GeBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := Cnd(field, Ge, values)
+	condition := Cnd(field, define.Ge, values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) OrGeBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) OrGeBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := CndFull(Or, field, Ge, "", values)
+	condition := CndFull(define.Or, field, define.Ge, "", values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) GtBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) GtBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := Cnd(field, Gt, values)
+	condition := Cnd(field, define.Gt, values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) OrGtBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) OrGtBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := CndFull(Or, field, Gt, "", values)
+	condition := CndFull(define.Or, field, define.Gt, "", values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) LeBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) LeBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := Cnd(field, Le, values)
+	condition := Cnd(field, define.Le, values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) OrLeBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) OrLeBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := CndFull(Or, field, Le, "", values)
+	condition := CndFull(define.Or, field, define.Le, "", values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) LtBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) LtBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := Cnd(field, Lt, values)
+	condition := Cnd(field, define.Lt, values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) OrLtBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) OrLtBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := CndFull(Or, field, Lt, "", values)
+	condition := CndFull(define.Or, field, define.Lt, "", values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) NotEqBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) NotEqBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := Cnd(field, NotEq, values)
+	condition := Cnd(field, define.NotEq, values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) OrNotEqBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) OrNotEqBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := CndFull(Or, field, NotEq, "", values)
+	condition := CndFull(define.Or, field, define.NotEq, "", values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) InBool(b bool, field string, values ...interface{}) Condition {
+func (c *CndImpl) InBool(b bool, field string, values ...interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := Cnd(field, In, values...)
+	condition := Cnd(field, define.In, values...)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) OrInBool(b bool, field string, values ...interface{}) Condition {
+func (c *CndImpl) OrInBool(b bool, field string, values ...interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := CndFull(Or, field, NotEq, "", values...)
+	condition := CndFull(define.Or, field, define.NotEq, "", values...)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) NotInBool(b bool, field string, values ...interface{}) Condition {
+func (c *CndImpl) NotInBool(b bool, field string, values ...interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := Cnd(field, NotIn, values...)
+	condition := Cnd(field, define.NotIn, values...)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) OrNotInBool(b bool, field string, values ...interface{}) Condition {
+func (c *CndImpl) OrNotInBool(b bool, field string, values ...interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := CndFull(Or, field, NotIn, "", values...)
+	condition := CndFull(define.Or, field, define.NotIn, "", values...)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) LikeBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) LikeBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := Cnd(field, Like, values)
+	condition := Cnd(field, define.Like, values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) OrLikeBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) OrLikeBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := CndFull(Or, field, Like, "", values)
+	condition := CndFull(define.Or, field, define.Like, "", values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) LikeIgnoreStartBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) LikeIgnoreStartBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := Cnd(field, LikeIgnoreStart, "", values)
+	condition := Cnd(field, define.LikeIgnoreStart, "", values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) OrLikeIgnoreStartBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) OrLikeIgnoreStartBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := CndFull(Or, field, LikeIgnoreStart, "", values)
+	condition := CndFull(define.Or, field, define.LikeIgnoreStart, "", values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) LikeIgnoreEndBool(b bool, field string, values interface{}) Condition {
+func (c *CndImpl) LikeIgnoreEndBool(b bool, field string, values interface{}) define.Condition {
 	if !b {
 		return c
 	}
-	condition := Cnd(field, Like, values)
+	condition := Cnd(field, define.Like, values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) IsNullBool(b bool, field string) Condition {
+func (c *CndImpl) IsNullBool(b bool, field string) define.Condition {
 	if !b {
 		return c
 	}
-	condition := Cnd(field, IsNull, nil)
+	condition := Cnd(field, define.IsNull, nil)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) IsNotNullBool(b bool, filed string) Condition {
+func (c *CndImpl) IsNotNullBool(b bool, filed string) define.Condition {
 	if !b {
 		return c
 	}
-	condition := Cnd(filed, IsNotNull, nil)
+	condition := Cnd(filed, define.IsNotNull, nil)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
 
-func (c *CndImpl) OrIsNull(field string) Condition {
+func (c *CndImpl) OrIsNull(field string) define.Condition {
 	return c.OrIsNullBool(true, field)
 }
 
-func (c *CndImpl) OrIsNullBool(b bool, field string) Condition {
+func (c *CndImpl) OrIsNullBool(b bool, field string) define.Condition {
 	if !b {
 		return c
 	}
-	condition := Cnd(field, IsNull, nil)
+	condition := Cnd(field, define.IsNull, nil)
 	cc := condition.(*CndImpl)
-	cc.linker = Or
+	cc.linker = define.Or
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
 
-func (c *CndImpl) OrIsNotNull(field string) Condition {
+func (c *CndImpl) OrIsNotNull(field string) define.Condition {
 	return c.OrIsNotNullBool(true, field)
 }
 
-func (c *CndImpl) OrIsNotNullBool(b bool, field string) Condition {
+func (c *CndImpl) OrIsNotNullBool(b bool, field string) define.Condition {
 	if !b {
 		return c
 	}
-	condition := Cnd(field, IsNotNull, nil)
+	condition := Cnd(field, define.IsNotNull, nil)
 	cc := condition.(*CndImpl)
-	cc.linker = Or
+	cc.linker = define.Or
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
 
-func (c *CndImpl) OrLikeIgnoreEndBool(b bool, field string, values interface{}) Condition {
-	condition := CndFull(Or, field, LikeIgnoreEnd, "", values)
+func (c *CndImpl) OrLikeIgnoreEndBool(b bool, field string, values interface{}) define.Condition {
+	condition := CndFull(define.Or, field, define.LikeIgnoreEnd, "", values)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
 	c.items = append(c.items, cc)
 	return c
 }
 
-func (c *CndImpl) AndBool(b bool, field string, operation Operation, values ...interface{}) Condition {
+func (c *CndImpl) AndBool(b bool, field string, operation define.Operation, values ...interface{}) define.Condition {
 	if !b {
 		return c
 	}
 	cc := Cnd(field, operation, values...).(*CndImpl)
 	c.payloads += cc.payloads
-	cc.linker = And
+	cc.linker = define.And
 	c.items = append(c.items, cc)
 	return c
 }
 
-func (c *CndImpl) And3Bool(b bool, rawExpresssion string, values ...interface{}) Condition {
+func (c *CndImpl) And3Bool(b bool, rawExpresssion string, values ...interface{}) define.Condition {
 	if !b {
 		return c
 	}
 	condition := CndRaw(rawExpresssion, values...)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
-	cc.linker = And
+	cc.linker = define.And
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) Or(field string, operation Operation, values ...interface{}) Condition {
+func (c *CndImpl) Or(field string, operation define.Operation, values ...interface{}) define.Condition {
 	return c.OrBool(true, field, operation, values...)
 }
-func (c *CndImpl) OrBool(b bool, field string, operation Operation, values ...interface{}) Condition {
+func (c *CndImpl) OrBool(b bool, field string, operation define.Operation, values ...interface{}) define.Condition {
 	if !b {
 		return c
 	}
 	cc := Cnd(field, operation, values...).(*CndImpl)
 	c.payloads += cc.payloads
-	cc.linker = Or
+	cc.linker = define.Or
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) Or2(condition Condition) Condition {
+func (c *CndImpl) Or2(condition define.Condition) define.Condition {
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
-	cc.linker = Or
+	cc.linker = define.Or
 	c.items = append(c.items, cc)
 	return c
 }
-func (c *CndImpl) Or3(rawExpresssion string, values ...interface{}) Condition {
+func (c *CndImpl) Or3(rawExpresssion string, values ...interface{}) define.Condition {
 	return c.Or3Bool(true, rawExpresssion, values...)
 }
-func (c *CndImpl) Or3Bool(b bool, rawExpresssion string, values ...interface{}) Condition {
+func (c *CndImpl) Or3Bool(b bool, rawExpresssion string, values ...interface{}) define.Condition {
 	if !b {
 		return c
 	}
 	condition := CndRaw(rawExpresssion, values...)
 	cc := condition.(*CndImpl)
 	c.payloads += cc.payloads
-	cc.linker = Or
+	cc.linker = define.Or
 	c.items = append(c.items, cc)
 	return c
 }
 
-func CndEq(field string, value interface{}) Condition {
-	return Cnd(field, Eq, value)
+func CndEq(field string, value interface{}) define.Condition {
+	return Cnd(field, define.Eq, value)
 }
-func CndNotEq(field string, value interface{}) Condition {
-	return Cnd(field, NotEq, value)
+func CndNotEq(field string, value interface{}) define.Condition {
+	return Cnd(field, define.NotEq, value)
 }
-func CndGe(field string, value interface{}) Condition {
-	return Cnd(field, Ge, value)
+func CndGe(field string, value interface{}) define.Condition {
+	return Cnd(field, define.Ge, value)
 }
-func CndGt(field string, value interface{}) Condition {
-	return Cnd(field, Gt, value)
+func CndGt(field string, value interface{}) define.Condition {
+	return Cnd(field, define.Gt, value)
 }
-func CndLe(field string, value interface{}) Condition {
-	return Cnd(field, Le, value)
+func CndLe(field string, value interface{}) define.Condition {
+	return Cnd(field, define.Le, value)
 }
-func CndLt(field string, value interface{}) Condition {
-	return Cnd(field, Lt, value)
+func CndLt(field string, value interface{}) define.Condition {
+	return Cnd(field, define.Lt, value)
 }
-func CndLike(field string, value interface{}) Condition {
-	return Cnd(field, Like, value)
+func CndLike(field string, value interface{}) define.Condition {
+	return Cnd(field, define.Like, value)
 }
-func CndLikeIgnoreStart(field string, value interface{}) Condition {
-	return Cnd(field, LikeIgnoreStart, value)
+func CndLikeIgnoreStart(field string, value interface{}) define.Condition {
+	return Cnd(field, define.LikeIgnoreStart, value)
 }
-func CndLikeIgnoreEnd(field string, value interface{}) Condition {
-	return Cnd(field, LikeIgnoreEnd, value)
+func CndLikeIgnoreEnd(field string, value interface{}) define.Condition {
+	return Cnd(field, define.LikeIgnoreEnd, value)
 }
-func CndIn(field string, values ...interface{}) Condition {
-	return Cnd(field, In, values...)
+func CndIn(field string, values ...interface{}) define.Condition {
+	return Cnd(field, define.In, values...)
 }
-func CndNotIn(field string, values ...interface{}) Condition {
-	return Cnd(field, NotIn, values...)
+func CndNotIn(field string, values ...interface{}) define.Condition {
+	return Cnd(field, define.NotIn, values...)
 }
-func CndIsNull(field string) Condition {
-	return Cnd(field, IsNull)
+func CndIsNull(field string) define.Condition {
+	return Cnd(field, define.IsNull)
 }
-func CndIsNotNull(field string) Condition {
-	return Cnd(field, IsNotNull)
-}
-
-func Cnd(field string, operation Operation, values ...interface{}) Condition {
-	return CndFull(And, field, operation, "", values...)
+func CndIsNotNull(field string) define.Condition {
+	return Cnd(field, define.IsNotNull)
 }
 
-func CndEmpty() Condition {
+func Cnd(field string, operation define.Operation, values ...interface{}) define.Condition {
+	return CndFull(define.And, field, operation, "", values...)
+}
+
+func CndEmpty() define.Condition {
 	return CndRaw("")
 }
 
-func CndRaw(rawExpresssion string, values ...interface{}) Condition {
+func CndRaw(rawExpresssion string, values ...interface{}) define.Condition {
 	payloads := int64(1)
 	if rawExpresssion == "" {
 		payloads = 0
 	}
-	return &CndImpl{payloads: payloads, linker: And, rawExpression: rawExpresssion, values: UnZipSlice(values), operation: RawOperation}
+	return &CndImpl{payloads: payloads, linker: define.And, rawExpression: rawExpresssion, values: UnZipSlice(values), operation: define.RawOperation}
 }
 
-func CndFull(linker Linker, field string, operation Operation, rawExpression string, values ...interface{}) Condition {
+func CndFull(linker define.Linker, field string, operation define.Operation, rawExpression string, values ...interface{}) define.Condition {
 	return &CndImpl{
 		1,
 		linker,

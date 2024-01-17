@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/kmlixh/gom/v3"
+	"github.com/kmlixh/gom/v3/define"
+	factory2 "github.com/kmlixh/gom/v3/factory"
 	"strings"
 )
 
@@ -17,27 +18,27 @@ type MyCndStruct struct {
 
 var keywordMap map[string]string
 
-var funcMap map[gom.SqlType]gom.SqlFunc
+var funcMap map[define.SqlType]define.SqlFunc
 
-var factory Factory = Factory{}
+var factory = Factory{}
 
 type Factory struct {
 }
 
 func (m Factory) OpenDb(dsn string) (*sql.DB, error) {
-	return sql.Open("Mysql", dsn)
+	return sql.Open("mysql", dsn)
 }
 
-var dbTableColsCache = make(map[string][]gom.Column)
+var dbTableColsCache = make(map[string][]define.Column)
 
 func init() {
-	gom.Register("mysql", &factory)
-	InitMysqlFactory()
+	InitFactory()
 }
-func InitMysqlFactory() {
+func InitFactory() {
+	factory2.Register("mysql", &factory)
 	initKeywordMap()
-	funcMap = make(map[gom.SqlType]gom.SqlFunc)
-	funcMap[gom.Query] = func(models ...gom.TableModel) []gom.SqlProto {
+	funcMap = make(map[define.SqlType]define.SqlFunc)
+	funcMap[define.Query] = func(models ...define.TableModel) []define.SqlProto {
 		model := models[0]
 		var datas []interface{}
 		sql := "SELECT "
@@ -66,7 +67,7 @@ func InitMysqlFactory() {
 					sql += ","
 				}
 				t := ""
-				if model.OrderBys()[i].Type() == gom.Asc {
+				if model.OrderBys()[i].Type() == define.Asc {
 					t = " ASC"
 				} else {
 					t = " DESC"
@@ -80,15 +81,15 @@ func InitMysqlFactory() {
 			sql += " LIMIT ?,?"
 		}
 		sql += ";"
-		var result []gom.SqlProto
-		result = append(result, gom.SqlProto{PreparedSql: sql, Data: datas})
+		var result []define.SqlProto
+		result = append(result, define.SqlProto{PreparedSql: sql, Data: datas})
 		return result
 	}
-	funcMap[gom.Update] = func(models ...gom.TableModel) []gom.SqlProto {
+	funcMap[define.Update] = func(models ...define.TableModel) []define.SqlProto {
 		if models == nil || len(models) == 0 {
 			panic(errors.New("model was nil or empty"))
 		}
-		var result []gom.SqlProto
+		var result []define.SqlProto
 		for _, model := range models {
 			if model.ColumnDataMap() == nil {
 				panic(errors.New("nothing to update"))
@@ -110,13 +111,13 @@ func InitMysqlFactory() {
 				sql += " WHERE " + conditionSql + ";"
 			}
 			datas = append(datas, dds...)
-			result = append(result, gom.SqlProto{sql, datas})
+			result = append(result, define.SqlProto{sql, datas})
 		}
 
 		return result
 	}
-	funcMap[gom.Insert] = func(models ...gom.TableModel) []gom.SqlProto {
-		var result []gom.SqlProto
+	funcMap[define.Insert] = func(models ...define.TableModel) []define.SqlProto {
+		var result []define.SqlProto
 		for _, model := range models {
 			var datas []interface{}
 
@@ -136,12 +137,12 @@ func InitMysqlFactory() {
 			sql += ")"
 			valuesPattern += ");"
 			sql += valuesPattern
-			result = append(result, gom.SqlProto{sql, datas})
+			result = append(result, define.SqlProto{sql, datas})
 		}
 		return result
 	}
-	funcMap[gom.Delete] = func(models ...gom.TableModel) []gom.SqlProto {
-		var result []gom.SqlProto
+	funcMap[define.Delete] = func(models ...define.TableModel) []define.SqlProto {
+		var result []define.SqlProto
 		for _, model := range models {
 			var datas []interface{}
 			sql := "DELETE FROM "
@@ -151,12 +152,12 @@ func InitMysqlFactory() {
 				sql += " WHERE " + conditionSql + ";"
 			}
 			datas = append(datas, dds...)
-			result = append(result, gom.SqlProto{sql, datas})
+			result = append(result, define.SqlProto{sql, datas})
 		}
 		return result
 	}
 }
-func (m Factory) GetColumns(tableName string, db *sql.DB) ([]gom.Column, error) {
+func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, error) {
 
 	dbSql := "SELECT DATABASE() as db;"
 	rows, er := db.Query(dbSql)
@@ -179,7 +180,7 @@ func (m Factory) GetColumns(tableName string, db *sql.DB) ([]gom.Column, error) 
 	if er != nil {
 		return nil, er
 	}
-	columns := make([]gom.Column, 0)
+	columns := make([]define.Column, 0)
 	for rows.Next() {
 		columnName := ""
 		columnType := ""
@@ -187,7 +188,7 @@ func (m Factory) GetColumns(tableName string, db *sql.DB) ([]gom.Column, error) 
 		extra := ""
 		er = rows.Scan(&columnName, &columnType, &columnKey, &extra)
 		if er == nil {
-			columns = append(columns, gom.Column{ColumnName: columnName, ColumnType: columnType, Primary: columnKey == "PRI", PrimaryAuto: columnKey == "PRI" && extra == "auto_increment"})
+			columns = append(columns, define.Column{ColumnName: columnName, ColumnType: columnType, Primary: columnKey == "PRI", PrimaryAuto: columnKey == "PRI" && extra == "auto_increment"})
 		} else {
 			return nil, er
 		}
@@ -197,10 +198,10 @@ func (m Factory) GetColumns(tableName string, db *sql.DB) ([]gom.Column, error) 
 
 }
 
-func (m Factory) GetSqlFunc(sqlType gom.SqlType) gom.SqlFunc {
+func (m Factory) GetSqlFunc(sqlType define.SqlType) define.SqlFunc {
 	return funcMap[sqlType]
 }
-func (m Factory) ConditionToSql(preTag bool, cnd gom.Condition) (string, []interface{}) {
+func (m Factory) ConditionToSql(preTag bool, cnd define.Condition) (string, []interface{}) {
 	if cnd == nil {
 		return "", nil
 	}
@@ -255,61 +256,61 @@ func wrapperName(name string) string {
 	}
 }
 
-func cndToMyCndStruct(cnd gom.Condition) MyCndStruct {
+func cndToMyCndStruct(cnd define.Condition) MyCndStruct {
 	if len(cnd.RawExpression()) > 0 {
 		return MyCndStruct{linkerToString(cnd), cnd.RawExpression(), cnd.Values()}
 	}
 	opers := cnd.Field()
 	switch cnd.Operation() {
-	case gom.Eq:
+	case define.Eq:
 		opers += " = ? "
-	case gom.NotEq:
+	case define.NotEq:
 		opers += " <> ? "
-	case gom.Ge:
+	case define.Ge:
 		opers += " >= ? "
-	case gom.Gt:
+	case define.Gt:
 		opers += " > ? "
-	case gom.Le:
+	case define.Le:
 		opers += " <= ? "
-	case gom.Lt:
+	case define.Lt:
 		opers += " < ? "
-	case gom.In:
+	case define.In:
 		opers += " IN " + valueSpace(len(cnd.Values()))
-	case gom.NotIn:
+	case define.NotIn:
 		opers += " NOT IN " + valueSpace(len(cnd.Values()))
-	case gom.Like:
+	case define.Like:
 		opers += " LIKE ? "
 		vals := cnd.Values()
 		vals[0] = "%" + vals[0].(string) + "%"
 		cnd.SetValues(vals)
-	case gom.NotLike:
+	case define.NotLike:
 		opers += " NOT LIKE ? "
 		vals := cnd.Values()
 		vals[0] = "%" + vals[0].(string) + "%"
 		cnd.SetValues(vals)
-	case gom.LikeIgnoreStart:
+	case define.LikeIgnoreStart:
 		opers += " LIKE ? "
 		vals := cnd.Values()
 		vals[0] = "%" + vals[0].(string)
 		cnd.SetValues(vals)
-	case gom.LikeIgnoreEnd:
+	case define.LikeIgnoreEnd:
 		opers += " LIKE ? "
 		vals := cnd.Values()
 		vals[0] = vals[0].(string) + "%"
 		cnd.SetValues(vals)
-	case gom.IsNull:
+	case define.IsNull:
 		opers += " IS NULL "
-	case gom.IsNotNull:
+	case define.IsNotNull:
 		opers += " IS NOT NULL "
 	}
 	return MyCndStruct{linkerToString(cnd), opers, cnd.Values()}
 }
 
-func linkerToString(cnd gom.Condition) string {
+func linkerToString(cnd define.Condition) string {
 	switch cnd.Linker() {
-	case gom.And:
+	case define.And:
 		return " AND "
-	case gom.Or:
+	case define.Or:
 		return " OR "
 	default:
 		return " AND "

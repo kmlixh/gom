@@ -3,6 +3,9 @@ package gom
 import (
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/kmlixh/gom/v3/define"
+	"github.com/kmlixh/gom/v3/factory"
+	"github.com/kmlixh/gom/v3/factory/mysql"
 	"github.com/kmlixh/gom/v3/factory/postgres"
 	"reflect"
 	"strconv"
@@ -18,16 +21,16 @@ func TestDB_CleanOrders(t *testing.T) {
 	db1 := DB{}
 	db2 := DB{}
 	db3 := DB{}
-	db2.OrderBy("name", Desc)
-	db2.OrderBy("name", Desc).OrderByDesc("use")
+	db2.OrderBy("name", define.Desc)
+	db2.OrderBy("name", define.Desc).OrderByDesc("use")
 	tests := []struct {
 		name string
 		raw  DB
-		want []OrderBy
+		want []define.OrderBy
 	}{
-		{"empty orders clean", db1, []OrderBy{}},
-		{"有一个时除去", db2, []OrderBy{}},
-		{"有多个时清空", db3, []OrderBy{}},
+		{"empty orders clean", db1, []define.OrderBy{}},
+		{"有一个时除去", db2, []define.OrderBy{}},
+		{"有多个时清空", db3, []define.OrderBy{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -233,6 +236,7 @@ func TestDB_Insert(t *testing.T) {
 }
 
 var db *DB
+var mysqlDb *DB
 
 type UserInfo struct {
 	Id          int64     `json:"id" gom:"id"`
@@ -267,14 +271,22 @@ type User2 struct {
 
 func init() {
 	fmt.Println("init DB.............")
-	if f, ok := Get("Postgres"); f == nil || ok {
-		postgres.InitPgFactory()
+	if f, ok := factory.Get("Postgres"); f == nil || ok {
+		postgres.InitFactory()
 	}
 	temp, er := Open("Postgres", pgDsn, true)
 	if er != nil {
 		panic(er)
 	}
 	db = temp
+	if f, ok := factory.Get("mysql"); f == nil || ok {
+		mysql.InitFactory()
+	}
+	tt, er := Open("mysql", mysqlDsn, true)
+	if er != nil {
+		panic(er)
+	}
+	mysqlDb = tt
 }
 
 type User struct {
@@ -320,7 +332,7 @@ func TestCustomTableName(t *testing.T) {
 
 func TestMultiOrders(t *testing.T) {
 	users := make([]UserInfo, 0)
-	_, er := db.OrderByAsc("id").OrderBy("nick_name", Desc).OrderByDesc("create_date").Page(0, 10).Select(&users)
+	_, er := db.OrderByAsc("id").OrderBy("nick_name", define.Desc).OrderByDesc("create_date").Page(0, 10).Select(&users)
 	if er != nil {
 		t.Error("counts :", len(users), db)
 		t.Fail()
@@ -336,7 +348,7 @@ func TestRawCondition(t *testing.T) {
 }
 func TestCondition(t *testing.T) {
 	users := make([]UserInfo, 0)
-	_, er := db.Where(Cnd("nick_name", LikeIgnoreStart, "淑兰")).Page(0, 10).Select(&users)
+	_, er := db.Where(Cnd("nick_name", define.LikeIgnoreStart, "淑兰")).Page(0, 10).Select(&users)
 
 	if er != nil {
 		t.Error("counts :", er, db)
@@ -345,7 +357,7 @@ func TestCondition(t *testing.T) {
 }
 func TestMultiCondition(t *testing.T) {
 	users := make([]UserInfo, 0)
-	_, er := db.Where(Cnd("nick_name", LikeIgnoreStart, "淑兰").Or2(Cnd("phone_number", Eq, "13663049871").Eq("nick_name", "吃素是福"))).Page(0, 10).Select(&users)
+	_, er := db.Where(Cnd("nick_name", define.LikeIgnoreStart, "淑兰").Or2(Cnd("phone_number", define.Eq, "13663049871").Eq("nick_name", "吃素是福"))).Page(0, 10).Select(&users)
 	if er != nil {
 		t.Error("counts :", len(users), db)
 		t.Fail()
@@ -767,7 +779,7 @@ func TestDB_Update(t *testing.T) {
 			}
 		}},
 		{"GetOrderBys", func(t *testing.T) {
-			orderbys := db.OrderBy("name", Desc).OrderBy("id", Asc).GetOrderBys()
+			orderbys := db.OrderBy("name", define.Desc).OrderBy("id", define.Asc).GetOrderBys()
 			if orderbys == nil || len(orderbys) == 0 {
 				t.Error(orderbys)
 			}
@@ -834,7 +846,7 @@ func TestDB_Select(t *testing.T) {
 		}},
 		{
 			"测试Count时cnd为nil", func(t *testing.T) {
-				var cnd Condition
+				var cnd define.Condition
 				cc, er := db.Where(cnd).Table(UserInfo{}.TableName()).Count("id")
 				if er != nil {
 					t.Error("count failed:", er, cc)
