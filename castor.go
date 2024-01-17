@@ -1,6 +1,11 @@
 package gom
 
-import "strings"
+import (
+	"strings"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+)
 
 func CamelToSnakeString(s string) string {
 	data := make([]byte, 0, len(s)*2)
@@ -21,4 +26,11 @@ func CamelToSnakeString(s string) string {
 	}
 	//ToLower把大写字母统一转小写
 	return strings.ToLower(string(data[:]))
+}
+
+// 下划线单词转为大写驼峰单词
+func UnderscoreToUpperCamelCase(s string) string {
+	s = strings.Replace(s, "_", " ", -1)
+	s = cases.Title(language.English).String(s)
+	return strings.Replace(s, " ", "", -1)
 }

@@ -163,5 +163,3 @@ type Column struct {
 	PrimaryAuto bool //If Primary Key Auto Generate Or2 Not
 	ColumnType  string
 }
-type ColumnField struct {
-}
