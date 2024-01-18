@@ -859,3 +859,55 @@ func TestDB_Select(t *testing.T) {
 	}
 
 }
+
+func TestDB_GetTables(t *testing.T) {
+
+	tests := []struct {
+		name    string
+		db      *DB
+		want    []string
+		wantErr bool
+	}{
+		{"获取mysqldb", mysqlDb, []string{"tb_record", "user", "user2", "user_info", "user_info2"}, false},
+		{"获取PG tables", db, []string{"tb_record", "user", "user2", "user_info", "user_info2"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := tt.db
+			got, err := db.GetTables()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetTables() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetTables() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDB_GetCurrentSchema(t *testing.T) {
+
+	tests := []struct {
+		name    string
+		db      *DB
+		want    string
+		wantErr bool
+	}{
+		{"测试Mysql", mysqlDb, "test", false},
+		{"测试Mysql", db, "public", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := tt.db
+			got, err := db.GetCurrentSchema()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetCurrentSchema() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("GetCurrentSchema() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

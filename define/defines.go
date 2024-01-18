@@ -153,6 +153,8 @@ type TableModel interface {
 type SqlFunc func(model ...TableModel) []SqlProto
 type SqlFactory interface {
 	OpenDb(dsn string) (*sql.DB, error)
+	GetTables(db *sql.DB) ([]string, error)
+	GetCurrentSchema(db *sql.DB) (string, error)
 	GetColumns(tableName string, db *sql.DB) ([]Column, error)
 	GetSqlFunc(sqlType SqlType) SqlFunc
 	ConditionToSql(preTag bool, condition Condition) (string, []interface{})

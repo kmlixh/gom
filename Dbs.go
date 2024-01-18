@@ -22,6 +22,18 @@ type DB struct {
 	sqlType  define.SqlType
 }
 
+func (db DB) GetCurrentSchema() (string, error) {
+	return db.Factory().GetCurrentSchema(db.db)
+}
+
+func (db DB) GetColumns(table string) ([]define.Column, error) {
+	return db.Factory().GetColumns(table, db.db)
+}
+
+func (db DB) GetTables() ([]string, error) {
+	return db.Factory().GetTables(db.db)
+}
+
 type TransactionWork func(databaseTx *DB) (interface{}, error)
 
 func (db DB) GetRawDb() *sql.DB {
@@ -200,6 +212,7 @@ func (db *DB) Delete(vs ...interface{}) (sql.Result, error) {
 	return db.executeInside(vs)
 
 }
+
 func (db *DB) Update(v interface{}, columns ...string) (sql.Result, error) {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.sqlType = define.Update

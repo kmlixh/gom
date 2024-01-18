@@ -157,6 +157,33 @@ func InitFactory() {
 		return result
 	}
 }
+func (m Factory) GetCurrentSchema(db *sql.DB) (string, error) {
+	dbName := ""
+	dbSql := "SELECT DATABASE() as db;"
+	rows, er := db.Query(dbSql)
+	if er != nil {
+		return dbName, er
+	}
+	if !rows.Next() {
+		return dbName, errors.New("can not get Schema")
+	}
+	er = rows.Scan(&dbName)
+	return dbName, er
+}
+func (m Factory) GetTables(db *sql.DB) ([]string, error) {
+	tables := make([]string, 0)
+	dbSql := "SHOW TABLES;"
+	rows, er := db.Query(dbSql)
+	if er != nil {
+		return nil, er
+	}
+	for rows.Next() {
+		tableName := ""
+		rows.Scan(&tableName)
+		tables = append(tables, tableName)
+	}
+	return tables, nil
+}
 func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, error) {
 
 	dbSql := "SELECT DATABASE() as db;"
@@ -166,7 +193,7 @@ func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, erro
 	}
 	dbName := ""
 	if !rows.Next() {
-		return nil, errors.New(fmt.Sprintf("column of table %s was empty", tableName))
+		return nil, errors.New("can not get Schema")
 	}
 	er = rows.Scan(&dbName)
 	if er != nil {
