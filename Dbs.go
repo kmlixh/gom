@@ -153,26 +153,29 @@ func (db *DB) Sum(columnName string) (int64, error) {
 func (db *DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.sqlType = define.Query
+	scanners, er := getDefaultScanner(vs, columns...)
+	if er != nil {
+		return 0, er
+	}
 	if db.rawSql != nil && len(*db.rawSql) > 0 {
-		scanners, er := getDefaultScanner(vs, columns...)
-		if er != nil {
-			return 0, er
-		}
 		return db.query(*db.rawSql, db.rawData, scanners)
 	} else {
 		rawInfo := GetRawTableInfo(vs)
-		//检查列缺失
-		colMap, cols := getDefaultsColumnFieldMap(rawInfo.Type)
-		if len(columns) > 0 {
-			for _, c := range columns {
-				if _, ok := colMap[c]; !ok {
-					return nil, errors.New(fmt.Sprintf("'%s' not exist in variable ", c))
+		if rawInfo.IsStruct {
+			//检查列缺失
+			colMap, cols := getDefaultsColumnFieldMap(rawInfo.Type)
+			if len(columns) > 0 {
+				for _, c := range columns {
+					if _, ok := colMap[c]; !ok {
+						return nil, errors.New(fmt.Sprintf("'%s' not exist in variable ", c))
+					}
 				}
 			}
+			if columns == nil || len(columns) == 0 {
+				columns = cols
+			}
 		}
-		if columns == nil || len(columns) == 0 {
-			columns = cols
-		}
+
 		table := db.GetTable()
 		if len(table) == 0 {
 			table = rawInfo.TableName
@@ -189,11 +192,10 @@ func (db *DB) Select(vs interface{}, columns ...string) (interface{}, error) {
 		}
 		selectFunc := db.factory.GetSqlFunc(define.Query)
 		sqlProtos := selectFunc(model)
-		scanner, er := getDefaultScanner(vs)
 		if er != nil {
 			return nil, er
 		}
-		return db.query(sqlProtos[0].PreparedSql, sqlProtos[0].Data, scanner)
+		return db.query(sqlProtos[0].PreparedSql, sqlProtos[0].Data, scanners)
 	}
 }
 func (db *DB) First(vs interface{}) (interface{}, error) {
