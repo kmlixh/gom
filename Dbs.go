@@ -117,10 +117,12 @@ func (db *DB) Page(page int64, pageSize int64) *DB {
 func (db DB) Count(columnName string) (int64, error) {
 	statements := fmt.Sprintf("select count(%s) as count from %s", columnName, *db.table)
 	var data []interface{}
-	if db.cnd != nil {
+	if db.cnd != nil && db.cnd.PayLoads() > 0 {
 		cndString, cndData := db.factory.ConditionToSql(false, db.cnd)
-		data = append(data, cndData...)
-		statements = statements + " WHERE " + cndString
+		if cndString != "" {
+			data = append(data, cndData...)
+			statements = statements + " WHERE " + cndString
+		}
 	}
 	var count int64 = 0
 	scanners, er := getDefaultScanner(&count)
@@ -135,7 +137,7 @@ func (db DB) Count(columnName string) (int64, error) {
 func (db *DB) Sum(columnName string) (int64, error) {
 	statements := fmt.Sprintf("select SUM(`%s`) as count from `%s`", columnName, *db.table)
 	var data []interface{}
-	if db.cnd != nil {
+	if db.cnd != nil && db.cnd.PayLoads() > 0 {
 		cndString, cndData := db.factory.ConditionToSql(false, db.cnd)
 		data = append(data, cndData...)
 		statements = statements + " WHERE " + cndString

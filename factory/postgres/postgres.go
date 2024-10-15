@@ -55,11 +55,12 @@ func InitFactory() {
 			}
 		}
 		sql += " FROM " + wrapperName(model.Table()) + " "
-		cndString, cndData := factory.ConditionToSql(false, model.Condition())
-		if len(cndString) > 0 {
+
+		if model.Condition().PayLoads() > 0 {
+			cndString, cndData := factory.ConditionToSql(false, model.Condition())
 			sql += " WHERE " + cndString
+			datas = append(datas, cndData...)
 		}
-		datas = append(datas, cndData...)
 		if len(model.OrderBys()) > 0 {
 			sql += " ORDER BY"
 			for i := 0; i < len(model.OrderBys()); i++ {
@@ -106,11 +107,11 @@ func InitFactory() {
 				datas = append(datas, model.ColumnDataMap()[k])
 				i++
 			}
-			conditionSql, dds := factory.ConditionToSql(false, model.Condition())
-			if len(conditionSql) > 0 {
-				sql += " WHERE " + conditionSql + ";"
+			if model.Condition().PayLoads() > 0 {
+				cndString, cndData := factory.ConditionToSql(false, model.Condition())
+				sql += " WHERE " + cndString
+				datas = append(datas, cndData...)
 			}
-			datas = append(datas, dds...)
 			result = append(result, define.SqlProto{pgSql(sql), datas})
 		}
 
@@ -148,11 +149,11 @@ func InitFactory() {
 			var datas []interface{}
 			sql := "DELETE FROM "
 			sql += " " + wrapperName(model.Table())
-			conditionSql, dds := factory.ConditionToSql(false, model.Condition())
-			if len(conditionSql) > 0 {
-				sql += " WHERE " + conditionSql + ";"
+			if model.Condition().PayLoads() > 0 {
+				cndString, cndData := factory.ConditionToSql(false, model.Condition())
+				sql += " WHERE " + cndString
+				datas = append(datas, cndData...)
 			}
-			datas = append(datas, dds...)
 			result = append(result, define.SqlProto{pgSql(sql), datas})
 		}
 		return result
@@ -252,7 +253,7 @@ func (m Factory) GetSqlFunc(sqlType define.SqlType) define.SqlFunc {
 	return funcMap[sqlType]
 }
 func (m Factory) ConditionToSql(preTag bool, cnd define.Condition) (string, []interface{}) {
-	if cnd == nil {
+	if cnd == nil || cnd.PayLoads() == 0 {
 		return "", nil
 	}
 	myCnd := cndToMyCndStruct(cnd)
