@@ -150,7 +150,7 @@ func (db *DB) Sum(columnName string) (int64, error) {
 	return count, er
 }
 
-func (db *DB) Select(vs interface{}, columns ...string) (interface{}, error) {
+func (db *DB) Select(vs any, columns ...string) (interface{}, error) {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.sqlType = define.Query
 	scanners, er := getDefaultScanner(vs, columns...)

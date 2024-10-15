@@ -112,8 +112,14 @@ func getDefaultsColumnFieldMap(v reflect.Type) (map[string]FieldInfo, []string) 
 	columnsCache[v] = columns
 	return columnMap, columns
 }
-func GetRawTableInfo(v interface{}) RawMetaInfo {
-	tt := reflect.TypeOf(v)
+func GetRawTableInfo(v any) RawMetaInfo {
+	var tt reflect.Type
+	if _, ok := v.(reflect.Type); ok {
+		tt = v.(reflect.Type)
+	}
+	if _, ok := v.(reflect.Value); ok {
+		tt = v.(reflect.Value).Type()
+	}
 	isStruct := false
 	isPtr := false
 	isSlice := false
