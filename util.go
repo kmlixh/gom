@@ -114,11 +114,13 @@ func getDefaultsColumnFieldMap(v reflect.Type) (map[string]FieldInfo, []string) 
 }
 func GetRawTableInfo(v any) RawMetaInfo {
 	var tt reflect.Type
+	var rawData any
 	if _, ok := v.(reflect.Type); ok {
 		tt = v.(reflect.Type)
 	}
 	if _, ok := v.(reflect.Value); ok {
 		tt = v.(reflect.Value).Type()
+		rawData = v.(reflect.Value)
 	}
 	isStruct := false
 	isPtr := false
@@ -145,8 +147,10 @@ func GetRawTableInfo(v any) RawMetaInfo {
 	if ok {
 		tableName = iTable.TableName()
 	}
-
-	return RawMetaInfo{tt, tableName, isSlice, isPtr, isStruct, reflect.Indirect(reflect.ValueOf(v))}
+	if rawData == nil {
+		rawData = reflect.Indirect(reflect.ValueOf(v))
+	}
+	return RawMetaInfo{tt, tableName, isSlice, isPtr, isStruct, rawData.(reflect.Value)}
 }
 
 func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, error) {
