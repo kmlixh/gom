@@ -117,11 +117,13 @@ func GetRawTableInfo(v any) RawMetaInfo {
 	var rawData any
 	if _, ok := v.(reflect.Type); ok {
 		tt = v.(reflect.Type)
-	}
-	if _, ok := v.(reflect.Value); ok {
+	} else if _, ok := v.(reflect.Value); ok {
 		tt = v.(reflect.Value).Type()
 		rawData = v.(reflect.Value)
+	} else {
+		tt = reflect.TypeOf(v)
 	}
+
 	isStruct := false
 	isPtr := false
 	isSlice := false
