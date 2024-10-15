@@ -56,7 +56,7 @@ func InitFactory() {
 		}
 		sql += " FROM " + wrapperName(model.Table()) + " "
 
-		if model.Condition().PayLoads() > 0 {
+		if model.Condition() != nil && model.Condition().PayLoads() > 0 {
 			cndString, cndData := factory.ConditionToSql(false, model.Condition())
 			sql += " WHERE " + cndString
 			datas = append(datas, cndData...)
@@ -107,7 +107,7 @@ func InitFactory() {
 				datas = append(datas, model.ColumnDataMap()[k])
 				i++
 			}
-			if model.Condition().PayLoads() > 0 {
+			if model.Condition() != nil && model.Condition().PayLoads() > 0 {
 				cndString, cndData := factory.ConditionToSql(false, model.Condition())
 				sql += " WHERE " + cndString
 				datas = append(datas, cndData...)
@@ -149,7 +149,7 @@ func InitFactory() {
 			var datas []interface{}
 			sql := "DELETE FROM "
 			sql += " " + wrapperName(model.Table())
-			if model.Condition().PayLoads() > 0 {
+			if model.Condition() != nil && model.Condition().PayLoads() > 0 {
 				cndString, cndData := factory.ConditionToSql(false, model.Condition())
 				sql += " WHERE " + cndString
 				datas = append(datas, cndData...)
