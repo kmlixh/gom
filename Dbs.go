@@ -115,7 +115,7 @@ func (db *DB) Page(page int64, pageSize int64) *DB {
 }
 
 func (db DB) Count(columnName string) (int64, error) {
-	statements := fmt.Sprintf("select count(`%s`) as count from `%s`", columnName, *db.table)
+	statements := fmt.Sprintf("select count(%s) as count from %s", columnName, *db.table)
 	var data []interface{}
 	if db.cnd != nil {
 		cndString, cndData := db.factory.ConditionToSql(false, db.cnd)
