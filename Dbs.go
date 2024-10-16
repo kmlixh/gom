@@ -37,6 +37,13 @@ func (db DB) GetTables() ([]string, error) {
 func (db DB) GetTableStruct(table string) (define.ITableStruct, error) {
 	return db.Factory().GetTableStruct(table, db.db)
 }
+func (db DB) GetTableStruct2(i any) (define.ITableStruct, error) {
+	rawInfo := GetRawTableInfo(i)
+	if rawInfo.TableName == "" {
+		panic("table name was nil")
+	}
+	return db.GetTableStruct(rawInfo.TableName)
+}
 
 type TransactionWork func(databaseTx *DB) (interface{}, error)
 
