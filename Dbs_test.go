@@ -13,9 +13,10 @@ import (
 	"time"
 )
 
-var mysqlDsn = "root:123456@tcp(192.168.110.249:3306)/test?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
+var mysqlDsn = "root:123456@tcp(10.0.1.5:3306)/auth_centre?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
 
-var pgDsn = "postgres://postgres:yzy123@192.168.110.249:5432/db_dict?sslmode=disable"
+// var pgDsn = "postgres://postgres:yzy123@192.168.110.249:5432/db_dict?sslmode=disable"
+var pgDsn = "postgres://postgres:123456@10.0.1.5:5432/auth_centre?sslmode=disable"
 
 func TestDB_CleanOrders(t *testing.T) {
 	db1 := DB{}
@@ -924,7 +925,8 @@ func TestDB_GetTableStruct(t *testing.T) {
 		want    define.ITableStruct
 		wantErr bool
 	}{
-		{db: db, args: args{"tb_book_info"}},
+		{db: db, args: args{"tb_sys_menu"}},
+		{db: mysqlDb, args: args{"tb_sys_role"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -934,9 +936,10 @@ func TestDB_GetTableStruct(t *testing.T) {
 				t.Errorf("GetTableStruct() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if got == nil {
+			if got.GetTableName() == "" {
 				t.Errorf("GetTableStruct() got = %v", got)
 			}
+			fmt.Print(got)
 		})
 	}
 }

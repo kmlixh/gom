@@ -187,6 +187,9 @@ func (m Factory) GetTables(db *sql.DB) ([]string, error) {
 	}
 	return tables, nil
 }
+
+var columnSql = "select COLUMN_NAME as columnName,DATA_TYPE as dataType,COLUMN_KEY as columnKey,EXTRA as extra, IFNULL(COLUMN_COMMENT,'') as comment from information_schema.columns  where table_schema=?  and table_name= ? order by ordinal_position;"
+
 func (m Factory) GetTableStruct(tableName string, db *sql.DB) (define.ITableStruct, error) {
 	var tableStruct define.TableStruct
 	if table, ok := dbTableCache[tableName]; ok {
@@ -209,7 +212,7 @@ func (m Factory) GetTableStruct(tableName string, db *sql.DB) (define.ITableStru
 	//查询表信息
 	tbSql := `SELECT 
     TABLE_NAME AS 'tableName',
-    TABLE_COMMENT AS 'comment'
+    IFNULL(TABLE_COMMENT,'') AS 'comment'
 FROM 
     information_schema.TABLES
 WHERE 
@@ -229,29 +232,31 @@ WHERE
 	if er != nil {
 		return nil, errors.New(fmt.Sprintf("column of table %s was empty", tableName))
 	}
+
 	if cols, ok := dbTableColsCache[tableName]; ok {
 		tableStruct = define.TableStruct{tbName, tbComment, cols}
 	} else {
-		columnSql := "select COLUMN_NAME as columnName,DATA_TYPE as dataType,COLUMN_KEY as columnKey,EXTRA as extra from information_schema.columns  where table_schema=?  and table_name= ? order by ordinal_position;"
 		rows, er = db.Query(columnSql, dbName, tableName)
 		if er != nil {
 			return nil, er
 		}
-		columns := make([]define.Column, 0)
+		cols = make([]define.Column, 0)
 		for rows.Next() {
 			columnName := ""
 			columnType := ""
 			columnKey := ""
 			extra := ""
-			er = rows.Scan(&columnName, &columnType, &columnKey, &extra)
+			comment := ""
+			er = rows.Scan(&columnName, &columnType, &columnKey, &extra, &comment)
 			if er == nil {
-				columns = append(columns, define.Column{ColumnName: columnName, ColumnType: columnType, Primary: columnKey == "PRI", PrimaryAuto: columnKey == "PRI" && extra == "auto_increment"})
+				cols = append(cols, define.Column{ColumnName: columnName, ColumnType: columnType, Primary: columnKey == "PRI", PrimaryAuto: columnKey == "PRI" && extra == "auto_increment", Comment: comment})
 			} else {
 				return nil, er
 			}
 		}
 
-		dbTableCache[tableName] = tableStruct
+		dbTableColsCache[tableName] = cols
+		tableStruct = define.TableStruct{tbName, tbComment, cols}
 	}
 	return tableStruct, nil
 }
@@ -274,7 +279,6 @@ func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, erro
 	if cols, ok := dbTableColsCache[dbName+"-"+tableName]; ok {
 		return cols, nil
 	}
-	columnSql := "select COLUMN_NAME as columnName,DATA_TYPE as dataType,COLUMN_KEY as columnKey,EXTRA as extra from information_schema.columns  where table_schema=?  and table_name= ? order by ordinal_position;"
 	rows, er = db.Query(columnSql, dbName, tableName)
 	if er != nil {
 		return nil, er

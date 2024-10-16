@@ -209,6 +209,28 @@ func (m Factory) GetTables(db *sql.DB) ([]string, error) {
 	}
 	return tables, nil
 }
+
+var colSql = `
+SELECT 
+    c.column_name AS "columnName",
+    c.data_type AS "dataType",
+    c.is_identity AS "columnKey",
+    COALESCE(c.identity_generation, 'NO') AS extra,
+    COALESCE(col_description(t.oid, a.attnum),'') AS comment
+FROM 
+    information_schema.columns c
+JOIN 
+    pg_class t ON t.relname = c.table_name
+JOIN 
+    pg_attribute a ON a.attrelid = t.oid AND a.attname = c.column_name
+WHERE 
+    c.table_schema = $1  
+    AND c.table_name = $2
+    AND a.attnum > 0
+ORDER BY 
+    c.ordinal_position;
+`
+
 func (m Factory) GetTableStruct(tableName string, db *sql.DB) (define.ITableStruct, error) {
 	var tableStruct define.TableStruct
 	if table, ok := dbTableCache[tableName]; ok {
@@ -219,11 +241,11 @@ func (m Factory) GetTableStruct(tableName string, db *sql.DB) (define.ITableStru
 	if er != nil {
 		return nil, er
 	}
-	dbName := ""
+	schema := ""
 	if !rows.Next() {
 		return nil, errors.New("can not get Schema")
 	}
-	er = rows.Scan(&dbName)
+	er = rows.Scan(&schema)
 	if er != nil {
 		return nil, errors.New(fmt.Sprintf("column of table %s was empty", tableName))
 	}
@@ -231,7 +253,7 @@ func (m Factory) GetTableStruct(tableName string, db *sql.DB) (define.ITableStru
 	tbSql := `
 SELECT
     table_name,
-    obj_description(('"' || table_schema || '"."' || table_name || '"')::regclass, 'pg_class') AS comment
+    COALESCE(obj_description(('"' || table_schema || '"."' || table_name || '"')::regclass, 'pg_class'),'') AS comment
 FROM
     information_schema.tables
 WHERE
@@ -239,7 +261,7 @@ WHERE
   AND table_name = $2;`
 
 	//-------------------
-	tbRow, er := db.Query(tbSql, dbName, tableName)
+	tbRow, er := db.Query(tbSql, schema, tableName)
 	if er != nil {
 		return nil, er
 	}
@@ -249,33 +271,37 @@ WHERE
 		return nil, errors.New("can not get Schema")
 	}
 	er = tbRow.Scan(&tbName, &tbComment)
+	if tbComment == nil {
+		tbComment = ""
+	}
 	if er != nil {
 		return nil, errors.New(fmt.Sprintf("column of table %s was empty", tableName))
 	}
 	if cols, ok := dbTableColsCache[tableName]; ok {
 		tableStruct = define.TableStruct{tbName, tbComment.(string), cols}
 	} else {
-		colSql := fmt.Sprintf("select column_name as \"columnName\",data_type  as \"dataType\",is_identity as \"columnKey\",coalesce(identity_generation,'NO') as extra from information_schema.columns where table_schema='%s' and table_name='%s' order by ordinal_position;", dbName, tableName)
-		st, er := db.Prepare(colSql)
+		rows, er = db.Query(colSql, schema, tableName)
 		if er != nil {
 			return nil, er
 		}
-		rows, er = st.Query()
 		cols := make([]define.Column, 0)
 		for rows.Next() {
 			columnName := ""
 			columnType := ""
 			columnKey := ""
 			extra := ""
-			er = rows.Scan(&columnName, &columnType, &columnKey, &extra)
+			comment := ""
+			er = rows.Scan(&columnName, &columnType, &columnKey, &extra, &comment)
 			if er == nil {
-				cols = append(cols, define.Column{ColumnName: columnName, ColumnType: columnType, Primary: columnKey == "YES", PrimaryAuto: columnKey == "YES" && extra == "ALWAYS"})
+				cols = append(cols, define.Column{ColumnName: columnName, ColumnType: columnType, Primary: columnKey == "YES", PrimaryAuto: columnKey == "YES" && extra == "ALWAYS", Comment: comment})
 			} else {
 				return nil, er
 			}
 		}
 		dbTableColsCache[tableName] = cols
+		tableStruct = define.TableStruct{tbName, tbComment.(string), cols}
 	}
+
 	dbTableCache[tableName] = tableStruct
 	return tableStruct, nil
 }
@@ -296,21 +322,17 @@ func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, erro
 	if cols, ok := dbTableColsCache[tableName]; ok {
 		return cols, nil
 	}
-	colSql := fmt.Sprintf("select column_name as \"columnName\",data_type  as \"dataType\",is_identity as \"columnKey\",coalesce(identity_generation,'NO') as extra from information_schema.columns where table_schema='%s' and table_name='%s' order by ordinal_position;", dbName, tableName)
-	st, er := db.Prepare(colSql)
-	if er != nil {
-		return nil, er
-	}
-	rows, er = st.Query()
+	rows, er = db.Query(colSql, dbName, tableName)
 	columns := make([]define.Column, 0)
 	for rows.Next() {
 		columnName := ""
 		columnType := ""
 		columnKey := ""
 		extra := ""
+		comment := ""
 		er = rows.Scan(&columnName, &columnType, &columnKey, &extra)
 		if er == nil {
-			columns = append(columns, define.Column{ColumnName: columnName, ColumnType: columnType, Primary: columnKey == "YES", PrimaryAuto: columnKey == "YES" && extra == "ALWAYS"})
+			columns = append(columns, define.Column{ColumnName: columnName, ColumnType: columnType, Primary: columnKey == "YES", PrimaryAuto: columnKey == "YES" && extra == "ALWAYS", Comment: comment})
 		} else {
 			return nil, er
 		}
