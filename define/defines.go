@@ -158,10 +158,36 @@ type SqlFactory interface {
 	GetColumns(tableName string, db *sql.DB) ([]Column, error)
 	GetSqlFunc(sqlType SqlType) SqlFunc
 	ConditionToSql(preTag bool, condition Condition) (string, []interface{})
+	GetTableStruct(tableName string, db *sql.DB) (ITableStruct, error)
 }
+type ITableStruct interface {
+	GetTableName() string
+	GetTableComment() string
+	GetColumns() ([]Column, error)
+}
+
+type TableStruct struct {
+	TableName    string
+	TableComment string
+	Columns      []Column
+}
+
+func (t TableStruct) GetTableName() string {
+	return t.TableName
+}
+
+func (t TableStruct) GetTableComment() string {
+	return t.TableComment
+}
+
+func (t TableStruct) GetColumns() ([]Column, error) {
+	return t.Columns, nil
+}
+
 type Column struct {
 	ColumnName  string
 	Primary     bool
 	PrimaryAuto bool //If Primary Key Auto Generate Or2 Not
 	ColumnType  string
+	Comment     string
 }

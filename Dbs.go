@@ -34,6 +34,10 @@ func (db DB) GetTables() ([]string, error) {
 	return db.Factory().GetTables(db.db)
 }
 
+func (db DB) GetTableStruct(table string) (define.ITableStruct, error) {
+	return db.Factory().GetTableStruct(table, db.db)
+}
+
 type TransactionWork func(databaseTx *DB) (interface{}, error)
 
 func (db DB) GetRawDb() *sql.DB {

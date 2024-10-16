@@ -15,7 +15,7 @@ import (
 
 var mysqlDsn = "root:123456@tcp(192.168.110.249:3306)/test?charset=utf8&loc=Asia%2FShanghai&parseTime=true"
 
-var pgDsn = "postgres://postgres:123456@192.168.110.249:5432/test?sslmode=disable"
+var pgDsn = "postgres://postgres:yzy123@192.168.110.249:5432/db_dict?sslmode=disable"
 
 func TestDB_CleanOrders(t *testing.T) {
 	db1 := DB{}
@@ -907,6 +907,35 @@ func TestDB_GetCurrentSchema(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("GetCurrentSchema() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDB_GetTableStruct(t *testing.T) {
+
+	type args struct {
+		table string
+	}
+	tests := []struct {
+		name    string
+		db      *DB
+		args    args
+		want    define.ITableStruct
+		wantErr bool
+	}{
+		{db: db, args: args{"tb_book_info"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := tt.db
+			got, err := db.GetTableStruct(tt.args.table)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetTableStruct() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got == nil {
+				t.Errorf("GetTableStruct() got = %v", got)
 			}
 		})
 	}

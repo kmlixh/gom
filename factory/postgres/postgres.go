@@ -30,6 +30,7 @@ func (m Factory) OpenDb(dsn string) (*sql.DB, error) {
 }
 
 var dbTableColsCache = make(map[string][]define.Column)
+var dbTableCache = make(map[string]define.ITableStruct)
 
 func init() {
 	InitFactory()
@@ -207,6 +208,76 @@ func (m Factory) GetTables(db *sql.DB) ([]string, error) {
 		tables = append(tables, tableName)
 	}
 	return tables, nil
+}
+func (m Factory) GetTableStruct(tableName string, db *sql.DB) (define.ITableStruct, error) {
+	var tableStruct define.TableStruct
+	if table, ok := dbTableCache[tableName]; ok {
+		return table, nil
+	}
+	dbSql := "SELECT CURRENT_SCHEMA;"
+	rows, er := db.Query(dbSql)
+	if er != nil {
+		return nil, er
+	}
+	dbName := ""
+	if !rows.Next() {
+		return nil, errors.New("can not get Schema")
+	}
+	er = rows.Scan(&dbName)
+	if er != nil {
+		return nil, errors.New(fmt.Sprintf("column of table %s was empty", tableName))
+	}
+	//查询表信息
+	tbSql := `
+SELECT
+    table_name,
+    obj_description(('"' || table_schema || '"."' || table_name || '"')::regclass, 'pg_class') AS comment
+FROM
+    information_schema.tables
+WHERE
+    table_schema = $1 
+  AND table_name = $2;`
+
+	//-------------------
+	tbRow, er := db.Query(tbSql, dbName, tableName)
+	if er != nil {
+		return nil, er
+	}
+	tbName := ""
+	var tbComment interface{} = ""
+	if !tbRow.Next() {
+		return nil, errors.New("can not get Schema")
+	}
+	er = tbRow.Scan(&tbName, &tbComment)
+	if er != nil {
+		return nil, errors.New(fmt.Sprintf("column of table %s was empty", tableName))
+	}
+	if cols, ok := dbTableColsCache[tableName]; ok {
+		tableStruct = define.TableStruct{tbName, tbComment.(string), cols}
+	} else {
+		colSql := fmt.Sprintf("select column_name as \"columnName\",data_type  as \"dataType\",is_identity as \"columnKey\",coalesce(identity_generation,'NO') as extra from information_schema.columns where table_schema='%s' and table_name='%s' order by ordinal_position;", dbName, tableName)
+		st, er := db.Prepare(colSql)
+		if er != nil {
+			return nil, er
+		}
+		rows, er = st.Query()
+		cols := make([]define.Column, 0)
+		for rows.Next() {
+			columnName := ""
+			columnType := ""
+			columnKey := ""
+			extra := ""
+			er = rows.Scan(&columnName, &columnType, &columnKey, &extra)
+			if er == nil {
+				cols = append(cols, define.Column{ColumnName: columnName, ColumnType: columnType, Primary: columnKey == "YES", PrimaryAuto: columnKey == "YES" && extra == "ALWAYS"})
+			} else {
+				return nil, er
+			}
+		}
+		dbTableColsCache[tableName] = cols
+	}
+	dbTableCache[tableName] = tableStruct
+	return tableStruct, nil
 }
 func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, error) {
 	dbSql := "SELECT CURRENT_SCHEMA;"
