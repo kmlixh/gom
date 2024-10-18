@@ -141,10 +141,10 @@ func (d DefaultScanner) getScanners(columns ...string) ([]any, error) {
 			if !ok {
 				return nil, errors.New(fmt.Sprintf("column [%s] is not compatible", col))
 			}
-			scanners = append(scanners, GetIScannerOfColumn(reflect.New(f.FieldType).Elem().Interface()))
+			scanners = append(scanners, GetIScannerOfSimple(reflect.New(f.FieldType).Elem().Interface()))
 		}
 	} else {
-		scanners = append(scanners, GetIScannerOfColumn(reflect.New(d.Type).Elem().Interface()))
+		scanners = append(scanners, GetIScannerOfSimple(reflect.New(d.Type).Elem().Interface()))
 	}
 	return scanners, nil
 }
@@ -283,55 +283,12 @@ func (d DefaultModel) Clone() define.TableModel {
 	}
 }
 
+type Row map[string]any
+
 type TableScanner struct {
+	DefaultModel
 }
 
 func (t TableScanner) Scan(rows *sql.Rows) (interface{}, error) {
-	//TODO implement me
-	panic("implement me")
-}
 
-func (t TableScanner) Table() string {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (t TableScanner) PrimaryKeys() []string {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (t TableScanner) Columns() []string {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (t TableScanner) ColumnDataMap() map[string]interface{} {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (t TableScanner) Condition() define.Condition {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (t TableScanner) OrderBys() []define.OrderBy {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (t TableScanner) Page() define.PageInfo {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (t TableScanner) Clone() define.TableModel {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (t TableScanner) SetColumns(columns []string) error {
-	//TODO implement me
-	panic("implement me")
 }

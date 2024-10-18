@@ -3,6 +3,7 @@ package gom
 import (
 	"database/sql"
 	"database/sql/driver"
+	"reflect"
 	"time"
 )
 
@@ -93,7 +94,33 @@ func ByteArrayScan(src interface{}) (interface{}, error) {
 	return result, nil
 
 }
-func GetIScannerOfColumn(col interface{}) IScanner {
+func GetIScannerOfSimpleType(p reflect.Type) IScanner {
+	switch p.Kind() {
+	case reflect.Int:
+		return &ScannerImpl{0, IntScan}
+	case int16:
+		return &sql.NullInt16{}
+	case int32:
+		return &sql.NullInt32{}
+	case int64:
+		return &sql.NullInt64{}
+	case float32:
+		return &ScannerImpl{float32(0), Float32Scan}
+	case float64:
+		return &sql.NullFloat64{}
+	case string:
+		return &sql.NullString{}
+	case []byte:
+		return &ScannerImpl{[]byte{}, ByteArrayScan}
+	case time.Time:
+		return &sql.NullTime{}
+	case bool:
+		return &sql.NullBool{}
+	default:
+		return nil
+	}
+}
+func GetIScannerOfSimple(col interface{}) IScanner {
 	scanner, ok := col.(IScanner)
 	if ok {
 		return scanner
