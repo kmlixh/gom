@@ -8,6 +8,7 @@ import (
 	"github.com/kmlixh/gom/v3/define"
 	factory2 "github.com/kmlixh/gom/v3/factory"
 	"strings"
+	"time"
 )
 
 type MyCndStruct struct {
@@ -25,6 +26,79 @@ var factory = Factory{}
 type Factory struct {
 }
 
+func (m Factory) GetSqlTypeDefaultValue(sqlType string) any {
+	sqlType = strings.ToLower(sqlType)
+	switch {
+	// Numeric types
+	case strings.Contains(sqlType, "smallint"):
+		return int16(0)
+	case strings.Contains(sqlType, "integer"):
+		return int(0)
+	case strings.Contains(sqlType, "bigint"):
+		return int64(0)
+	case strings.Contains(sqlType, "decimal"), strings.Contains(sqlType, "numeric"):
+		return float64(0.0)
+	case strings.Contains(sqlType, "real"):
+		return float32(0.0)
+	case strings.Contains(sqlType, "double precision"):
+		return float64(0.0)
+	case strings.Contains(sqlType, "serial"):
+		return int(0)
+	case strings.Contains(sqlType, "bigserial"):
+		return int64(0)
+
+	// Monetary types
+	case strings.Contains(sqlType, "money"):
+		return float64(0.0)
+
+	// Date and time types
+	case strings.Contains(sqlType, "date"):
+		return time.Now()
+	case strings.Contains(sqlType, "time"):
+		return time.Now()
+	case strings.Contains(sqlType, "timestamp"):
+		return time.Now()
+	case strings.Contains(sqlType, "interval"):
+		return ""
+
+	// Boolean
+	case strings.Contains(sqlType, "boolean"):
+		return false
+
+	// UUID
+	case strings.Contains(sqlType, "uuid"):
+		return ""
+
+	// Geometric types
+	case strings.Contains(sqlType, "point"), strings.Contains(sqlType, "line"), strings.Contains(sqlType, "lseg"), strings.Contains(sqlType, "box"), strings.Contains(sqlType, "path"), strings.Contains(sqlType, "polygon"), strings.Contains(sqlType, "circle"):
+		return ""
+
+	// Network Address types
+	case strings.Contains(sqlType, "cidr"), strings.Contains(sqlType, "inet"), strings.Contains(sqlType, "macaddr"):
+		return ""
+
+	// Character types
+	case strings.Contains(sqlType, "char"), strings.Contains(sqlType, "varchar"):
+		return ""
+	case strings.Contains(sqlType, "text"):
+		return ""
+
+	// JSON types
+	case strings.Contains(sqlType, "json"), strings.Contains(sqlType, "jsonb"):
+		return ""
+
+	// Binary types
+	case strings.Contains(sqlType, "bytea"):
+		return []byte{}
+
+	// Array types (simply represented as Go slices here)
+	case strings.Contains(sqlType, "[]"):
+		return []interface{}{}
+
+	default:
+		return nil
+	}
+}
 func (m Factory) OpenDb(dsn string) (*sql.DB, error) {
 	return sql.Open("pgx/v5", dsn)
 }

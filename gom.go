@@ -35,9 +35,14 @@ func Open(driverName string, dsn string, debugs bool) (*DB, error) {
 		return nil, errors.New(fmt.Sprintf("driver [%s] not factory", driverName))
 	}
 	db, err := factory.OpenDb(dsn)
+
 	if err != nil {
 		return nil, err
 	} else {
+		err = db.Ping()
+		if err != nil {
+			return nil, err
+		}
 		db.SetConnMaxLifetime(time.Minute * 1)
 		factory, ok := factory2.Get(driverName)
 		if !ok {

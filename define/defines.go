@@ -159,6 +159,7 @@ type SqlFactory interface {
 	GetSqlFunc(sqlType SqlType) SqlFunc
 	ConditionToSql(preTag bool, condition Condition) (string, []interface{})
 	GetTableStruct(tableName string, db *sql.DB) (ITableStruct, error)
+	GetSqlTypeDefaultValue(sqlType string) any
 }
 type ITableStruct interface {
 	GetTableName() string
@@ -189,5 +190,6 @@ type Column struct {
 	Primary     bool
 	PrimaryAuto bool //If Primary Key Auto Generate Or2 Not
 	ColumnType  string
+	ColumnValue any
 	Comment     string
 }

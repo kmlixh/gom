@@ -224,7 +224,7 @@ type DefaultModel struct {
 	primaryAuto    []string
 	columns        []string
 	columnFieldMap map[string]string
-	columnDataMap  map[string]interface{}
+	columnDataMap  map[string]any
 	condition      define.Condition
 	orderBys       []define.OrderBy
 	page           define.PageInfo

@@ -8,6 +8,7 @@ import (
 	"github.com/kmlixh/gom/v3/define"
 	factory2 "github.com/kmlixh/gom/v3/factory"
 	"strings"
+	"time"
 )
 
 type MyCndStruct struct {
@@ -23,6 +24,62 @@ var funcMap map[define.SqlType]define.SqlFunc
 var factory = Factory{}
 
 type Factory struct {
+}
+
+func (m Factory) GetSqlTypeDefaultValue(sqlType string) any {
+	sqlType = strings.ToLower(sqlType)
+	switch {
+	// Numeric types
+	case strings.Contains(sqlType, "tinyint"):
+		return int8(0)
+	case strings.Contains(sqlType, "smallint"):
+		return int16(0)
+	case strings.Contains(sqlType, "mediumint"):
+		return int32(0)
+	case strings.Contains(sqlType, "int"), strings.Contains(sqlType, "integer"):
+		return int(0)
+	case strings.Contains(sqlType, "bigint"):
+		return int64(0)
+	case strings.Contains(sqlType, "decimal"), strings.Contains(sqlType, "numeric"):
+		return float64(0.0)
+	case strings.Contains(sqlType, "float"):
+		return float32(0.0)
+	case strings.Contains(sqlType, "double"):
+		return float64(0.0)
+	case strings.Contains(sqlType, "bit"):
+		return uint8(0)
+	case strings.Contains(sqlType, "boolean"), strings.Contains(sqlType, "bool"):
+		return false
+
+	// Date and time types
+	case strings.Contains(sqlType, "date"):
+		return time.Now()
+	case strings.Contains(sqlType, "time"):
+		return time.Now()
+	case strings.Contains(sqlType, "datetime"):
+		return time.Now()
+	case strings.Contains(sqlType, "timestamp"):
+		return time.Now()
+	case strings.Contains(sqlType, "year"):
+		return 0
+
+	// String types
+	case strings.Contains(sqlType, "char"), strings.Contains(sqlType, "varchar"):
+		return ""
+	case strings.Contains(sqlType, "text"), strings.Contains(sqlType, "tinytext"), strings.Contains(sqlType, "mediumtext"), strings.Contains(sqlType, "longtext"):
+		return ""
+	case strings.Contains(sqlType, "enum"), strings.Contains(sqlType, "set"):
+		return ""
+	case strings.Contains(sqlType, "json"):
+		return ""
+	case strings.Contains(sqlType, "binary"), strings.Contains(sqlType, "varbinary"):
+		return []byte{}
+	case strings.Contains(sqlType, "blob"), strings.Contains(sqlType, "tinyblob"), strings.Contains(sqlType, "mediumblob"), strings.Contains(sqlType, "longblob"):
+		return []byte{}
+
+	default:
+		return nil
+	}
 }
 
 func (m Factory) OpenDb(dsn string) (*sql.DB, error) {
@@ -249,7 +306,7 @@ WHERE
 			comment := ""
 			er = rows.Scan(&columnName, &columnType, &columnKey, &extra, &comment)
 			if er == nil {
-				cols = append(cols, define.Column{ColumnName: columnName, ColumnType: columnType, Primary: columnKey == "PRI", PrimaryAuto: columnKey == "PRI" && extra == "auto_increment", Comment: comment})
+				cols = append(cols, define.Column{ColumnName: columnName, ColumnType: columnType, Primary: columnKey == "PRI", PrimaryAuto: columnKey == "PRI" && extra == "auto_increment", ColumnValue: m.GetSqlTypeDefaultValue(columnType), Comment: comment})
 			} else {
 				return nil, er
 			}

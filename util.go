@@ -88,16 +88,16 @@ func getColumnNameAndTypeFromField(field reflect.StructField) (string, int) {
 	}
 }
 
-func getDefaultsColumnFieldMap(v reflect.Type) (map[string]FieldInfo, []string) {
+func getDefaultsColumnFieldMap(rawType reflect.Type) (map[string]FieldInfo, []string) {
 	columns := make([]string, 0)
 	columnMap := make(map[string]FieldInfo)
-	cc, ok := columnToFieldNameMapCache[v]
-	cols, okk := columnsCache[v]
+	cc, ok := columnToFieldNameMapCache[rawType]
+	cols, okk := columnsCache[rawType]
 	if ok && okk {
 		return cc, cols
 	}
-	for i := 0; i < v.NumField(); i++ {
-		field := v.Field(i)
+	for i := 0; i < rawType.NumField(); i++ {
+		field := rawType.Field(i)
 		colName, _ := getColumnNameAndTypeFromField(field)
 		if len(colName) > 0 {
 
@@ -108,10 +108,11 @@ func getDefaultsColumnFieldMap(v reflect.Type) (map[string]FieldInfo, []string) 
 			columns = append(columns, colName)
 		}
 	}
-	columnToFieldNameMapCache[v] = columnMap
-	columnsCache[v] = columns
+	columnToFieldNameMapCache[rawType] = columnMap
+	columnsCache[rawType] = columns
 	return columnMap, columns
 }
+
 func GetRawTableInfo(v any) RawMetaInfo {
 	var tt reflect.Type
 	var rawData any
