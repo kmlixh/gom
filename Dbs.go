@@ -166,12 +166,12 @@ func (db *DB) Sum(columnName string) (int64, error) {
 func (db *DB) Select(vs any, columns ...string) (interface{}, error) {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.sqlType = define.Query
-	scanners, er := getDefaultScanner(vs, columns...)
+	scanner, er := getDefaultScanner(vs, columns...)
 	if er != nil {
 		return 0, er
 	}
 	if db.rawSql != nil && len(*db.rawSql) > 0 {
-		return db.query(*db.rawSql, db.rawData, scanners)
+		return db.query(*db.rawSql, db.rawData, scanner)
 	} else {
 		rawInfo := GetRawTableInfo(vs)
 		if rawInfo.IsStruct {
@@ -208,7 +208,7 @@ func (db *DB) Select(vs any, columns ...string) (interface{}, error) {
 		if er != nil {
 			return nil, er
 		}
-		return db.query(sqlProtos[0].PreparedSql, sqlProtos[0].Data, scanners)
+		return db.query(sqlProtos[0].PreparedSql, sqlProtos[0].Data, scanner)
 	}
 }
 func (db *DB) First(vs interface{}) (interface{}, error) {
@@ -445,7 +445,7 @@ func (db *DB) GetCondition() define.Condition {
 	return nil
 }
 
-func (db *DB) query(statement string, data []interface{}, rowScanner IRowScanner) (interface{}, error) {
+func (db *DB) query(statement string, data []interface{}, rowScanner define.IRowScanner) (interface{}, error) {
 	if Debug {
 		fmt.Println("executeTableModel query,PreparedSql:", statement, "data was:", data)
 	}

@@ -166,6 +166,9 @@ type ITableStruct interface {
 	GetTableComment() string
 	GetColumns() ([]Column, error)
 }
+type IRowScanner interface {
+	Scan(rows *sql.Rows) (interface{}, error)
+}
 
 type TableStruct struct {
 	TableName    string

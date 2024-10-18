@@ -77,15 +77,12 @@ type CountResult struct {
 	Error error
 }
 
-type IRowScanner interface {
-	Scan(rows *sql.Rows) (interface{}, error)
-}
 type DefaultScanner struct {
 	RawMetaInfo
 	columnMap map[string]FieldInfo
 }
 
-func getRowScanner(v interface{}, colFieldNameMap map[string]string) (IRowScanner, error) {
+func getRowScanner(v interface{}, colFieldNameMap map[string]string) (define.IRowScanner, error) {
 	r := GetRawTableInfo(v)
 	if r.IsStruct {
 		resultMap := make(map[string]FieldInfo)
@@ -110,7 +107,7 @@ func getRowScanner(v interface{}, colFieldNameMap map[string]string) (IRowScanne
 	}
 }
 
-func getDefaultScanner(v interface{}, columns ...string) (IRowScanner, error) {
+func getDefaultScanner(v interface{}, columns ...string) (define.IRowScanner, error) {
 	r := GetRawTableInfo(v)
 	if r.IsStruct {
 		colMap, cols := getDefaultsColumnFieldMap(r.Type)
@@ -284,4 +281,57 @@ func (d DefaultModel) Clone() define.TableModel {
 		orderBys:      d.orderBys,
 		page:          d.page,
 	}
+}
+
+type TableScanner struct {
+}
+
+func (t TableScanner) Scan(rows *sql.Rows) (interface{}, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t TableScanner) Table() string {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t TableScanner) PrimaryKeys() []string {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t TableScanner) Columns() []string {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t TableScanner) ColumnDataMap() map[string]interface{} {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t TableScanner) Condition() define.Condition {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t TableScanner) OrderBys() []define.OrderBy {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t TableScanner) Page() define.PageInfo {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t TableScanner) Clone() define.TableModel {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t TableScanner) SetColumns(columns []string) error {
+	//TODO implement me
+	panic("implement me")
 }
