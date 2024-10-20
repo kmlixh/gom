@@ -235,9 +235,6 @@ func (d *DefaultModel) SetColumns(columns []string) error {
 func (d DefaultModel) PrimaryKeys() []string {
 	return d.primaryKeys
 }
-func (d DefaultModel) PrimaryAuto() []string {
-	return d.primaryAuto
-}
 
 func (d DefaultModel) Table() string {
 	return d.table
@@ -287,6 +284,8 @@ type Record struct {
 	Index            int             `json:"index"`
 	Columns          []define.Column `json:"columns"`
 	columnNameIdxMap map[string]int
+	columnNames      []string `json:"columnNames"`
+	columnValues     []any    `json:"columnValues"`
 }
 
 type TableScanner struct {
@@ -311,35 +310,47 @@ func (t TableScanner) PrimaryKeys() []string {
 }
 
 func (t TableScanner) Columns() []string {
-	//TODO implement me
-	panic("implement me")
+	return t.columns
 }
 
 func (t TableScanner) ColumnDataMap() map[string]interface{} {
-	//TODO implement me
-	panic("implement me")
+	return t.columnDataMap
 }
 
 func (t TableScanner) Condition() define.Condition {
-	//TODO implement me
-	panic("implement me")
+	return t.condition
+}
+func (t TableScanner) SetCondition(condition define.Condition) TableScanner {
+	t.condition = condition
+	return t
+}
+
+func (t TableScanner) OrderBy(field string, o define.OrderType) TableScanner {
+	if t.orderBys == nil {
+		t.orderBys = make([]define.OrderBy, 0)
+	}
+	t.orderBys = append(t.orderBys, MakeOrderBy(field, o))
+	return t
 }
 
 func (t TableScanner) OrderBys() []define.OrderBy {
-	//TODO implement me
-	panic("implement me")
+	return t.orderBys
 }
 
 func (t TableScanner) Page() define.PageInfo {
-	//TODO implement me
-	panic("implement me")
+	return t.page
 }
-
-func NewRecord(index int, columns []define.Column) *Record {
-	return &Record{
-		Index:   index,
-		Columns: columns,
+func (t *TableScanner) SetPage(pageNum int64, pageSize int64) *TableScanner {
+	t.page = PageImpl{pageNum, pageSize}
+	return t
+}
+func (t TableScanner) addColumn(column define.Column) TableScanner {
+	if t.Records == nil {
+		t.Records = make([]Record, 0)
+		t.Records = append(t.Records, Record{Index: 0})
 	}
+	t.Records[0].addColumn(column)
+	return t
 }
 func (r Record) addColumn(column define.Column) {
 	if r.Columns == nil {
@@ -350,7 +361,12 @@ func (r Record) addColumn(column define.Column) {
 	} else {
 		r.columnNameIdxMap[column.ColumnName] = len(r.Columns)
 		r.Columns = append(r.Columns, column)
+		r.columnNames = append(r.columnNames, column.ColumnName)
+		r.columnValues = append(r.columnValues, column.ColumnValue)
 	}
+}
+func (r Record) addColumn2(queryName string, columnName string) {
+	r.addColumn(define.Column{QueryName: queryName, ColumnName: columnName})
 }
 
 func (t TableScanner) Scan(rows *sql.Rows) (interface{}, error) {
