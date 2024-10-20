@@ -2,6 +2,7 @@ package define
 
 import (
 	"database/sql"
+	"reflect"
 )
 
 type Linker int
@@ -147,8 +148,6 @@ type TableModel interface {
 	Condition() Condition
 	OrderBys() []OrderBy
 	Page() PageInfo
-	Clone() TableModel
-	SetColumns(columns []string) error
 }
 type SqlFunc func(model ...TableModel) []SqlProto
 type SqlFactory interface {
@@ -189,10 +188,12 @@ func (t TableStruct) GetColumns() ([]Column, error) {
 }
 
 type Column struct {
-	ColumnName  string
-	Primary     bool
-	PrimaryAuto bool //If Primary Key Auto Generate Or2 Not
-	ColumnType  string
-	ColumnValue any
-	Comment     string
+	QueryName     string       `json:"queryName"`
+	ColumnName    string       `json:"ColumnName"`
+	IsPrimary     bool         `json:"isPrimary"`
+	IsPrimaryAuto bool         `json:"isPrimaryAuto"` //If Primary Key Auto Generate Or2 Not
+	TypeName      string       `json:"type"`
+	Type          reflect.Type `json:"-"`
+	ColumnValue   any          `json:"value"`
+	Comment       string       `json:"comment"`
 }

@@ -283,12 +283,88 @@ func (d DefaultModel) Clone() define.TableModel {
 	}
 }
 
-type Row map[string]any
+type Record struct {
+	Index            int             `json:"index"`
+	Columns          []define.Column `json:"columns"`
+	columnNameIdxMap map[string]int
+}
 
 type TableScanner struct {
-	DefaultModel
+	table          string
+	primaryKeys    []string
+	primaryAuto    []string
+	columns        []string
+	columnFieldMap map[string]string
+	columnDataMap  map[string]any
+	condition      define.Condition
+	orderBys       []define.OrderBy
+	page           define.PageInfo
+	Records        []Record
+}
+
+func (t TableScanner) Table() string {
+	return t.table
+}
+
+func (t TableScanner) PrimaryKeys() []string {
+	return t.primaryKeys
+}
+
+func (t TableScanner) Columns() []string {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t TableScanner) ColumnDataMap() map[string]interface{} {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t TableScanner) Condition() define.Condition {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t TableScanner) OrderBys() []define.OrderBy {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t TableScanner) Page() define.PageInfo {
+	//TODO implement me
+	panic("implement me")
+}
+
+func NewRecord(index int, columns []define.Column) *Record {
+	return &Record{
+		Index:   index,
+		Columns: columns,
+	}
+}
+func (r Record) addColumn(column define.Column) {
+	if r.Columns == nil {
+		r.Columns = make([]define.Column, 0)
+	}
+	if idx, ok := r.columnNameIdxMap[column.ColumnName]; ok {
+		r.Columns[idx] = column
+	} else {
+		r.columnNameIdxMap[column.ColumnName] = len(r.Columns)
+		r.Columns = append(r.Columns, column)
+	}
 }
 
 func (t TableScanner) Scan(rows *sql.Rows) (interface{}, error) {
-
+	columns := make([]string, 0)
+	columnTypes, err := rows.ColumnTypes()
+	if err != nil {
+		return nil, err
+	}
+	scanners := make([]any, 0)
+	for _, columnType := range columnTypes {
+		scanner := GetIScannerOfSimpleType(columnType.ScanType())
+		column := columnType.Name()
+		columns = append(columns, column)
+		scanners = append(scanners, scanner)
+	}
+	rows.Scan(scanners...)
 }

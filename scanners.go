@@ -65,6 +65,27 @@ func IntScan(src interface{}) (interface{}, error) {
 	return result, err
 
 }
+func UIntScan(src interface{}) (interface{}, error) {
+	if src == nil {
+		return nil, nil
+	}
+	var result any
+	var err error
+	switch src.(type) {
+	case uint:
+		result = src.(uint)
+	case uint8:
+		result = src.(uint8)
+	case uint16:
+		result = src.(uint16)
+	case uint32:
+		result = src.(uint32)
+	case uint64:
+		result = src.(uint64)
+	}
+	return result, err
+
+}
 func Float32Scan(src interface{}) (interface{}, error) {
 	if src == nil {
 		return nil, nil
@@ -78,7 +99,6 @@ func Float32Scan(src interface{}) (interface{}, error) {
 		result = src.(float32)
 	}
 	return result, err
-
 }
 func ByteArrayScan(src interface{}) (interface{}, error) {
 	if src == nil {
@@ -86,8 +106,6 @@ func ByteArrayScan(src interface{}) (interface{}, error) {
 	}
 	var result = []byte{}
 	switch src.(type) {
-	case string:
-		result = []byte(src.(string))
 	case []byte:
 		result = src.([]byte)
 	}
@@ -98,26 +116,39 @@ func GetIScannerOfSimpleType(p reflect.Type) IScanner {
 	switch p.Kind() {
 	case reflect.Int:
 		return &ScannerImpl{0, IntScan}
-	case int16:
+	case reflect.Int16:
 		return &sql.NullInt16{}
-	case int32:
+	case reflect.Int32:
 		return &sql.NullInt32{}
-	case int64:
+	case reflect.Int64:
 		return &sql.NullInt64{}
-	case float32:
+	case reflect.Float32:
 		return &ScannerImpl{float32(0), Float32Scan}
-	case float64:
+	case reflect.Float64:
 		return &sql.NullFloat64{}
-	case string:
+	case reflect.String:
 		return &sql.NullString{}
-	case []byte:
+	case reflect.Uint:
+		return &ScannerImpl{uint(0), UIntScan}
+	case reflect.Uint8:
+		return &ScannerImpl{uint8(0), UIntScan}
+	case reflect.Uint16:
+		return &ScannerImpl{uint16(0), UIntScan}
+	case reflect.Uint32:
+		return &ScannerImpl{uint32(0), UIntScan}
+	case reflect.Uint64:
+		return &ScannerImpl{uint64(0), UIntScan}
+	case reflect.TypeOf([]byte{}).Kind():
 		return &ScannerImpl{[]byte{}, ByteArrayScan}
-	case time.Time:
+	case reflect.TypeOf(time.Time{}).Kind():
 		return &sql.NullTime{}
-	case bool:
+	case reflect.TypeOf(byte(0)).Kind():
+		return &sql.NullByte{}
+	case reflect.Bool:
 		return &sql.NullBool{}
+
 	default:
-		return nil
+		return EMPTY_SCANNER
 	}
 }
 func GetIScannerOfSimple(col interface{}) IScanner {
@@ -146,6 +177,16 @@ func GetIScannerOfSimple(col interface{}) IScanner {
 		return &sql.NullTime{}
 	case bool:
 		return &sql.NullBool{}
+	case uint:
+		return &ScannerImpl{uint(0), UIntScan}
+	case uint8:
+		return &ScannerImpl{uint8(0), UIntScan}
+	case uint16:
+		return &ScannerImpl{uint16(0), UIntScan}
+	case uint32:
+		return &ScannerImpl{uint32(0), UIntScan}
+	case uint64:
+		return &ScannerImpl{uint64(0), UIntScan}
 	default:
 		return nil
 	}
