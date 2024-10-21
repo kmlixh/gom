@@ -45,7 +45,7 @@ func GetColumns(v reflect.Value) ([]string, []string, []string, map[string]strin
 		}
 	}
 	if Debug {
-		fmt.Println("columns are:", columnNames)
+		fmt.Println("ColumnNames are:", columnNames)
 	}
 	return columnNames, primaryKeys, primaryAuto, columnIdxMap
 }

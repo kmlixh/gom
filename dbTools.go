@@ -62,10 +62,10 @@ func inArray(s string, a []string) bool {
 	return false
 }
 func getColumnTag(col define.Column) string {
-	if col.Primary {
+	if col.IsPrimary {
 		return fmt.Sprintf("`gom:\"!,%s\"`", col.ColumnName)
 	}
-	if col.PrimaryAuto {
+	if col.IsPrimaryAuto {
 		return fmt.Sprintf("`gom:\"@,%s\"`", col.ColumnName)
 	}
 	return fmt.Sprintf("`gom:\"#,%s\"`", col.ColumnName)

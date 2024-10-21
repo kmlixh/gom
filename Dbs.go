@@ -269,13 +269,13 @@ func (db *DB) executeInside(vi []interface{}, customColumns ...string) (sql.Resu
 				for _, dbCol := range dbCols {
 					dbColNames = append(dbColNames, dbCol.ColumnName)
 					dbColMap[dbCol.ColumnName] = dbCol
-					if _, ok := colMap[dbCol.ColumnName]; !ok && dbCol.Primary {
+					if _, ok := colMap[dbCol.ColumnName]; !ok && dbCol.IsPrimary {
 						return nil, errors.New(fmt.Sprintf("column '%s' not exist in variable ", dbCol.ColumnName))
 					}
-					if dbCol.Primary && !dbCol.PrimaryAuto {
+					if dbCol.IsPrimary && !dbCol.IsPrimaryAuto {
 						primaryKey = append(primaryKey, dbCol.ColumnName)
 					}
-					if dbCol.PrimaryAuto {
+					if dbCol.IsPrimaryAuto {
 						primaryAuto = append(primaryAuto, dbCol.ColumnName)
 					}
 				}

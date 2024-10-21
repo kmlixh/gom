@@ -367,7 +367,7 @@ WHERE
 			comment := ""
 			er = rows.Scan(&columnName, &columnType, &columnKey, &extra, &comment)
 			if er == nil {
-				cols = append(cols, define.Column{ColumnName: columnName, ColumnType: columnType, Primary: columnKey == "YES", PrimaryAuto: columnKey == "YES" && extra == "ALWAYS", Comment: comment})
+				cols = append(cols, define.Column{ColumnName: columnName, ColumnType: columnType, IsPrimary: columnKey == "YES", IsPrimaryAuto: columnKey == "YES" && extra == "ALWAYS", Comment: comment})
 			} else {
 				return nil, er
 			}
@@ -406,7 +406,7 @@ func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, erro
 		comment := ""
 		er = rows.Scan(&columnName, &columnType, &columnKey, &extra)
 		if er == nil {
-			columns = append(columns, define.Column{ColumnName: columnName, ColumnType: columnType, Primary: columnKey == "YES", PrimaryAuto: columnKey == "YES" && extra == "ALWAYS", Comment: comment})
+			columns = append(columns, define.Column{ColumnName: columnName, ColumnType: columnType, IsPrimary: columnKey == "YES", IsPrimaryAuto: columnKey == "YES" && extra == "ALWAYS", Comment: comment})
 		} else {
 			return nil, er
 		}

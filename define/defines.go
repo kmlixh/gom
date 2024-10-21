@@ -191,7 +191,7 @@ type Column struct {
 	QueryName     string       `json:"queryName"`
 	ColumnName    string       `json:"ColumnName"`
 	IsPrimary     bool         `json:"isPrimary"`
-	IsPrimaryAuto bool         `json:"isPrimaryAuto"` //If Primary Key Auto Generate Or2 Not
+	IsPrimaryAuto bool         `json:"isPrimaryAuto"` //If IsPrimary Key Auto Generate Or2 Not
 	TypeName      string       `json:"type"`
 	Type          reflect.Type `json:"-"`
 	ColumnValue   any          `json:"value"`
