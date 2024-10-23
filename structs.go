@@ -281,42 +281,40 @@ func (d DefaultModel) Clone() define.TableModel {
 }
 
 type Record struct {
-	Index        int64           `json:"index"`
-	Columns      []define.Column `json:"columns"`
-	columnIdxMap map[string]int
-	ColumnNames  []string       `json:"columnNames"`
-	DataMap      map[string]any `json:"dataMap"`
-	primaryKeys  []string
+	Index   int64          `json:"index"`
+	DataMap map[string]any `json:"dataMap"`
+	Columns []string       `json:"columns"`
 }
 
 type TableScanner struct {
-	table        string
-	condition    define.Condition
-	orderBys     []define.OrderBy
-	page         define.PageInfo
-	ColumnData   []define.Column `json:"columns"`
-	columnIdxMap map[string]int
-	ColumnNames  []string       `json:"columnNames"`
-	DataMap      map[string]any `json:"dataMap"`
-	primaryKeys  []string
-	Records      []Record
-	currentIdx   int64
+	TableName      string `json:"table"`
+	condition      define.Condition
+	orderBys       []define.OrderBy
+	PageData       define.PageInfo `json:"pageData"`
+	ColumnData     []define.Column `json:"columns"`
+	QueryNames     []string        `json:"queryNames"`
+	ColumnNames    []string        `json:"columnNames"`
+	DataMap        map[string]any  `json:"dataMap"`
+	PrimaryKeyData []string        `json:"primaryKeys"`
+	Records        []Record        `json:"records"`
+	RecordSize     int64           `json:"recordSize"`
+	currentIdx     int64
 }
 
 func (t TableScanner) Table() string {
-	return t.table
+	return t.TableName
 }
 
 func (t TableScanner) PrimaryKeys() []string {
-	return t.Records[0].ColumnNames
+	return t.PrimaryKeyData
 }
 
 func (t TableScanner) Columns() []string {
-	return t.Records[0].ColumnNames
+	return t.ColumnNames
 }
 
 func (t TableScanner) ColumnDataMap() map[string]interface{} {
-	return t.Records[0].DataMap
+	return t.DataMap
 }
 
 func (t TableScanner) Condition() define.Condition {
@@ -340,64 +338,101 @@ func (t TableScanner) OrderBys() []define.OrderBy {
 }
 
 func (t TableScanner) Page() define.PageInfo {
-	return t.page
+	return t.PageData
 }
 func (t *TableScanner) SetPage(pageNum int64, pageSize int64) *TableScanner {
-	t.page = PageImpl{pageNum, pageSize}
+	t.PageData = PageImpl{pageNum, pageSize}
 	return t
 }
-func (t *TableScanner) AddRecord(record Record) *TableScanner {
-	t.Records = append(t.Records, Record{
-		Index:        t.currentIdx + 1,
-		Columns:      record.Columns,
-		columnIdxMap: record.columnIdxMap,
-		ColumnNames:  record.ColumnNames,
-		DataMap:      record.DataMap,
-	})
+
+func (t *TableScanner) AddColumn(column define.Column) *TableScanner {
+	if t.ColumnData == nil {
+		t.ColumnData = make([]define.Column, 0)
+	}
+	if t.DataMap == nil {
+		t.DataMap = make(map[string]any)
+	}
+	if t.QueryNames == nil {
+		t.QueryNames = make([]string, 0)
+	}
+	if t.ColumnNames == nil {
+		t.ColumnNames = make([]string, 0)
+	}
+	if t.PrimaryKeyData == nil {
+		t.PrimaryKeyData = make([]string, 0)
+	}
+	t.ColumnData = append(t.ColumnData, column)
+	t.DataMap[column.ColumnName] = column.ColumnValue
+	t.QueryNames = append(t.QueryNames, column.QueryName)
+	t.ColumnNames = append(t.ColumnNames, column.ColumnName)
+	if column.IsPrimary {
+		t.PrimaryKeyData = append(t.PrimaryKeyData, column.ColumnName)
+	}
+	return t
+}
+func (t *TableScanner) AddData(columnTypes []*sql.ColumnType, results []any) *TableScanner {
+	columnNames := make([]string, 0)
+	columns := make([]define.Column, 0)
+	dataMap := make(map[string]any)
+
+	for idx, columnType := range columnTypes {
+		scanner := results[idx]
+		var value any
+		if _, ok := scanner.(EmptyScanner); ok {
+			value = nil
+		}
+		value, _ = scanner.(IScanner).Value()
+		column := define.Column{
+			QueryName:     columnType.Name(),
+			ColumnName:    columnType.Name(),
+			IsPrimary:     false,
+			IsPrimaryAuto: false,
+			TypeName:      columnType.DatabaseTypeName(),
+			Type:          columnType.ScanType(),
+			ColumnValue:   value,
+			Comment:       "",
+		}
+		columns = append(columns, column)
+		dataMap[column.ColumnName] = column.ColumnValue
+		columnNames = append(columnNames, column.ColumnName)
+	}
+
+	if t.currentIdx == 0 {
+		t.ColumnData = columns
+		t.ColumnNames = columnNames
+	}
+	record := Record{
+		Index:   t.currentIdx,
+		DataMap: dataMap,
+		Columns: columnNames,
+	}
+	t.Records = append(t.Records, record)
 	t.currentIdx++
 	return t
 }
-func (t *TableScanner) AddColumn(column define.Column) *TableScanner {
-	if t.Records == nil {
-		t.Records = make([]Record, 0)
-		t.Records = append(t.Records, Record{Index: 0}.AddColumn(column))
-	} else {
-		t.Records[t.currentIdx].AddColumn(column)
-	}
-
+func (t *TableScanner) CleanResult() *TableScanner {
+	t.DataMap = make(map[string]any)
+	t.QueryNames = make([]string, 0)
+	t.ColumnNames = make([]string, 0)
+	t.PrimaryKeyData = make([]string, 0)
+	t.Records = make([]Record, 0)
+	t.currentIdx = 0
 	return t
 }
-func (r Record) AddColumn(column define.Column) Record {
+
+func (r Record) AddData(name string, data any) Record {
 	if r.Columns == nil {
-		r.Columns = make([]define.Column, 0)
+		r.Columns = make([]string, 0)
 	}
 	if r.DataMap == nil {
 		r.DataMap = make(map[string]any)
 	}
-	if r.columnIdxMap == nil {
-		r.columnIdxMap = make(map[string]int)
-	}
-	if r.ColumnNames == nil {
-		r.ColumnNames = make([]string, 0)
-	}
-	if idx, ok := r.columnIdxMap[column.ColumnName]; ok {
-		r.Columns[idx] = column
-	} else {
-		r.columnIdxMap[column.ColumnName] = len(r.Columns)
-		r.Columns = append(r.Columns, column)
-		r.ColumnNames = append(r.ColumnNames, column.ColumnName)
-		r.DataMap[column.ColumnName] = column
-		if column.IsPrimary {
-			r.primaryKeys = append(r.primaryKeys, column.ColumnName)
-		}
-	}
+	r.Columns = append(r.Columns, name)
+	r.DataMap[name] = data
 	return r
 }
-func (r Record) AddColumn2(queryName string, columnName string) {
-	r.AddColumn(define.Column{QueryName: queryName, ColumnName: columnName})
-}
 
-func (t TableScanner) Scan(rows *sql.Rows) (interface{}, error) {
+func (t *TableScanner) Scan(rows *sql.Rows) (interface{}, error) {
 	columns := make([]string, 0)
 	columnTypes, err := rows.ColumnTypes()
 	if err != nil {
@@ -410,8 +445,10 @@ func (t TableScanner) Scan(rows *sql.Rows) (interface{}, error) {
 		columns = append(columns, columnName)
 		scanners = append(scanners, scanner)
 	}
-	rows.Scan(scanners...)
-	for _, col := range columns {
-
+	t.CleanResult()
+	for rows.Next() {
+		rows.Scan(scanners...)
+		t.AddData(columnTypes, scanners)
 	}
+	return t, nil
 }
