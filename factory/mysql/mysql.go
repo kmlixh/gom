@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/kmlixh/gom/define"
+	"github.com/kmlixh/gom/v4/define"
 )
 
 func init() {

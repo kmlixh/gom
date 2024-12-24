@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/kmlixh/gom/define"
+	"github.com/kmlixh/gom/v4/define"
 )
 
 func init() {
