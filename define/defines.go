@@ -2,7 +2,9 @@ package define
 
 import (
 	"database/sql"
+	"fmt"
 	"reflect"
+	"time"
 )
 
 type Linker int
@@ -115,6 +117,8 @@ type Condition interface {
 	Or3Bool(b bool, rawExpresssion string, values ...interface{}) Condition
 }
 
+var Debug bool
+
 const (
 	_ SqlType = iota
 	Query
@@ -164,6 +168,7 @@ type ITableStruct interface {
 	GetTableName() string
 	GetTableComment() string
 	GetColumns() ([]Column, error)
+	ToTableModel() (TableModel, IRowScanner, error)
 }
 type IRowScanner interface {
 	Scan(rows *sql.Rows) (interface{}, error)
@@ -187,6 +192,220 @@ func (t TableStruct) GetColumns() ([]Column, error) {
 	return t.Columns, nil
 }
 
+func (t TableStruct) ToTableModel() (TableModel, IRowScanner, error) {
+	cols, err := t.GetColumns()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	colNames := make([]string, len(cols))
+	colMap := make(map[string]interface{})
+	primaryKeys := make([]string, 0)
+	scanDest := make([]interface{}, len(cols))
+
+	for i, col := range cols {
+		colNames[i] = col.ColumnName
+		colMap[col.ColumnName] = col.ColumnValue
+		if col.IsPrimary {
+			primaryKeys = append(primaryKeys, col.ColumnName)
+		}
+		// 根据列类型创建对应的扫描目标
+		scanDest[i] = getScanDest(col.Type)
+	}
+
+	model := &DefaultModel{
+		table:         t.TableName,
+		primaryKeys:   primaryKeys,
+		columns:       colNames,
+		columnDataMap: colMap,
+		condition:     nil,
+		orderBys:      nil,
+		page:          nil,
+	}
+
+	scanner := &TableScanner{
+		dest:    scanDest,
+		columns: cols,
+	}
+
+	return model, scanner, nil
+}
+
+// TableScanner implements IRowScanner interface
+type TableScanner struct {
+	dest    []interface{}
+	columns []Column
+}
+
+// ScanResult wraps scan results with conversion methods
+type ScanResult struct {
+	Data []map[string]interface{}
+}
+
+// Into converts scan results into the provided struct slice
+func (r *ScanResult) Into(dest interface{}) error {
+	destValue := reflect.ValueOf(dest)
+	if destValue.Kind() != reflect.Ptr {
+		return fmt.Errorf("dest must be a pointer")
+	}
+
+	sliceValue := destValue.Elem()
+	if sliceValue.Kind() != reflect.Slice {
+		return fmt.Errorf("dest must be a pointer to slice")
+	}
+
+	// Get the type of slice elements
+	elemType := sliceValue.Type().Elem()
+	isPtr := elemType.Kind() == reflect.Ptr
+	if isPtr {
+		elemType = elemType.Elem()
+	}
+
+	if elemType.Kind() != reflect.Struct {
+		return fmt.Errorf("slice elements must be structs")
+	}
+
+	// Create a new slice with the correct capacity
+	newSlice := reflect.MakeSlice(sliceValue.Type(), 0, len(r.Data))
+
+	// Iterate through each map and create struct instances
+	for _, item := range r.Data {
+		// Create a new struct instance
+		structPtr := reflect.New(elemType)
+		structVal := structPtr.Elem()
+
+		// Fill the struct fields
+		for i := 0; i < elemType.NumField(); i++ {
+			field := elemType.Field(i)
+			fieldVal := structVal.Field(i)
+
+			// Get the column name from gom tag
+			tag := field.Tag.Get("gom")
+			if tag == "" || tag == "-" {
+				continue
+			}
+
+			// Get the value from map
+			if value, ok := item[tag]; ok {
+				if err := setFieldValue(fieldVal, value); err != nil {
+					return fmt.Errorf("failed to set field %s: %v", field.Name, err)
+				}
+			}
+		}
+
+		// Append the struct to slice
+		if isPtr {
+			newSlice = reflect.Append(newSlice, structPtr)
+		} else {
+			newSlice = reflect.Append(newSlice, structVal)
+		}
+	}
+
+	// Set the result back to the destination slice
+	sliceValue.Set(newSlice)
+	return nil
+}
+
+// setFieldValue sets the appropriate value to the struct field
+func setFieldValue(field reflect.Value, value interface{}) error {
+	if value == nil {
+		return nil
+	}
+
+	// Handle the case where value is a pointer
+	valueVal := reflect.ValueOf(value)
+	if valueVal.Kind() == reflect.Ptr {
+		if valueVal.IsNil() {
+			return nil
+		}
+		valueVal = valueVal.Elem()
+	}
+
+	switch field.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		switch v := valueVal.Interface().(type) {
+		case int64:
+			field.SetInt(v)
+		case int:
+			field.SetInt(int64(v))
+		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		switch v := valueVal.Interface().(type) {
+		case uint64:
+			field.SetUint(v)
+		case uint:
+			field.SetUint(uint64(v))
+		}
+	case reflect.Float32, reflect.Float64:
+		switch v := valueVal.Interface().(type) {
+		case float64:
+			field.SetFloat(v)
+		case float32:
+			field.SetFloat(float64(v))
+		}
+	case reflect.String:
+		if s, ok := valueVal.Interface().(string); ok {
+			field.SetString(s)
+		}
+	case reflect.Bool:
+		if b, ok := valueVal.Interface().(bool); ok {
+			field.SetBool(b)
+		}
+	case reflect.Struct:
+		if field.Type() == reflect.TypeOf(time.Time{}) {
+			if t, ok := valueVal.Interface().(time.Time); ok {
+				field.Set(reflect.ValueOf(t))
+			}
+		}
+	}
+	return nil
+}
+
+func (s *TableScanner) Scan(rows *sql.Rows) (interface{}, error) {
+	var results []map[string]interface{}
+	for rows.Next() {
+		if err := rows.Scan(s.dest...); err != nil {
+			return nil, err
+		}
+
+		row := make(map[string]interface{})
+		for i, col := range s.columns {
+			// Get the actual value from the pointer
+			value := reflect.ValueOf(s.dest[i]).Elem().Interface()
+			row[col.ColumnName] = value
+		}
+		results = append(results, row)
+	}
+	return &ScanResult{Data: results}, nil
+}
+
+// getScanDest returns appropriate scan destination based on type
+func getScanDest(t reflect.Type) interface{} {
+	if t == nil {
+		return new(interface{})
+	}
+
+	switch t.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return new(int64)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return new(uint64)
+	case reflect.Float32, reflect.Float64:
+		return new(float64)
+	case reflect.Bool:
+		return new(bool)
+	case reflect.String:
+		return new(string)
+	case reflect.Struct:
+		if t.String() == "time.Time" {
+			return new(time.Time)
+		}
+		fallthrough
+	default:
+		return new(interface{})
+	}
+}
+
 type Column struct {
 	QueryName     string       `json:"queryName"`
 	ColumnName    string       `json:"ColumnName"`
@@ -196,4 +415,43 @@ type Column struct {
 	Type          reflect.Type `json:"-"`
 	ColumnValue   any          `json:"value"`
 	Comment       string       `json:"comment"`
+}
+
+// DefaultModel implements TableModel interface
+type DefaultModel struct {
+	table         string
+	primaryKeys   []string
+	columns       []string
+	columnDataMap map[string]interface{}
+	condition     Condition
+	orderBys      []OrderBy
+	page          PageInfo
+}
+
+func (m *DefaultModel) Table() string {
+	return m.table
+}
+
+func (m *DefaultModel) PrimaryKeys() []string {
+	return m.primaryKeys
+}
+
+func (m *DefaultModel) Columns() []string {
+	return m.columns
+}
+
+func (m *DefaultModel) ColumnDataMap() map[string]interface{} {
+	return m.columnDataMap
+}
+
+func (m *DefaultModel) Condition() Condition {
+	return m.condition
+}
+
+func (m *DefaultModel) OrderBys() []OrderBy {
+	return m.orderBys
+}
+
+func (m *DefaultModel) Page() PageInfo {
+	return m.page
 }

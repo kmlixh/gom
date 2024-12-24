@@ -4,11 +4,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
+
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/kmlixh/gom/v3/define"
 	factory2 "github.com/kmlixh/gom/v3/factory"
-	"strings"
-	"time"
 )
 
 type MyCndStruct struct {
@@ -153,12 +154,15 @@ func InitFactory() {
 		}
 		if model.Page() != nil {
 			idx, size := model.Page().Page()
-			datas = append(datas, idx, size)
+			datas = append(datas, size, idx)
 			sql += " LIMIT ? OFFSET ?"
 		}
 		sql += ";"
 		var result []define.SqlProto
-		result = append(result, define.SqlProto{PreparedSql: pgSql(sql), Data: datas})
+		result = append(result, define.SqlProto{
+			PreparedSql: pgSql(sql),
+			Data:        datas,
+		})
 		return result
 	}
 	funcMap[define.Update] = func(models ...define.TableModel) []define.SqlProto {
@@ -187,7 +191,10 @@ func InitFactory() {
 				sql += " WHERE " + cndString
 				datas = append(datas, cndData...)
 			}
-			result = append(result, define.SqlProto{pgSql(sql), datas})
+			result = append(result, define.SqlProto{
+				PreparedSql: pgSql(sql),
+				Data:        datas,
+			})
 		}
 
 		return result
@@ -211,10 +218,18 @@ func InitFactory() {
 				i++
 			}
 			sql += ")"
-			valuesPattern += ");"
+			valuesPattern += ")"
 
 			sql += valuesPattern
-			result = append(result, define.SqlProto{pgSql(sql), datas})
+			// 增加 RETURNING 子句，返回所有主键
+			if pks := model.PrimaryKeys(); len(pks) > 0 {
+				sql += " RETURNING " + strings.Join(pks, ",")
+			}
+			sql += ";"
+			result = append(result, define.SqlProto{
+				PreparedSql: pgSql(sql),
+				Data:        datas,
+			})
 		}
 		return result
 	}
@@ -229,7 +244,10 @@ func InitFactory() {
 				sql += " WHERE " + cndString
 				datas = append(datas, cndData...)
 			}
-			result = append(result, define.SqlProto{pgSql(sql), datas})
+			result = append(result, define.SqlProto{
+				PreparedSql: pgSql(sql),
+				Data:        datas,
+			})
 		}
 		return result
 	}
@@ -288,11 +306,23 @@ var colSql = `
 SELECT 
     c.column_name AS "columnName",
     c.data_type AS "dataType",
-    c.is_identity AS "columnKey",
+    CASE 
+        WHEN kcu.column_name IS NOT NULL THEN 'YES'
+        ELSE 'NO'
+    END AS "columnKey",
     COALESCE(c.identity_generation, 'NO') AS extra,
-    COALESCE(col_description(t.oid, a.attnum),'') AS comment
+    COALESCE(col_description(t.oid, a.attnum), '') AS comment
 FROM 
     information_schema.columns c
+LEFT JOIN 
+    information_schema.table_constraints tc 
+    ON c.table_schema = tc.table_schema 
+    AND c.table_name = tc.table_name 
+    AND tc.constraint_type = 'PRIMARY KEY'
+LEFT JOIN 
+    information_schema.key_column_usage kcu 
+    ON tc.constraint_name = kcu.constraint_name 
+    AND c.column_name = kcu.column_name
 JOIN 
     pg_class t ON t.relname = c.table_name
 JOIN 
@@ -367,7 +397,7 @@ WHERE
 			comment := ""
 			er = rows.Scan(&columnName, &columnType, &columnKey, &extra, &comment)
 			if er == nil {
-				cols = append(cols, define.Column{ColumnName: columnName, ColumnType: columnType, IsPrimary: columnKey == "YES", IsPrimaryAuto: columnKey == "YES" && extra == "ALWAYS", Comment: comment})
+				cols = append(cols, define.Column{ColumnName: columnName, TypeName: columnType, IsPrimary: columnKey == "YES", IsPrimaryAuto: columnKey == "YES" && extra == "ALWAYS", Comment: comment})
 			} else {
 				return nil, er
 			}
@@ -396,6 +426,9 @@ func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, erro
 	if cols, ok := dbTableColsCache[tableName]; ok {
 		return cols, nil
 	}
+	if define.Debug {
+		fmt.Println("DEBUG: Get Columns SQL:", colSql, dbName, tableName)
+	}
 	rows, er = db.Query(colSql, dbName, tableName)
 	columns := make([]define.Column, 0)
 	for rows.Next() {
@@ -404,9 +437,9 @@ func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, erro
 		columnKey := ""
 		extra := ""
 		comment := ""
-		er = rows.Scan(&columnName, &columnType, &columnKey, &extra)
+		er = rows.Scan(&columnName, &columnType, &columnKey, &extra, &comment)
 		if er == nil {
-			columns = append(columns, define.Column{ColumnName: columnName, ColumnType: columnType, IsPrimary: columnKey == "YES", IsPrimaryAuto: columnKey == "YES" && extra == "ALWAYS", Comment: comment})
+			columns = append(columns, define.Column{ColumnName: columnName, TypeName: columnType, IsPrimary: columnKey == "YES", IsPrimaryAuto: columnKey == "YES" && extra == "ALWAYS", Comment: comment})
 		} else {
 			return nil, er
 		}

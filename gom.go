@@ -4,16 +4,15 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/kmlixh/gom/v3/define"
 	factory2 "github.com/kmlixh/gom/v3/factory"
 	"time"
 )
 
-var Debug bool
-
 const defaultDBId = -1000
 
 func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int, debugs bool) (*DB, error) {
-	Debug = debugs
+	define.Debug = debugs
 	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		return nil, err
@@ -29,7 +28,7 @@ func OpenWithConfig(driverName string, dsn string, maxOpen int, maxIdle int, deb
 }
 
 func Open(driverName string, dsn string, debugs bool) (*DB, error) {
-	Debug = debugs
+	define.Debug = debugs
 	factory, ok := factory2.Get(driverName)
 	if !ok {
 		return nil, errors.New(fmt.Sprintf("driver [%s] not factory", driverName))

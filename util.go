@@ -44,7 +44,7 @@ func GetColumns(v reflect.Value) ([]string, []string, []string, map[string]strin
 			}
 		}
 	}
-	if Debug {
+	if define.Debug {
 		fmt.Println("ColumnNames are:", columnNames)
 	}
 	return columnNames, primaryKeys, primaryAuto, columnIdxMap
@@ -138,7 +138,7 @@ func GetRawTableInfo(v any) RawMetaInfo {
 	}
 	isStruct = tt.Kind() == reflect.Struct
 
-	if Debug {
+	if define.Debug {
 		fmt.Println("Test GetRawTableInfo, result:", tt, isPtr, isSlice)
 	}
 	tableName := ""
@@ -239,19 +239,19 @@ func UnZipSlice(vs interface{}) []any {
 		t = t.Elem()
 	}
 	if t.Kind() == reflect.Slice {
-		v := reflect.ValueOf(vs)
+		v := reflect.Indirect(reflect.ValueOf(vs))
 
 		if v.Len() > 0 {
 			for i := 0; i < v.Len(); i++ { //m为上述切片
 				item := v.Index(i)
 				if item.Interface() != nil {
-					result = append(result, UnZipSlice(item.Interface())...)
+					result = append(result, UnZipSlice(reflect.Indirect(item).Interface())...)
 				}
 			}
 
 		}
 	} else {
-		result = append(result, vs)
+		result = append(result, reflect.Indirect(reflect.ValueOf(vs)).Interface())
 	}
 	return result
 }

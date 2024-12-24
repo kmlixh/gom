@@ -336,6 +336,9 @@ func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, erro
 	if cols, ok := dbTableColsCache[dbName+"-"+tableName]; ok {
 		return cols, nil
 	}
+	if define.Debug {
+		fmt.Println("DEBUG: Get Columns SQL:", columnSql, dbName, tableName)
+	}
 	rows, er = db.Query(columnSql, dbName, tableName)
 	if er != nil {
 		return nil, er

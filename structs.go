@@ -21,9 +21,9 @@ type OrderByImpl struct {
 	orderType define.OrderType
 }
 type CommonSqlResult struct {
-	lastInsertId int64
+	lastInsertId []interface{}
 	rowsAffected int64
-	error
+	error        error
 }
 type RawMetaInfo struct {
 	reflect.Type
@@ -34,15 +34,15 @@ type RawMetaInfo struct {
 	RawData   reflect.Value
 }
 
-func (c CommonSqlResult) LastInsertId() (int64, error) {
-	if c.lastInsertId == 0 {
-		return 0, errors.New("")
-	}
+func (c CommonSqlResult) LastInsertId() ([]interface{}, error) {
 	return c.lastInsertId, c.error
 }
 
 func (c CommonSqlResult) RowsAffected() (int64, error) {
 	return c.rowsAffected, c.error
+}
+func (c CommonSqlResult) Error() error {
+	return c.error
 }
 
 func MakeOrderBy(name string, orderType define.OrderType) define.OrderBy {
