@@ -4,246 +4,30 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 )
 
-type Linker int
-
-const (
-	_ Linker = iota
-	And
-	Or
-)
-
-type Operation int
-
-const (
-	_ Operation = iota
-	Eq
-	NotEq
-	Ge
-	Gt
-	Le
-	Lt
-	Like
-	LikeIgnoreStart
-	LikeIgnoreEnd
-	NotLike
-	In
-	NotIn
-	IsNull
-	IsNotNull
-	RawOperation
-)
-
-type OrderType int
-
-type SqlType int
-type Condition interface {
-	PayLoads() int64 //有效荷载，说明当前条件及其链式条件共有多少有多少个条件
-	Linker() Linker
-	Field() string
-	Operation() Operation
-	Values() []interface{}
-	SetValues([]interface{})
-	Items() []Condition
-	HasSubConditions() bool
-	RawExpression() string
-	Eq(field string, values interface{}) Condition
-	EqBool(b bool, field string, value interface{}) Condition
-	OrEq(field string, value interface{}) Condition
-	OrEqBool(b bool, field string, value interface{}) Condition
-	Ge(field string, value interface{}) Condition
-	GeBool(b bool, field string, value interface{}) Condition
-	OrGe(field string, value interface{}) Condition
-	OrGeBool(b bool, field string, value interface{}) Condition
-	Gt(field string, values interface{}) Condition
-	GtBool(b bool, field string, values interface{}) Condition
-	OrGt(field string, values interface{}) Condition
-	OrGtBool(b bool, field string, values interface{}) Condition
-	Le(field string, values interface{}) Condition
-	LeBool(b bool, field string, values interface{}) Condition
-	OrLe(field string, values interface{}) Condition
-	OrLeBool(b bool, field string, values interface{}) Condition
-	Lt(field string, values interface{}) Condition
-	LtBool(b bool, field string, values interface{}) Condition
-	OrLt(field string, values interface{}) Condition
-	OrLtBool(b bool, field string, values interface{}) Condition
-	NotEq(field string, values interface{}) Condition
-	NotEqBool(b bool, field string, values interface{}) Condition
-	OrNotEq(field string, values interface{}) Condition
-	OrNotEqBool(b bool, field string, values interface{}) Condition
-	In(field string, values ...interface{}) Condition
-	InBool(b bool, field string, values ...interface{}) Condition
-	OrIn(field string, values ...interface{}) Condition
-	OrInBool(b bool, field string, values ...interface{}) Condition
-	NotIn(field string, values ...interface{}) Condition
-	NotInBool(b bool, field string, values ...interface{}) Condition
-	OrNotIn(field string, values ...interface{}) Condition
-	OrNotInBool(b bool, field string, values ...interface{}) Condition
-	Like(field string, values interface{}) Condition
-	LikeBool(b bool, field string, values interface{}) Condition
-	OrLike(field string, values interface{}) Condition
-	OrLikeBool(b bool, field string, values interface{}) Condition
-	NotLike(field string, values interface{}) Condition
-	NotLikeBool(b bool, field string, values interface{}) Condition
-	OrNotLike(field string, values interface{}) Condition
-	OrNotLikeBool(b bool, field string, values interface{}) Condition
-	LikeIgnoreStart(field string, values interface{}) Condition
-	LikeIgnoreStartBool(b bool, field string, values interface{}) Condition
-	OrLikeIgnoreStart(field string, values interface{}) Condition
-	OrLikeIgnoreStartBool(b bool, field string, values interface{}) Condition
-	LikeIgnoreEnd(field string, values interface{}) Condition
-	LikeIgnoreEndBool(b bool, field string, values interface{}) Condition
-	OrLikeIgnoreEnd(field string, values interface{}) Condition
-	OrLikeIgnoreEndBool(b bool, field string, values interface{}) Condition
-	IsNull(filed string) Condition
-	IsNullBool(b bool, field string) Condition
-	IsNotNull(field string) Condition
-	IsNotNullBool(b bool, field string) Condition
-	OrIsNull(filed string) Condition
-	OrIsNullBool(b bool, field string) Condition
-	OrIsNotNull(field string) Condition
-	OrIsNotNullBool(b bool, field string) Condition
-	And(field string, operation Operation, value ...interface{}) Condition
-	AndBool(b bool, field string, operation Operation, value ...interface{}) Condition
-	And2(condition Condition) Condition
-	And3(rawExpresssion string, values ...interface{}) Condition
-	And3Bool(b bool, rawExpresssion string, values ...interface{}) Condition
-	Or(field string, operation Operation, value ...interface{}) Condition
-	OrBool(b bool, field string, operation Operation, value ...interface{}) Condition
-	Or2(condition Condition) Condition
-	Or3(rawExpresssion string, values ...interface{}) Condition
-	Or3Bool(b bool, rawExpresssion string, values ...interface{}) Condition
+// SQLFactory defines the interface for different SQL dialects
+type SQLFactory interface {
+	Connect(dsn string) (*DB, error)
+	GenerateSelectSQL(table string, fields []string, where string, orderBy string, limit, offset int) string
+	GenerateInsertSQL(table string, fields []string) string
+	GenerateUpdateSQL(table string, fields []string, where string) string
+	GenerateDeleteSQL(table string, where string) string
+	GenerateBatchInsertSQL(table string, fields []string, valueCount int) string
+	GenerateBatchUpdateSQL(table string, fields []string, where string, valueCount int) string
+	GenerateBatchDeleteSQL(table string, where string, valueCount int) string
 }
 
-var Debug bool
-
-const (
-	_ SqlType = iota
-	Query
-	Insert
-	Update
-	Delete
-)
-
-const (
-	_ OrderType = iota
-	Asc
-	Desc
-)
-
-type SqlProto struct {
-	PreparedSql string
-	Data        []interface{}
-}
-type OrderBy interface {
-	Name() string
-	Type() OrderType
-}
-type PageInfo interface {
-	Page() (int64, int64)
-}
-type TableModel interface {
-	Table() string
-	PrimaryKeys() []string
-	Columns() []string
-	ColumnDataMap() map[string]interface{}
-	Condition() Condition
-	OrderBys() []OrderBy
-	Page() PageInfo
-}
-type SqlFunc func(model ...TableModel) []SqlProto
-type SqlFactory interface {
-	OpenDb(dsn string) (*sql.DB, error)
-	GetTables(db *sql.DB) ([]string, error)
-	GetCurrentSchema(db *sql.DB) (string, error)
-	GetColumns(tableName string, db *sql.DB) ([]Column, error)
-	GetSqlFunc(sqlType SqlType) SqlFunc
-	ConditionToSql(preTag bool, condition Condition) (string, []interface{})
-	GetTableStruct(tableName string, db *sql.DB) (ITableStruct, error)
-	GetSqlTypeDefaultValue(sqlType string) any
-}
-type ITableStruct interface {
-	GetTableName() string
-	GetTableComment() string
-	GetColumns() ([]Column, error)
-	ToTableModel() (TableModel, IRowScanner, error)
-}
-type IRowScanner interface {
-	Scan(rows *sql.Rows) (interface{}, error)
+// QueryResult represents a query result
+type QueryResult struct {
+	Data    []map[string]interface{} `json:"data"`
+	Columns []string                 `json:"columns"`
 }
 
-type TableStruct struct {
-	TableName    string
-	TableComment string
-	Columns      []Column
-}
-
-func (t TableStruct) GetTableName() string {
-	return t.TableName
-}
-
-func (t TableStruct) GetTableComment() string {
-	return t.TableComment
-}
-
-func (t TableStruct) GetColumns() ([]Column, error) {
-	return t.Columns, nil
-}
-
-func (t TableStruct) ToTableModel() (TableModel, IRowScanner, error) {
-	cols, err := t.GetColumns()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	colNames := make([]string, len(cols))
-	colMap := make(map[string]interface{})
-	primaryKeys := make([]string, 0)
-	scanDest := make([]interface{}, len(cols))
-
-	for i, col := range cols {
-		colNames[i] = col.ColumnName
-		colMap[col.ColumnName] = col.ColumnValue
-		if col.IsPrimary {
-			primaryKeys = append(primaryKeys, col.ColumnName)
-		}
-		// 根据列类型创建对应的扫描目标
-		scanDest[i] = getScanDest(col.Type)
-	}
-
-	model := &DefaultModel{
-		table:         t.TableName,
-		primaryKeys:   primaryKeys,
-		columns:       colNames,
-		columnDataMap: colMap,
-		condition:     nil,
-		orderBys:      nil,
-		page:          nil,
-	}
-
-	scanner := &TableScanner{
-		dest:    scanDest,
-		columns: cols,
-	}
-
-	return model, scanner, nil
-}
-
-// TableScanner implements IRowScanner interface
-type TableScanner struct {
-	dest    []interface{}
-	columns []Column
-}
-
-// ScanResult wraps scan results with conversion methods
-type ScanResult struct {
-	Data []map[string]interface{}
-}
-
-// Into converts scan results into the provided struct slice
-func (r *ScanResult) Into(dest interface{}) error {
+// Into scans the result into a slice of structs
+func (qr *QueryResult) Into(dest interface{}) error {
 	destValue := reflect.ValueOf(dest)
 	if destValue.Kind() != reflect.Ptr {
 		return fmt.Errorf("dest must be a pointer")
@@ -266,10 +50,10 @@ func (r *ScanResult) Into(dest interface{}) error {
 	}
 
 	// Create a new slice with the correct capacity
-	newSlice := reflect.MakeSlice(sliceValue.Type(), 0, len(r.Data))
+	newSlice := reflect.MakeSlice(sliceValue.Type(), 0, len(qr.Data))
 
 	// Iterate through each map and create struct instances
-	for _, item := range r.Data {
+	for _, item := range qr.Data {
 		// Create a new struct instance
 		structPtr := reflect.New(elemType)
 		structVal := structPtr.Elem()
@@ -361,97 +145,181 @@ func setFieldValue(field reflect.Value, value interface{}) error {
 	return nil
 }
 
-func (s *TableScanner) Scan(rows *sql.Rows) (interface{}, error) {
-	var results []map[string]interface{}
+// Empty returns true if the result is empty
+func (qr *QueryResult) Empty() bool {
+	return len(qr.Data) == 0
+}
+
+// Size returns the number of rows in the result
+func (qr *QueryResult) Size() int {
+	return len(qr.Data)
+}
+
+// DB represents the database connection
+type DB struct {
+	DB        *sql.DB
+	Tx        *sql.Tx
+	Factory   SQLFactory
+	RoutineID int64
+}
+
+// QueryChain represents a chain of query operations
+type QueryChain struct {
+	DB          *DB
+	TableName   string
+	FieldList   []string
+	WhereClause string
+	WhereArgs   []interface{}
+	OrderByExpr string
+	LimitCount  int
+	OffsetCount int
+	Factory     SQLFactory
+}
+
+// Where adds a WHERE clause to the query
+func (qc *QueryChain) Where(where string, args ...interface{}) *QueryChain {
+	qc.WhereClause = where
+	qc.WhereArgs = args
+	return qc
+}
+
+// Select specifies the fields to select
+func (qc *QueryChain) Select(fields ...string) *QueryChain {
+	qc.FieldList = fields
+	return qc
+}
+
+// OrderBy adds an ORDER BY clause
+func (qc *QueryChain) OrderBy(field string) *QueryChain {
+	qc.OrderByExpr = field
+	return qc
+}
+
+// OrderByDesc adds a descending ORDER BY clause
+func (qc *QueryChain) OrderByDesc(field string) *QueryChain {
+	qc.OrderByExpr = field + " DESC"
+	return qc
+}
+
+// Limit sets the LIMIT clause
+func (qc *QueryChain) Limit(limit int) *QueryChain {
+	qc.LimitCount = limit
+	return qc
+}
+
+// Offset sets the OFFSET clause
+func (qc *QueryChain) Offset(offset int) *QueryChain {
+	qc.OffsetCount = offset
+	return qc
+}
+
+// List executes the query and returns all results
+func (qc *QueryChain) List() (*QueryResult, error) {
+	if len(qc.FieldList) == 0 {
+		qc.FieldList = []string{"*"}
+	}
+
+	query := qc.Factory.GenerateSelectSQL(qc.TableName, qc.FieldList, qc.WhereClause, qc.OrderByExpr, qc.LimitCount, qc.OffsetCount)
+	rows, err := qc.DB.ExecuteQuery(query, qc.WhereArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	var result []map[string]interface{}
 	for rows.Next() {
-		if err := rows.Scan(s.dest...); err != nil {
+		values := make([]interface{}, len(columns))
+		scanArgs := make([]interface{}, len(columns))
+		for i := range values {
+			scanArgs[i] = &values[i]
+		}
+
+		err = rows.Scan(scanArgs...)
+		if err != nil {
 			return nil, err
 		}
 
 		row := make(map[string]interface{})
-		for i, col := range s.columns {
-			// Get the actual value from the pointer
-			value := reflect.ValueOf(s.dest[i]).Elem().Interface()
-			row[col.ColumnName] = value
+		for i, col := range columns {
+			row[col] = values[i]
 		}
-		results = append(results, row)
+		result = append(result, row)
 	}
-	return &ScanResult{Data: results}, nil
+
+	return &QueryResult{
+		Data:    result,
+		Columns: columns,
+	}, nil
 }
 
-// getScanDest returns appropriate scan destination based on type
-func getScanDest(t reflect.Type) interface{} {
-	if t == nil {
-		return new(interface{})
-	}
+// First returns the first result
+func (qc *QueryChain) First() (*QueryResult, error) {
+	qc.LimitCount = 1
+	return qc.List()
+}
 
-	switch t.Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return new(int64)
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return new(uint64)
-	case reflect.Float32, reflect.Float64:
-		return new(float64)
-	case reflect.Bool:
-		return new(bool)
-	case reflect.String:
-		return new(string)
-	case reflect.Struct:
-		if t.String() == "time.Time" {
-			return new(time.Time)
+// Last returns the last result
+func (qc *QueryChain) Last() (*QueryResult, error) {
+	if qc.OrderByExpr == "" {
+		if len(qc.FieldList) > 0 && qc.FieldList[0] != "*" {
+			qc.OrderByExpr = qc.FieldList[0] + " DESC"
 		}
-		fallthrough
-	default:
-		return new(interface{})
+	} else {
+		if !strings.Contains(strings.ToUpper(qc.OrderByExpr), "DESC") {
+			qc.OrderByExpr += " DESC"
+		}
 	}
+	qc.LimitCount = 1
+	return qc.List()
 }
 
-type Column struct {
-	QueryName     string       `json:"queryName"`
-	ColumnName    string       `json:"ColumnName"`
-	IsPrimary     bool         `json:"isPrimary"`
-	IsPrimaryAuto bool         `json:"isPrimaryAuto"` //If IsPrimary Key Auto Generate Or2 Not
-	TypeName      string       `json:"type"`
-	Type          reflect.Type `json:"-"`
-	ColumnValue   any          `json:"value"`
-	Comment       string       `json:"comment"`
+// Count returns the count of results
+func (qc *QueryChain) Count() (int64, error) {
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s", qc.TableName)
+	if qc.WhereClause != "" {
+		countQuery += " WHERE " + qc.WhereClause
+	}
+
+	rows, err := qc.DB.ExecuteQuery(countQuery, qc.WhereArgs...)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	var count int64
+	if rows.Next() {
+		err = rows.Scan(&count)
+		if err != nil {
+			return 0, err
+		}
+	}
+	return count, nil
 }
 
-// DefaultModel implements TableModel interface
-type DefaultModel struct {
-	table         string
-	primaryKeys   []string
-	columns       []string
-	columnDataMap map[string]interface{}
-	condition     Condition
-	orderBys      []OrderBy
-	page          PageInfo
+// Exists returns true if any results exist
+func (qc *QueryChain) Exists() (bool, error) {
+	count, err := qc.Count()
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
-func (m *DefaultModel) Table() string {
-	return m.table
+// FactoryMap stores registered SQL factories
+var FactoryMap = make(map[string]SQLFactory)
+
+// RegisterFactory registers a SQL factory with the given name
+func RegisterFactory(name string, factory SQLFactory) {
+	FactoryMap[name] = factory
 }
 
-func (m *DefaultModel) PrimaryKeys() []string {
-	return m.primaryKeys
-}
-
-func (m *DefaultModel) Columns() []string {
-	return m.columns
-}
-
-func (m *DefaultModel) ColumnDataMap() map[string]interface{} {
-	return m.columnDataMap
-}
-
-func (m *DefaultModel) Condition() Condition {
-	return m.condition
-}
-
-func (m *DefaultModel) OrderBys() []OrderBy {
-	return m.orderBys
-}
-
-func (m *DefaultModel) Page() PageInfo {
-	return m.page
+// GetFactory returns a registered SQL factory by name
+func GetFactory(name string) (SQLFactory, bool) {
+	factory, ok := FactoryMap[name]
+	return factory, ok
 }
