@@ -194,6 +194,70 @@ This project was developed with guidance from Cursor, an AI-powered IDE. Contrib
 
 MIT License
 
+### 代码生成器
+
+GOM 提供了一个代码生成器，可以从数据库表自动生成 Go 结构体。
+
+#### 命令行使用
+
+```bash
+# 安装生成器
+go install github.com/kmlixh/gom/v4/generator/cmd@latest
+
+# MySQL 示例
+generator -type mysql \
+  -url "user:password@tcp(localhost:3306)/dbname" \
+  -out ./models \
+  -package models
+
+# PostgreSQL 示例
+generator -type postgres \
+  -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" \
+  -out ./models \
+  -package models \
+  -schema public
+
+# 生成指定表的结构体
+generator -type mysql \
+  -url "user:password@tcp(localhost:3306)/dbname" \
+  -table user_info \
+  -out ./models \
+  -package models
+```
+
+#### 参数说明
+
+- `-type`: 数据库类型 (mysql 或 postgres)
+- `-url`: 数据库连接URL
+- `-out`: 输出目录 (默认: models)
+- `-package`: 生成的Go包名 (默认: models)
+- `-table`: 指定要生成的表名 (可选)
+- `-schema`: 指定schema名称 (PostgreSQL专用，可选)
+
+#### 在代码中使用
+
+```go
+import "github.com/kmlixh/gom/v4/generator"
+
+config := generator.Config{
+    OutputDir:   "./models",
+    PackageName: "models",
+    DBType:     "mysql",
+    DB:         db, // *sql.DB 实例
+    TableName:  "user_info", // 可选
+}
+
+if err := generator.NewGenerator(config).Generate(); err != nil {
+    log.Fatal(err)
+}
+```
+
+生成的结构体将包含：
+- 表字段映射到 Go 类型
+- gom 标签（包含字段名、主键、自增、非空等信息）
+- 字段注释（如果数据库中有定义）
+- TableName() 方法
+
 ---
 
 <a name="chinese"></a>
@@ -387,4 +451,68 @@ err = chain.Commit()
 ### 许可证
 
 Apache License 2.0
+
+### 代码生成器
+
+GOM 提供了一个代码生成器，可以从数据库表自动生成 Go 结构体。
+
+#### 命令行使用
+
+```bash
+# 安装生成器
+go install github.com/kmlixh/gom/v4/generator/cmd@latest
+
+# MySQL 示例
+generator -type mysql \
+  -url "user:password@tcp(localhost:3306)/dbname" \
+  -out ./models \
+  -package models
+
+# PostgreSQL 示例
+generator -type postgres \
+  -url "postgres://user:password@localhost:5432/dbname?sslmode=disable" \
+  -out ./models \
+  -package models \
+  -schema public
+
+# 生成指定表的结构体
+generator -type mysql \
+  -url "user:password@tcp(localhost:3306)/dbname" \
+  -table user_info \
+  -out ./models \
+  -package models
+```
+
+#### 参数说明
+
+- `-type`: 数据库类型 (mysql 或 postgres)
+- `-url`: 数据库连接URL
+- `-out`: 输出目录 (默认: models)
+- `-package`: 生成的Go包名 (默认: models)
+- `-table`: 指定要生成的表名 (可选)
+- `-schema`: 指定schema名称 (PostgreSQL专用，可选)
+
+#### 在代码中使用
+
+```go
+import "github.com/kmlixh/gom/v4/generator"
+
+config := generator.Config{
+    OutputDir:   "./models",
+    PackageName: "models",
+    DBType:     "mysql",
+    DB:         db, // *sql.DB 实例
+    TableName:  "user_info", // 可选
+}
+
+if err := generator.NewGenerator(config).Generate(); err != nil {
+    log.Fatal(err)
+}
+```
+
+生成的结构体将包含：
+- 表字段映射到 Go 类型
+- gom 标签（包含字段名、主键、自增、非空等信息）
+- 字段注释（如果数据库中有定义）
+- TableName() 方法
 

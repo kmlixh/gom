@@ -351,3 +351,183 @@ CREATE TRIGGER update_%s_updated_at
 
 	return query
 }
+
+// GetTableInfo 获取表信息
+func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo, error) {
+	// 解析 schema 和表名
+	var schema, table string
+	parts := strings.Split(tableName, ".")
+	if len(parts) == 2 {
+		schema = parts[0]
+		table = parts[1]
+	} else {
+		// 如果没有指定 schema，默认使用 public
+		schema = "public"
+		table = tableName
+	}
+
+	// 获取表基本信息
+	var tableInfo define.TableInfo
+	tableInfo.TableName = schema + "." + table
+
+	// 获取表注释
+	query := `SELECT obj_description(($1::text)::regclass, 'pg_class')`
+
+	var comment sql.NullString
+	err := db.QueryRow(query, tableInfo.TableName).Scan(&comment)
+	if err != nil {
+		return nil, fmt.Errorf("获取表注释失败: %v", err)
+	}
+	tableInfo.TableComment = comment.String
+
+	// 获取列信息
+	query = `SELECT 
+				a.attname as column_name,
+				format_type(a.atttypid, a.atttypmod) as data_type,
+				CASE 
+					WHEN a.atttypmod > 0 THEN a.atttypmod - 4
+					ELSE a.attlen
+				END as length,
+				CASE 
+					WHEN t.typtype = 'd' THEN t.typtypmod
+					ELSE NULL
+				END as precision,
+				information_schema._pg_char_max_length(information_schema._pg_truetypid(a.*, t.*), information_schema._pg_truetypmod(a.*, t.*)) as char_maxlen,
+				information_schema._pg_numeric_precision(information_schema._pg_truetypid(a.*, t.*), information_schema._pg_truetypmod(a.*, t.*)) as num_precision,
+				information_schema._pg_numeric_scale(information_schema._pg_truetypid(a.*, t.*), information_schema._pg_truetypmod(a.*, t.*)) as num_scale,
+				not a.attnotnull as is_nullable,
+				coalesce(i.indisprimary, false) as is_primary_key,
+				pg_get_serial_sequence($1::regclass::text, a.attname) IS NOT NULL as is_auto_increment,
+				pg_get_expr(ad.adbin, ad.adrelid) as column_default,
+				col_description(a.attrelid, a.attnum) as column_comment
+			FROM pg_attribute a
+			LEFT JOIN pg_index i ON
+				i.indrelid = a.attrelid AND
+				a.attnum = ANY(i.indkey)
+			LEFT JOIN pg_type t ON
+				a.atttypid = t.oid
+			LEFT JOIN pg_attrdef ad ON
+				ad.adrelid = a.attrelid AND
+				ad.adnum = a.attnum
+			WHERE a.attrelid = $1::regclass
+			AND a.attnum > 0
+			AND NOT a.attisdropped
+			ORDER BY a.attnum`
+
+	rows, err := db.Query(query, tableInfo.TableName)
+	if err != nil {
+		return nil, fmt.Errorf("获取列信息失败: %v", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var col define.ColumnInfo
+		var length, charMaxLen, numPrecision, numScale sql.NullInt64
+		var precision sql.NullInt64
+		var defaultValue, comment sql.NullString
+
+		err := rows.Scan(
+			&col.Name,
+			&col.Type,
+			&length,
+			&precision,
+			&charMaxLen,
+			&numPrecision,
+			&numScale,
+			&col.IsNullable,
+			&col.IsPrimaryKey,
+			&col.IsAutoIncrement,
+			&defaultValue,
+			&comment,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("扫描列信息失败: %v", err)
+		}
+
+		// 设置列属性
+		if charMaxLen.Valid {
+			col.Length = charMaxLen.Int64
+		} else if length.Valid {
+			col.Length = length.Int64
+		}
+
+		if numPrecision.Valid {
+			col.Precision = int(numPrecision.Int64)
+		} else if precision.Valid {
+			col.Precision = int(precision.Int64)
+		}
+
+		if numScale.Valid {
+			col.Scale = int(numScale.Int64)
+		}
+
+		if defaultValue.Valid {
+			col.DefaultValue = defaultValue.String
+		}
+
+		if comment.Valid {
+			col.Comment = comment.String
+		}
+
+		// 如果是主键，添加到主键列表
+		if col.IsPrimaryKey {
+			tableInfo.PrimaryKeys = append(tableInfo.PrimaryKeys, col.Name)
+		}
+
+		tableInfo.Columns = append(tableInfo.Columns, col)
+	}
+
+	if len(tableInfo.Columns) == 0 {
+		return nil, fmt.Errorf("表 %s 不存在", tableName)
+	}
+
+	return &tableInfo, nil
+}
+
+// GetTables 获取符合模式的所有表
+func (f *Factory) GetTables(db *sql.DB, pattern string) ([]string, error) {
+	var tables []string
+	var schema, tablePattern string
+
+	// 解析模式
+	parts := strings.Split(pattern, ".")
+	if len(parts) == 2 {
+		// 格式为 schema.table
+		schema = parts[0]
+		tablePattern = parts[1]
+	} else if pattern == "*" {
+		// 默认查询 public schema
+		schema = "public"
+		tablePattern = "*"
+	} else {
+		// 只有表名模式，使用 public schema
+		schema = "public"
+		tablePattern = pattern
+	}
+
+	// 将 * 转换为 SQL LIKE 模式
+	tablePattern = strings.ReplaceAll(tablePattern, "*", "%")
+
+	query := `
+		SELECT schemaname || '.' || tablename
+		FROM pg_catalog.pg_tables
+		WHERE schemaname = $1
+		AND tablename LIKE $2
+		ORDER BY schemaname, tablename`
+
+	rows, err := db.Query(query, schema, tablePattern)
+	if err != nil {
+		return nil, fmt.Errorf("查询表列表失败: %v", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			return nil, fmt.Errorf("扫描表名失败: %v", err)
+		}
+		tables = append(tables, tableName)
+	}
+
+	return tables, nil
+}

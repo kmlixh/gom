@@ -232,6 +232,43 @@ func demonstrateConcurrencyControl(db *gom.DB) error {
 	})
 }
 
+// 演示代码生成
+func demonstrateCodeGeneration(db *gom.DB) error {
+	fmt.Println("\nDemonstrating code generation...")
+
+	// 生成单个表的结构体（包含 schema）
+	fmt.Println("Generating struct for 'public.users' table...")
+	err := db.GenerateStruct("public.users", "./generated", "models")
+	if err != nil {
+		return fmt.Errorf("generate struct for users failed: %v", err)
+	}
+
+	// 生成 public schema 下所有表的结构体
+	fmt.Println("Generating structs for all tables in public schema...")
+	err = db.GenerateStructs(gom.GenerateOptions{
+		OutputDir:   "./generated",
+		PackageName: "models",
+		Pattern:     "public.*",
+	})
+	if err != nil {
+		return fmt.Errorf("generate structs for public schema failed: %v", err)
+	}
+
+	// 生成 public schema 下所有以 user 开头的表的结构体
+	fmt.Println("Generating structs for all user-related tables in public schema...")
+	err = db.GenerateStructs(gom.GenerateOptions{
+		OutputDir:   "./generated",
+		PackageName: "models",
+		Pattern:     "public.user*",
+	})
+	if err != nil {
+		return fmt.Errorf("generate structs for user tables failed: %v", err)
+	}
+
+	fmt.Println("Code generation completed successfully")
+	return nil
+}
+
 func main() {
 	// 连接到PostgreSQL
 	db, err := gom.Open("postgres", "postgres://postgres:yzy123@192.168.110.249:5432/test?sslmode=disable", true)
@@ -295,6 +332,11 @@ func main() {
 	}
 
 	if err := demonstrateConcurrencyControl(db); err != nil {
+		log.Fatal(err)
+	}
+
+	// 演示代码生成
+	if err := demonstrateCodeGeneration(db); err != nil {
 		log.Fatal(err)
 	}
 

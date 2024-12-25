@@ -291,3 +291,135 @@ func (f *Factory) BuildCreateTable(table string, modelType reflect.Type) string 
 	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` (\n  %s\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
 		table, strings.Join(allDefinitions, ",\n  "))
 }
+
+// GetTableInfo 获取表信息
+func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo, error) {
+	// 获取表基本信息
+	var tableInfo define.TableInfo
+	tableInfo.TableName = tableName
+
+	// 获取表注释
+	query := `SELECT TABLE_COMMENT 
+			 FROM INFORMATION_SCHEMA.TABLES 
+			 WHERE TABLE_SCHEMA = DATABASE() 
+			 AND TABLE_NAME = ?`
+
+	err := db.QueryRow(query, tableName).Scan(&tableInfo.TableComment)
+	if err != nil {
+		return nil, fmt.Errorf("获取表注释失败: %v", err)
+	}
+
+	// 获取列信息
+	query = `SELECT 
+				COLUMN_NAME,
+				DATA_TYPE,
+				IFNULL(CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION),
+				NUMERIC_SCALE,
+				IS_NULLABLE,
+				COLUMN_KEY,
+				EXTRA,
+				COLUMN_DEFAULT,
+				COLUMN_COMMENT
+			FROM INFORMATION_SCHEMA.COLUMNS 
+			WHERE TABLE_SCHEMA = DATABASE() 
+			AND TABLE_NAME = ?
+			ORDER BY ORDINAL_POSITION`
+
+	rows, err := db.Query(query, tableName)
+	if err != nil {
+		return nil, fmt.Errorf("获取列信息失败: %v", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var col define.ColumnInfo
+		var length sql.NullInt64
+		var scale sql.NullInt64
+		var isNullable string
+		var columnKey string
+		var extra string
+		var defaultValue sql.NullString
+
+		err := rows.Scan(
+			&col.Name,
+			&col.Type,
+			&length,
+			&scale,
+			&isNullable,
+			&columnKey,
+			&extra,
+			&defaultValue,
+			&col.Comment,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("扫描���信息失败: %v", err)
+		}
+
+		// 设置列属性
+		col.Length = length.Int64
+		col.Scale = int(scale.Int64)
+		col.IsNullable = isNullable == "YES"
+		col.IsPrimaryKey = columnKey == "PRI"
+		col.IsAutoIncrement = strings.Contains(extra, "auto_increment")
+		if defaultValue.Valid {
+			col.DefaultValue = defaultValue.String
+		}
+
+		// 如果是主键，添加到主键列表
+		if col.IsPrimaryKey {
+			tableInfo.PrimaryKeys = append(tableInfo.PrimaryKeys, col.Name)
+		}
+
+		tableInfo.Columns = append(tableInfo.Columns, col)
+	}
+
+	if len(tableInfo.Columns) == 0 {
+		return nil, fmt.Errorf("表 %s 不存在", tableName)
+	}
+
+	return &tableInfo, nil
+}
+
+// GetTables 获取符合模式的所有表
+func (f *Factory) GetTables(db *sql.DB, pattern string) ([]string, error) {
+	var tables []string
+	var query string
+
+	if pattern == "*" {
+		// 查询所有表
+		query = `SELECT TABLE_NAME 
+				FROM INFORMATION_SCHEMA.TABLES 
+				WHERE TABLE_SCHEMA = DATABASE()
+				ORDER BY TABLE_NAME`
+	} else {
+		// 将 * 转换为 SQL LIKE 模式
+		pattern = strings.ReplaceAll(pattern, "*", "%")
+		query = `SELECT TABLE_NAME 
+				FROM INFORMATION_SCHEMA.TABLES 
+				WHERE TABLE_SCHEMA = DATABASE()
+				AND TABLE_NAME LIKE ?
+				ORDER BY TABLE_NAME`
+	}
+
+	var rows *sql.Rows
+	var err error
+	if pattern == "*" {
+		rows, err = db.Query(query)
+	} else {
+		rows, err = db.Query(query, pattern)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("查询表列表失败: %v", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			return nil, fmt.Errorf("扫描表名失败: %v", err)
+		}
+		tables = append(tables, tableName)
+	}
+
+	return tables, nil
+}

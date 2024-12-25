@@ -192,6 +192,32 @@ func demonstrateAutoIncrementId(db *gom.DB) error {
 	return nil
 }
 
+// 演示代码生成
+func demonstrateCodeGeneration(db *gom.DB) error {
+	fmt.Println("\nDemonstrating code generation...")
+
+	// 生成单个表的结构体
+	fmt.Println("Generating struct for 'users' table...")
+	err := db.GenerateStruct("users", "./generated", "models")
+	if err != nil {
+		return fmt.Errorf("generate struct for users failed: %v", err)
+	}
+
+	// 生成所有以 user 开头的表的结构体
+	fmt.Println("Generating structs for all tables starting with 'user'...")
+	err = db.GenerateStructs(gom.GenerateOptions{
+		OutputDir:   "./generated",
+		PackageName: "models",
+		Pattern:     "user*",
+	})
+	if err != nil {
+		return fmt.Errorf("generate structs failed: %v", err)
+	}
+
+	fmt.Println("Code generation completed successfully")
+	return nil
+}
+
 func main() {
 	// 连接到MySQL
 	db, err := gom.Open("mysql", "root:123456@tcp(192.168.110.249:3306)/test?parseTime=true", true)
@@ -257,6 +283,11 @@ func main() {
 
 	// 演示自增ID回填
 	if err := demonstrateAutoIncrementId(db); err != nil {
+		log.Fatal(err)
+	}
+
+	// 演示代码生成
+	if err := demonstrateCodeGeneration(db); err != nil {
 		log.Fatal(err)
 	}
 

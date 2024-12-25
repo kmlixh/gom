@@ -5,6 +5,28 @@ import (
 	"reflect"
 )
 
+// TableInfo 表信息
+type TableInfo struct {
+	TableName    string       // 表名
+	TableComment string       // 表注释
+	PrimaryKeys  []string     // 主键列表
+	Columns      []ColumnInfo // 列信息
+}
+
+// ColumnInfo 列信息
+type ColumnInfo struct {
+	Name            string // 列名
+	Type            string // 数据库类型
+	Length          int64  // 长度
+	Precision       int    // 精度
+	Scale           int    // 小数位数
+	IsNullable      bool   // 是否可空
+	IsPrimaryKey    bool   // 是否主键
+	IsAutoIncrement bool   // 是否自增
+	DefaultValue    string // 默认值
+	Comment         string // 注释
+}
+
 // SQLFactory defines the interface for SQL generation
 type SQLFactory interface {
 	// Connect creates a new database connection
@@ -27,6 +49,14 @@ type SQLFactory interface {
 
 	// BuildCreateTable builds a CREATE TABLE query
 	BuildCreateTable(table string, modelType reflect.Type) string
+
+	// GetTableInfo 获取表信息
+	GetTableInfo(db *sql.DB, tableName string) (*TableInfo, error)
+
+	// GetTables 获取符合模式的所有表
+	// pattern: 表名匹配模式，支持 * 通配符
+	// 对于 PostgreSQL，pattern 可以是 schema.table 格式
+	GetTables(db *sql.DB, pattern string) ([]string, error)
 }
 
 // Debug flag for enabling debug mode
