@@ -2,244 +2,280 @@ package main
 
 import (
 	"fmt"
-	"github.com/kmlixh/gom/v4"
 	"log"
 	"time"
 
+	"github.com/kmlixh/gom/v4"
+	"github.com/kmlixh/gom/v4/example"
 	_ "github.com/kmlixh/gom/v4/factory/postgres"
 )
 
-type User struct {
-	ID        int64     `gom:"id"`
-	Name      string    `gom:"name"`
-	Email     string    `gom:"email"`
-	Age       int       `gom:"age"`
-	CreatedAt time.Time `gom:"created_at"`
-}
-
 func main() {
-	// 连接数据库，启用调试模式
-	db, err := gom.Open("postgres", "host=192.168.110.249 port=5432 user=postgres password=yzy123 dbname=test sslmode=disable", true)
+	// Connect to PostgreSQL
+	db, err := gom.Open("postgres", "postgres://postgres:yzy123@192.168.110.249:5432/test?sslmode=disable", true)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer db.Close()
 
-	// 插入示例
-	insertExample(db)
+	// Drop existing tables if they exist
+	fmt.Println("Dropping existing tables...")
+	_, err = db.Chain().RawExecute("DROP TABLE IF EXISTS user_profiles")
+	if err != nil {
+		log.Fatal(err)
+	}
+	_, err = db.Chain().RawExecute("DROP TABLE IF EXISTS users")
+	if err != nil {
+		log.Fatal(err)
+	}
+	_, err = db.Chain().RawExecute("DROP TABLE IF EXISTS user_roles")
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// 查询示例
-	queryExample(db)
+	// Create tables using Chain().CreateTable()
+	fmt.Println("Creating tables...")
+	err = db.Chain().CreateTable(&example.UserRole{})
+	if err != nil {
+		log.Fatalf("Failed to create user_roles table: %v", err)
+	}
+	fmt.Println("Created user_roles table")
 
-	// 更新示例
-	updateExample(db)
+	err = db.Chain().CreateTable(&example.User{})
+	if err != nil {
+		log.Fatalf("Failed to create users table: %v", err)
+	}
+	fmt.Println("Created users table")
 
-	// 删除示例
-	deleteExample(db)
+	err = db.Chain().CreateTable(&example.UserProfile{})
+	if err != nil {
+		log.Fatalf("Failed to create user_profiles table: %v", err)
+	}
+	fmt.Println("Created user_profiles table")
 
-	// 事务示例
-	transactionExample(db)
+	// Test 1: Insert a role using Chain().From().Save()
+	fmt.Println("\nTest 1: Inserting role...")
+	role := &example.UserRole{
+		Name:        "admin",
+		Description: "Administrator role",
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+	result, err := db.Chain().From(role).Save()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Created admin role")
 
-	// 批量操作示例
-	batchExample(db)
-
-	// 分页查询示例
-	paginationExample(db)
-}
-
-func insertExample(db *gom.DB) {
-	// 单条插入，PostgreSQL返回自增ID
-	user := &User{
-		Name:      "John Doe",
+	// Test 2: Insert a user with Chain().From().Save()
+	fmt.Println("\nTest 2: Inserting user...")
+	user := &example.User{
+		Username:  "john_doe",
 		Email:     "john@example.com",
 		Age:       30,
+		Active:    true,
+		Role:      "admin",
 		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
-	result, err := db.Insert("users").
-		Model(user).
-		Execute()
+	result, err = db.Chain().From(user).Save()
 	if err != nil {
-		log.Printf("Insert error: %v\n", err)
-		return
+		log.Fatal(err)
 	}
-	id, _ := result.LastInsertId()
-	fmt.Printf("Inserted user with ID: %d\n", id)
-
-	// 使用RETURNING子句
-	var insertedID int64
-	err = db.Query("users").
-		Fields("id").
-		Where("email = ?", "john@example.com").
-		IntoOne(&insertedID)
+	userID, err := result.LastInsertId()
 	if err != nil {
-		log.Printf("Query error: %v\n", err)
-		return
+		log.Fatal(err)
 	}
-}
+	fmt.Printf("Inserted user with ID: %d\n", userID)
 
-func queryExample(db *gom.DB) {
-	// 使用PostgreSQL特有的ILIKE进行不区分大小写的搜索
-	var users []User
-	err := db.Query("users").
-		Where("email LIKE ?", "%@example.com").
-		Into(&users)
+	// Test 3: Insert user profile with Chain().From().Save()
+	fmt.Println("\nTest 3: Inserting user profile...")
+	profile := &example.UserProfile{
+		UserID:    userID,
+		Avatar:    "/avatars/john.jpg",
+		Bio:       "Software Engineer",
+		Location:  "San Francisco",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	_, err = db.Chain().From(profile).Save()
 	if err != nil {
-		log.Printf("Query error: %v\n", err)
-		return
+		log.Fatal(err)
 	}
+	fmt.Println("Created user profile")
 
-	// 使用PostgreSQL的区间类型
-	err = db.Query("users").
-		Where("age <@ int4range(?, ?)", 20, 30).
-		Into(&users)
+	// Test 4: Query user with Chain().From().Where()
+	fmt.Println("\nTest 4: Querying user by username...")
+	var users []example.User
+	queryResult, err := db.Chain().From(&example.User{}).Where("username", "=", "john_doe").List()
 	if err != nil {
-		log.Printf("Query error: %v\n", err)
-		return
+		log.Fatal(err)
 	}
-
-	// 使用PostgreSQL的JSON操作
-	err = db.Query("users").
-		Where("data->>'status' = ?", "active").
-		Into(&users)
+	err = queryResult.Into(&users)
 	if err != nil {
-		log.Printf("Query error: %v\n", err)
-		return
+		log.Fatal(err)
 	}
-}
+	if len(users) > 0 {
+		fmt.Printf("Found user: %s (ID: %d, Email: %s)\n", users[0].Username, users[0].ID, users[0].Email)
+	} else {
+		fmt.Println("User not found")
+	}
 
-func updateExample(db *gom.DB) {
-	// 使用RETURNING子句的更新
-	result, err := db.Update("users").
-		Fields("name", "age").
-		Values("John Smith", 31).
-		Where("id = ?", 1).
-		Execute()
+	// Test 5: Update user with Chain().From().Set().Where()
+	fmt.Println("\nTest 5: Updating user age...")
+	_, err = db.Chain().From(&example.User{}).Set("age", 31).Where("id", "=", userID).Save()
 	if err != nil {
-		log.Printf("Update error: %v\n", err)
-		return
+		log.Fatal(err)
 	}
-	rows, _ := result.RowsAffected()
-	fmt.Printf("Updated %d rows\n", rows)
+	fmt.Println("Updated user age")
 
-	// 更新JSON字段
-	result, err = db.Update("users").
-		Fields("data").
-		Values(`{"status": "inactive", "last_login": "2023-01-01"}`).
-		Where("id = ?", 1).
-		Execute()
-	if err != nil {
-		log.Printf("Update error: %v\n", err)
-		return
-	}
-}
-
-func deleteExample(db *gom.DB) {
-	// 使用USING子句的删除
-	result, err := db.Delete("users").
-		Where("age < ?", 20).
-		Execute()
-	if err != nil {
-		log.Printf("Delete error: %v\n", err)
-		return
-	}
-	rows, _ := result.RowsAffected()
-	fmt.Printf("Deleted %d rows\n", rows)
-
-	// 使用CASCADE的删除
-	result, err = db.Delete("users").
-		Where("id = ?", 1).
-		Execute()
-	if err != nil {
-		log.Printf("Delete error: %v\n", err)
-		return
-	}
-}
-
-func transactionExample(db *gom.DB) {
-	err := db.WithTransaction(func(tx *gom.DB) error {
-		// 在事务中使用SAVEPOINT
-		user := &User{
-			Name:      "Transaction User",
-			Email:     "tx@example.com",
+	// Test 6: Batch insert users
+	fmt.Println("\nTest 6: Batch inserting users...")
+	batchUsers := []example.User{
+		{
+			Username:  "user1",
+			Email:     "user1@example.com",
 			Age:       25,
+			Active:    true,
+			Role:      "user",
 			CreatedAt: time.Now(),
-		}
-		_, err := tx.Insert("users").Model(user).Execute()
-		if err != nil {
-			return err
-		}
+			UpdatedAt: time.Now(),
+		},
+		{
+			Username:  "user2",
+			Email:     "user2@example.com",
+			Age:       28,
+			Active:    true,
+			Role:      "user",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+	}
 
-		// 在事务中执行更新
-		_, err = tx.Update("users").
-			Fields("age").
-			Values(26).
-			Where("email = ?", "tx@example.com").
-			Execute()
-		if err != nil {
-			return err
-		}
+	// Convert slice of users to slice of maps
+	var batchMaps []map[string]interface{}
+	for _, u := range batchUsers {
+		batchMaps = append(batchMaps, map[string]interface{}{
+			"username":   u.Username,
+			"email":      u.Email,
+			"age":        u.Age,
+			"active":     u.Active,
+			"role":       u.Role,
+			"created_at": u.CreatedAt,
+			"updated_at": u.UpdatedAt,
+		})
+	}
 
-		return nil
-	})
-
+	_, err = db.Chain().From(&example.User{}).BatchValues(batchMaps).Save()
 	if err != nil {
-		log.Printf("Transaction error: %v\n", err)
-		return
+		log.Fatal(err)
 	}
-	fmt.Println("Transaction completed successfully")
-}
+	fmt.Println("Batch inserted users")
 
-func batchExample(db *gom.DB) {
-	// 使用COPY进行批量插入
-	users := []User{
-		{Name: "User1", Email: "user1@example.com", Age: 21},
-		{Name: "User2", Email: "user2@example.com", Age: 22},
-		{Name: "User3", Email: "user3@example.com", Age: 23},
-	}
-	result, err := db.Insert("users").Models(users).Execute()
+	// Test 7: Pagination with Chain().From().Page()
+	fmt.Println("\nTest 7: Testing pagination...")
+	var pagedUsers []example.User
+	queryResult, err = db.Chain().From(&example.User{}).OrderBy("id ASC").Limit(2).Offset(0).List()
 	if err != nil {
-		log.Printf("Batch insert error: %v\n", err)
-		return
+		log.Fatal(err)
 	}
-	rows, _ := result.RowsAffected()
-	fmt.Printf("Batch inserted %d rows\n", rows)
-
-	// 批量更新
-	result, err = db.Update("users").
-		Fields("age").
-		Values(25).
-		Where("age < ?", 23).
-		Execute()
+	err = queryResult.Into(&pagedUsers)
 	if err != nil {
-		log.Printf("Batch update error: %v\n", err)
-		return
+		log.Fatal(err)
 	}
-}
+	fmt.Printf("Page 1 (size 2) users count: %d\n", len(pagedUsers))
 
-func paginationExample(db *gom.DB) {
-	// 使用OFFSET FETCH进行分页
-	var users []User
-	pageResult, err := db.Query("users").
-		OrderBy("id").
-		PageInto(1, 10, &users)
+	// Test 8: Complex query using UserQuery struct
+	fmt.Println("\nTest 8: Complex query using UserQuery...")
+	minAge := 25
+	isActive := true
+	queryModel := &example.UserQuery{
+		MinAge:   &minAge,
+		IsActive: &isActive,
+	}
+	var queryUsers []example.User
+	queryResult, err = db.Chain().From(queryModel).List()
 	if err != nil {
-		log.Printf("Pagination error: %v\n", err)
-		return
+		log.Fatal(err)
 	}
-
-	fmt.Printf("Page %d of %d, Total: %d\n",
-		pageResult.PageNumber,
-		pageResult.TotalPages,
-		pageResult.Total)
-
-	// 使用窗口函数的分页
-	err = db.Query("users").
-		Fields("*", "ROW_NUMBER() OVER(ORDER BY id) AS row_num").
-		Where("age > $1", 20).
-		OrderBy("created_at DESC").
-		Into(&users)
+	err = queryResult.Into(&queryUsers)
 	if err != nil {
-		log.Printf("Query error: %v\n", err)
-		return
+		log.Fatal(err)
 	}
+	fmt.Printf("Found %d active users with age >= 25\n", len(queryUsers))
+
+	// Test 9: Raw query execution
+	fmt.Println("\nTest 9: Raw query execution...")
+	var rawUsers []example.User
+	rawResult, err := db.Chain().RawQuery(`
+		SELECT u.*, p.avatar, p.bio, p.location 
+		FROM users u 
+		LEFT JOIN user_profiles p ON u.id = p.user_id 
+		WHERE u.id = $1`, userID)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = rawResult.Into(&rawUsers)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if len(rawUsers) > 0 {
+		fmt.Printf("Found user with raw query: %s (ID: %d, Email: %s)\n", rawUsers[0].Username, rawUsers[0].ID, rawUsers[0].Email)
+	} else {
+		fmt.Println("User not found with raw query")
+	}
+
+	// Test 10: Delete operation
+	fmt.Println("\nTest 10: Delete operation...")
+	_, err = db.Chain().From(&example.User{}).Where("username", "=", "user2").Delete()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Deleted user2")
+
+	// Test 11: Custom table model
+	fmt.Println("\nTest 11: Testing custom table model...")
+	// Drop existing custom_users table
+	_, err = db.Chain().RawExecute("DROP TABLE IF EXISTS custom_users CASCADE")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = db.Chain().CreateTable(&example.CustomUser{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Created custom_users table")
+
+	customUser := &example.CustomUser{
+		Username:  "custom_user",
+		Email:     "custom@example.com",
+		Age:       35,
+		Active:    true,
+		Role:      "admin",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	result, err = db.Chain().From(customUser).Save()
+	if err != nil {
+		log.Fatal(err)
+	}
+	customUserID, err := result.LastInsertId()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("Inserted custom user with ID: %d\n", customUserID)
+
+	var customUsers []example.CustomUser
+	queryResult, err = db.Chain().From(&example.CustomUser{}).List()
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = queryResult.Into(&customUsers)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("Found %d custom users\n", len(customUsers))
+
+	fmt.Println("\nAll tests completed successfully!")
 }

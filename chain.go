@@ -3,87 +3,198 @@ package gom
 import (
 	"database/sql"
 	"fmt"
-	"github.com/kmlixh/gom/v4/define"
+	"log"
 	"reflect"
+	"strconv"
 	"strings"
+	"time"
+	"unicode"
+
+	"github.com/kmlixh/gom/v4/define"
 )
 
 // Chain represents the base chain structure
 type Chain struct {
-	db        *DB
+	db      *DB
+	factory define.SQLFactory
+	tx      *sql.Tx
+
+	// Store original chain for transaction rollback
+	originalChain *Chain
+
+	// Common fields
 	tableName string
-	factory   define.SQLFactory
 	conds     []*define.Condition
-}
 
-// UpdateChain represents a chain of update operations
-type UpdateChain struct {
-	*Chain
-	fieldList []string
-	valueList []interface{}
-}
-
-// InsertChain represents a chain of insert operations
-type InsertChain struct {
-	*Chain
-	fieldList []string
-	valueList []interface{}
-	batchMode bool
-}
-
-// DeleteChain represents a chain of delete operations
-type DeleteChain struct {
-	*Chain
-}
-
-// QueryChain represents a chain of query operations
-type QueryChain struct {
-	*Chain
+	// Query specific fields
 	fieldList   []string
 	orderByExpr string
 	limitCount  int
 	offsetCount int
+
+	// Update specific fields
+	updateFields map[string]interface{}
+
+	// Insert specific fields
+	insertFields map[string]interface{}
+	batchValues  []map[string]interface{}
+}
+
+// Table sets the table name for the chain
+func (c *Chain) Table(table string) *Chain {
+	c.tableName = table
+	return c
 }
 
 // Fields sets the fields to select
-func (qc *QueryChain) Fields(fields ...string) *QueryChain {
-	qc.fieldList = fields
-	return qc
+func (c *Chain) Fields(fields ...string) *Chain {
+	c.fieldList = fields
+	return c
 }
 
-// OrderBy adds an ORDER BY clause
-func (qc *QueryChain) OrderBy(expr string) *QueryChain {
-	qc.orderByExpr = expr
-	return qc
+// OrderBy sets the order by expression
+func (c *Chain) OrderBy(expr string) *Chain {
+	c.orderByExpr = expr
+	return c
 }
 
-// OrderByDesc adds a descending ORDER BY clause
-func (qc *QueryChain) OrderByDesc(field string) *QueryChain {
-	qc.orderByExpr = field + " DESC"
-	return qc
+// Limit sets the limit count
+func (c *Chain) Limit(count int) *Chain {
+	c.limitCount = count
+	return c
 }
 
-// Limit sets the LIMIT clause
-func (qc *QueryChain) Limit(limit int) *QueryChain {
-	qc.limitCount = limit
-	return qc
+// Offset sets the offset count
+func (c *Chain) Offset(count int) *Chain {
+	c.offsetCount = count
+	return c
 }
 
-// Offset sets the OFFSET clause
-func (qc *QueryChain) Offset(offset int) *QueryChain {
-	qc.offsetCount = offset
-	return qc
+// Where adds a where condition
+func (c *Chain) Where(field string, op string, value interface{}) *Chain {
+	c.conds = append(c.conds, &define.Condition{
+		Field: field,
+		Op:    op,
+		Value: value,
+	})
+	return c
 }
 
-// List executes the query and returns all results
-func (qc *QueryChain) List() (*QueryResult, error) {
-	if len(qc.fieldList) == 0 {
-		qc.fieldList = []string{"*"}
+// Set sets update fields
+func (c *Chain) Set(field string, value interface{}) *Chain {
+	if c.updateFields == nil {
+		c.updateFields = make(map[string]interface{})
+	}
+	c.updateFields[field] = value
+	return c
+}
+
+// Values sets insert fields
+func (c *Chain) Values(fields map[string]interface{}) *Chain {
+	c.insertFields = fields
+	return c
+}
+
+// BatchValues sets batch insert values
+func (c *Chain) BatchValues(values []map[string]interface{}) *Chain {
+	c.batchValues = values
+	return c
+}
+
+// From sets the table name and conditions from a struct or string
+func (c *Chain) From(model interface{}) *Chain {
+	// Handle string type parameter
+	if tableName, ok := model.(string); ok {
+		c.tableName = tableName
+		return c
 	}
 
-	where, args := qc.buildWhereClause()
-	query := qc.factory.GenerateSelectSQL(qc.tableName, qc.fieldList, where, qc.orderByExpr, qc.limitCount, qc.offsetCount)
-	rows, err := qc.db.ExecuteQuery(query, args...)
+	modelType := reflect.TypeOf(model)
+	if modelType.Kind() == reflect.Ptr {
+		modelType = modelType.Elem()
+	}
+
+	// Set table name if not already set
+	if c.tableName == "" {
+		c.tableName = getTableNameFromStruct(modelType, model)
+	}
+
+	// Get non-empty fields
+	modelValue := reflect.ValueOf(model)
+	if modelValue.Kind() == reflect.Ptr {
+		modelValue = modelValue.Elem()
+	}
+
+	// Get fields and values
+	for i := 0; i < modelType.NumField(); i++ {
+		field := modelType.Field(i)
+		value := modelValue.Field(i)
+
+		tag := field.Tag.Get("gom")
+		if tag == "" || tag == "-" {
+			continue
+		}
+
+		// Parse tag to get column name
+		parts := strings.Split(tag, ",")
+		columnName := parts[0]
+
+		// Handle special cases for query model
+		if strings.HasSuffix(modelType.Name(), "Query") {
+			if !value.IsZero() {
+				switch {
+				case strings.HasPrefix(field.Name, "Min"):
+					c.Where(strings.TrimPrefix(columnName, "min_"), ">=", value.Interface())
+				case strings.HasPrefix(field.Name, "Max"):
+					c.Where(strings.TrimPrefix(columnName, "max_"), "<=", value.Interface())
+				case field.Name == "IsActive":
+					c.Where("active", "=", value.Interface())
+				default:
+					c.Where(columnName, "=", value.Interface())
+				}
+			}
+			continue
+		}
+
+		// Handle normal model fields
+		if !value.IsZero() {
+			if field.Name == "ID" {
+				c.Where(columnName, "=", value.Interface())
+			} else {
+				if c.insertFields == nil {
+					c.insertFields = make(map[string]interface{})
+				}
+				c.insertFields[columnName] = value.Interface()
+			}
+		}
+	}
+
+	return c
+}
+
+// List executes a SELECT query and returns all results
+func (c *Chain) List() (*QueryResult, error) {
+	sqlStr, args := c.factory.BuildSelect(c.tableName, c.fieldList, c.conds, c.orderByExpr, c.limitCount, c.offsetCount)
+	if define.Debug {
+		// Convert pointer values to actual values for logging
+		logArgs := make([]interface{}, len(args))
+		for i, arg := range args {
+			if reflect.TypeOf(arg).Kind() == reflect.Ptr {
+				logArgs[i] = reflect.ValueOf(arg).Elem().Interface()
+			} else {
+				logArgs[i] = arg
+			}
+		}
+		log.Printf("[SQL] %s %v", sqlStr, logArgs)
+	}
+
+	var rows *sql.Rows
+	var err error
+	if c.tx != nil {
+		rows, err = c.tx.Query(sqlStr, args...)
+	} else {
+		rows, err = c.db.DB.Query(sqlStr, args...)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -97,19 +208,30 @@ func (qc *QueryChain) List() (*QueryResult, error) {
 	var result []map[string]interface{}
 	for rows.Next() {
 		values := make([]interface{}, len(columns))
-		scanArgs := make([]interface{}, len(columns))
 		for i := range values {
-			scanArgs[i] = &values[i]
+			values[i] = new(interface{})
 		}
 
-		err = rows.Scan(scanArgs...)
+		err = rows.Scan(values...)
 		if err != nil {
 			return nil, err
 		}
 
 		row := make(map[string]interface{})
 		for i, col := range columns {
-			row[col] = values[i]
+			val := *(values[i].(*interface{}))
+			// Convert column name to snake_case if it's in CamelCase
+			if strings.ToLower(col) != col {
+				var result []rune
+				for i, r := range col {
+					if i > 0 && r >= 'A' && r <= 'Z' {
+						result = append(result, '_')
+					}
+					result = append(result, unicode.ToLower(r))
+				}
+				col = string(result)
+			}
+			row[col] = val
 		}
 		result = append(result, row)
 	}
@@ -121,30 +243,30 @@ func (qc *QueryChain) List() (*QueryResult, error) {
 }
 
 // First returns the first result
-func (qc *QueryChain) First() (*QueryResult, error) {
-	qc.limitCount = 1
-	return qc.List()
+func (c *Chain) First() (*QueryResult, error) {
+	c.limitCount = 1
+	return c.List()
 }
 
 // Last returns the last result
-func (qc *QueryChain) Last() (*QueryResult, error) {
-	if qc.orderByExpr == "" {
-		if len(qc.fieldList) > 0 && qc.fieldList[0] != "*" {
-			qc.orderByExpr = qc.fieldList[0] + " DESC"
+func (c *Chain) Last() (*QueryResult, error) {
+	if c.orderByExpr == "" {
+		if len(c.fieldList) > 0 && c.fieldList[0] != "*" {
+			c.orderByExpr = c.fieldList[0] + " DESC"
 		}
 	} else {
-		if !strings.Contains(strings.ToUpper(qc.orderByExpr), "DESC") {
-			qc.orderByExpr += " DESC"
+		if !strings.Contains(strings.ToUpper(c.orderByExpr), "DESC") {
+			c.orderByExpr += " DESC"
 		}
 	}
-	qc.limitCount = 1
-	return qc.List()
+	c.limitCount = 1
+	return c.List()
 }
 
-// One returns exactly one result, returns error if not found or found multiple
-func (qc *QueryChain) One() (*QueryResult, error) {
-	qc.limitCount = 2 // Get 2 to check if there are multiple results
-	result, err := qc.List()
+// One returns exactly one result
+func (c *Chain) One() (*QueryResult, error) {
+	c.limitCount = 2 // Get 2 to check if there are multiple results
+	result, err := c.List()
 	if err != nil {
 		return nil, err
 	}
@@ -163,777 +285,575 @@ func (qc *QueryChain) One() (*QueryResult, error) {
 	}, nil
 }
 
-// Count returns the count of results
-func (qc *QueryChain) Count() (int64, error) {
-	where, args := qc.buildWhereClause()
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s", qc.tableName)
-	if where != "" {
-		countQuery += " WHERE " + where
+// Save executes an INSERT or UPDATE query
+func (c *Chain) Save() (sql.Result, error) {
+	if len(c.conds) > 0 {
+		// If there are conditions, do an update
+		if c.updateFields == nil {
+			c.updateFields = make(map[string]interface{})
+		}
+		sql, args := c.factory.BuildUpdate(c.tableName, c.updateFields, c.conds)
+		if sql == "" {
+			return nil, fmt.Errorf("no fields to update")
+		}
+		if define.Debug {
+			log.Printf("[SQL] %s %v", sql, args)
+		}
+		if c.tx != nil {
+			return c.tx.Exec(sql, args...)
+		}
+		return c.db.DB.Exec(sql, args...)
 	}
 
-	rows, err := qc.db.ExecuteQuery(countQuery, args...)
+	// Otherwise, do an insert
+	if len(c.batchValues) > 0 {
+		sql, args := c.factory.BuildBatchInsert(c.tableName, c.batchValues)
+		if define.Debug {
+			log.Printf("[SQL] %s %v", sql, args)
+		}
+		if c.tx != nil {
+			return c.tx.Exec(sql, args...)
+		}
+		return c.db.DB.Exec(sql, args...)
+	}
+
+	sql, args := c.factory.BuildInsert(c.tableName, c.insertFields)
+	if define.Debug {
+		log.Printf("[SQL] %s %v", sql, args)
+	}
+
+	// For PostgreSQL, we need to scan the returned ID
+	if strings.Contains(sql, "RETURNING") {
+		var id int64
+		var err error
+		if c.tx != nil {
+			err = c.tx.QueryRow(sql, args...).Scan(&id)
+		} else {
+			err = c.db.DB.QueryRow(sql, args...).Scan(&id)
+		}
+		if err != nil {
+			return nil, err
+		}
+		return &define.Result{ID: id}, nil
+	}
+
+	if c.tx != nil {
+		return c.tx.Exec(sql, args...)
+	}
+	return c.db.DB.Exec(sql, args...)
+}
+
+// Update executes an UPDATE query
+func (c *Chain) Update() (sql.Result, error) {
+	if len(c.updateFields) == 0 && len(c.insertFields) > 0 {
+		c.updateFields = c.insertFields
+	}
+	sql, args := c.factory.BuildUpdate(c.tableName, c.updateFields, c.conds)
+	if define.Debug {
+		log.Printf("[SQL] %s %v\n", sql, args)
+	}
+	if c.tx != nil {
+		return c.tx.Exec(sql, args...)
+	}
+	return c.db.DB.Exec(sql, args...)
+}
+
+// Delete executes a DELETE query
+func (c *Chain) Delete() (sql.Result, error) {
+	sql, args := c.factory.BuildDelete(c.tableName, c.conds)
+	if define.Debug {
+		log.Printf("[SQL] %s %v", sql, args)
+	}
+	if c.tx != nil {
+		return c.tx.Exec(sql, args...)
+	}
+	return c.db.DB.Exec(sql, args...)
+}
+
+// Page sets the page number and page size for pagination
+func (c *Chain) Page(pageNum, pageSize int) *Chain {
+	if pageNum < 1 {
+		pageNum = 1
+	}
+	if pageSize < 1 {
+		pageSize = 10
+	}
+	c.limitCount = pageSize
+	c.offsetCount = (pageNum - 1) * pageSize
+	return c
+}
+
+// Into scans the result into a struct or slice of structs
+func (c *Chain) Into(dest interface{}) error {
+	result, err := c.List()
 	if err != nil {
-		return 0, err
+		return err
+	}
+	return result.Into(dest)
+}
+
+// RawQuery executes a raw SQL query with args
+func (c *Chain) RawQuery(sqlStr string, args ...interface{}) (*QueryResult, error) {
+	if define.Debug {
+		log.Printf("[SQL] %s %v\n", sqlStr, args)
+	}
+	var rows *sql.Rows
+	var err error
+	if c.tx != nil {
+		rows, err = c.tx.Query(sqlStr, args...)
+	} else {
+		rows, err = c.db.DB.Query(sqlStr, args...)
+	}
+	if err != nil {
+		return nil, err
 	}
 	defer rows.Close()
 
-	var count int64
-	if rows.Next() {
-		err = rows.Scan(&count)
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	var result []map[string]interface{}
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		for i := range values {
+			values[i] = new(interface{})
+		}
+
+		err = rows.Scan(values...)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
-	}
-	return count, nil
-}
 
-// Exists returns true if any results exist
-func (qc *QueryChain) Exists() (bool, error) {
-	count, err := qc.Count()
-	if err != nil {
-		return false, err
-	}
-	return count > 0, nil
-}
-
-// Into scans the result into a struct
-func (qc *QueryChain) Into(dest interface{}) error {
-	result, err := qc.List()
-	if err != nil {
-		return err
-	}
-	return result.Into(dest)
-}
-
-// IntoOne scans exactly one result into a struct
-func (qc *QueryChain) IntoOne(dest interface{}) error {
-	result, err := qc.One()
-	if err != nil {
-		return err
-	}
-	return result.Into(dest)
-}
-
-// IntoFirst scans the first result into a struct
-func (qc *QueryChain) IntoFirst(dest interface{}) error {
-	result, err := qc.First()
-	if err != nil {
-		return err
-	}
-	return result.Into(dest)
-}
-
-// IntoLast scans the last result into a struct
-func (qc *QueryChain) IntoLast(dest interface{}) error {
-	result, err := qc.Last()
-	if err != nil {
-		return err
-	}
-	return result.Into(dest)
-}
-
-// Page represents a page of results
-type Page struct {
-	Data       []map[string]interface{} `json:"data"`
-	Total      int64                    `json:"total"`
-	PageSize   int                      `json:"page_size"`
-	PageNumber int                      `json:"page_number"`
-	TotalPages int                      `json:"total_pages"`
-}
-
-// PageResult represents a page of results with typed data
-type PageResult struct {
-	Data       interface{} `json:"data"`
-	Total      int64       `json:"total"`
-	PageSize   int         `json:"page_size"`
-	PageNumber int         `json:"page_number"`
-	TotalPages int         `json:"total_pages"`
-}
-
-// Page returns a page of results
-func (qc *QueryChain) Page(pageNumber, pageSize int) (*Page, error) {
-	// Get total count
-	total, err := qc.Count()
-	if err != nil {
-		return nil, err
+		row := make(map[string]interface{})
+		for i, col := range columns {
+			val := *(values[i].(*interface{}))
+			row[col] = val
+		}
+		result = append(result, row)
 	}
 
-	// Calculate total pages
-	totalPages := int(total) / pageSize
-	if int(total)%pageSize > 0 {
-		totalPages++
-	}
-
-	// Get page data
-	qc.Offset((pageNumber - 1) * pageSize).Limit(pageSize)
-	result, err := qc.List()
-	if err != nil {
-		return nil, err
-	}
-
-	return &Page{
-		Data:       result.Data,
-		Total:      total,
-		PageSize:   pageSize,
-		PageNumber: pageNumber,
-		TotalPages: totalPages,
+	return &QueryResult{
+		Data:    result,
+		Columns: columns,
 	}, nil
 }
 
-// PageInto returns a page of results and scans them into a slice of structs
-func (qc *QueryChain) PageInto(pageNumber, pageSize int, dest interface{}) (*PageResult, error) {
-	// Get total count
-	total, err := qc.Count()
-	if err != nil {
-		return nil, err
+// RawExecute executes a raw SQL statement with args
+func (c *Chain) RawExecute(sql string, args ...interface{}) (sql.Result, error) {
+	if define.Debug {
+		log.Printf("[SQL] %s %v\n", sql, args)
+	}
+	if c.tx != nil {
+		return c.tx.Exec(sql, args...)
+	}
+	return c.db.DB.Exec(sql, args...)
+}
+
+// QueryResult represents a query result
+type QueryResult struct {
+	Data    []map[string]interface{} `json:"data"`
+	Columns []string                 `json:"columns"`
+}
+
+// Empty returns true if the result is empty
+func (qr *QueryResult) Empty() bool {
+	return len(qr.Data) == 0
+}
+
+// Size returns the number of rows in the result
+func (qr *QueryResult) Size() int {
+	return len(qr.Data)
+}
+
+// Into scans the result into a slice of structs
+func (qr *QueryResult) Into(dest interface{}) error {
+	destValue := reflect.ValueOf(dest)
+	if destValue.Kind() != reflect.Ptr {
+		return fmt.Errorf("dest must be a pointer")
 	}
 
-	// Calculate total pages
-	totalPages := int(total) / pageSize
-	if int(total)%pageSize > 0 {
-		totalPages++
+	sliceValue := destValue.Elem()
+	if sliceValue.Kind() != reflect.Slice {
+		return fmt.Errorf("dest must be a pointer to slice")
 	}
 
-	// Get page data
-	qc.Offset((pageNumber - 1) * pageSize).Limit(pageSize)
-	if err := qc.Into(dest); err != nil {
-		return nil, err
+	// Get the type of slice elements
+	elemType := sliceValue.Type().Elem()
+	isPtr := elemType.Kind() == reflect.Ptr
+	if isPtr {
+		elemType = elemType.Elem()
 	}
 
-	return &PageResult{
-		Data:       dest,
-		Total:      total,
-		PageSize:   pageSize,
-		PageNumber: pageNumber,
-		TotalPages: totalPages,
-	}, nil
-}
-
-// buildWhereClause builds the WHERE clause from conditions
-func (c *Chain) buildWhereClause() (string, []interface{}) {
-	if len(c.conds) == 0 {
-		return "", nil
+	if elemType.Kind() != reflect.Struct {
+		return fmt.Errorf("slice elements must be structs")
 	}
 
-	// Create a top-level AND condition containing all conditions
-	topCond := define.NewAndCondition(c.conds...)
-	return c.factory.BuildCondition(topCond)
-}
+	// Create a new slice with the correct capacity
+	newSlice := reflect.MakeSlice(sliceValue.Type(), 0, len(qr.Data))
 
-// Where adds a raw WHERE condition
-func (c *Chain) Where(where string, args ...interface{}) *Chain {
-	c.conds = append(c.conds, &define.Condition{
-		Raw:  where,
-		Args: args,
-	})
-	return c
-}
-
-// Where adds a raw WHERE condition for UpdateChain
-func (uc *UpdateChain) Where(where string, args ...interface{}) *UpdateChain {
-	uc.Chain.Where(where, args...)
-	return uc
-}
-
-// Where adds a raw WHERE condition for InsertChain
-func (ic *InsertChain) Where(where string, args ...interface{}) *InsertChain {
-	ic.Chain.Where(where, args...)
-	return ic
-}
-
-// Where adds a raw WHERE condition for DeleteChain
-func (dc *DeleteChain) Where(where string, args ...interface{}) *DeleteChain {
-	dc.Chain.Where(where, args...)
-	return dc
-}
-
-// Where adds a WHERE condition for QueryChain
-func (qc *QueryChain) Where(where string, args ...interface{}) *QueryChain {
-	qc.Chain.Where(where, args...)
-	return qc
-}
-
-// And adds an AND condition
-func (c *Chain) And(cond string, args ...interface{}) *Chain {
-	if len(c.conds) == 0 {
-		return c.Where(cond, args...)
-	}
-	c.conds = append(c.conds, &define.Condition{
-		Type: define.TypeAnd,
-		SubConds: []*define.Condition{{
-			Raw:  cond,
-			Args: args,
-		}},
-	})
-	return c
-}
-
-// Or adds an OR condition
-func (c *Chain) Or(cond string, args ...interface{}) *Chain {
-	if len(c.conds) == 0 {
-		return c.Where(cond, args...)
-	}
-	c.conds = append(c.conds, &define.Condition{
-		Type: define.TypeOr,
-		SubConds: []*define.Condition{{
-			Raw:  cond,
-			Args: args,
-		}},
-	})
-	return c
-}
-
-// Eq adds an equals condition
-func (c *Chain) Eq(field string, value interface{}) *Chain {
-	c.conds = append(c.conds, &define.Condition{
-		Field:    field,
-		Operator: define.Eq,
-		Value:    value,
-	})
-	return c
-}
-
-// Ne adds a not equals condition
-func (c *Chain) Ne(field string, value interface{}) *Chain {
-	c.conds = append(c.conds, &define.Condition{
-		Field:    field,
-		Operator: define.Ne,
-		Value:    value,
-	})
-	return c
-}
-
-// Gt adds a greater than condition
-func (c *Chain) Gt(field string, value interface{}) *Chain {
-	c.conds = append(c.conds, &define.Condition{
-		Field:    field,
-		Operator: define.Gt,
-		Value:    value,
-	})
-	return c
-}
-
-// Gte adds a greater than or equals condition
-func (c *Chain) Gte(field string, value interface{}) *Chain {
-	c.conds = append(c.conds, &define.Condition{
-		Field:    field,
-		Operator: define.Gte,
-		Value:    value,
-	})
-	return c
-}
-
-// Lt adds a less than condition
-func (c *Chain) Lt(field string, value interface{}) *Chain {
-	c.conds = append(c.conds, &define.Condition{
-		Field:    field,
-		Operator: define.Lt,
-		Value:    value,
-	})
-	return c
-}
-
-// Lte adds a less than or equals condition
-func (c *Chain) Lte(field string, value interface{}) *Chain {
-	c.conds = append(c.conds, &define.Condition{
-		Field:    field,
-		Operator: define.Lte,
-		Value:    value,
-	})
-	return c
-}
-
-// Like adds a LIKE condition
-func (c *Chain) Like(field string, value string) *Chain {
-	c.conds = append(c.conds, &define.Condition{
-		Field:    field,
-		Operator: define.Like,
-		Value:    value,
-	})
-	return c
-}
-
-// LikeLeft adds a left LIKE condition
-func (c *Chain) LikeLeft(field string, value string) *Chain {
-	c.conds = append(c.conds, &define.Condition{
-		Field:    field,
-		Operator: define.LikeLeft,
-		Value:    value,
-	})
-	return c
-}
-
-// LikeRight adds a right LIKE condition
-func (c *Chain) LikeRight(field string, value string) *Chain {
-	c.conds = append(c.conds, &define.Condition{
-		Field:    field,
-		Operator: define.LikeRight,
-		Value:    value,
-	})
-	return c
-}
-
-// In adds an IN condition
-func (c *Chain) In(field string, values ...interface{}) *Chain {
-	c.conds = append(c.conds, &define.Condition{
-		Field:    field,
-		Operator: define.In,
-		Values:   values,
-	})
-	return c
-}
-
-// NotIn adds a NOT IN condition
-func (c *Chain) NotIn(field string, values ...interface{}) *Chain {
-	c.conds = append(c.conds, &define.Condition{
-		Field:    field,
-		Operator: define.NotIn,
-		Values:   values,
-	})
-	return c
-}
-
-// IsNull adds an IS NULL condition
-func (c *Chain) IsNull(field string) *Chain {
-	c.conds = append(c.conds, &define.Condition{
-		Field:    field,
-		Operator: define.IsNull,
-	})
-	return c
-}
-
-// IsNotNull adds an IS NOT NULL condition
-func (c *Chain) IsNotNull(field string) *Chain {
-	c.conds = append(c.conds, &define.Condition{
-		Field:    field,
-		Operator: define.IsNotNull,
-	})
-	return c
-}
-
-// Between adds a BETWEEN condition
-func (c *Chain) Between(field string, start, end interface{}) *Chain {
-	c.conds = append(c.conds, &define.Condition{
-		Field:    field,
-		Operator: define.Between,
-		Values:   []interface{}{start, end},
-	})
-	return c
-}
-
-// Fields sets the fields for update
-func (uc *UpdateChain) Fields(fields ...string) *UpdateChain {
-	uc.fieldList = fields
-	return uc
-}
-
-// Values sets the values for update
-func (uc *UpdateChain) Values(values ...interface{}) *UpdateChain {
-	uc.valueList = values
-	return uc
-}
-
-// Execute executes the update operation
-func (uc *UpdateChain) Execute() (sql.Result, error) {
-	if len(uc.fieldList) == 0 {
-		return nil, fmt.Errorf("no fields specified for update")
-	}
-	if len(uc.fieldList) != len(uc.valueList) {
-		return nil, fmt.Errorf("number of fields (%d) does not match number of values (%d)", len(uc.fieldList), len(uc.valueList))
-	}
-
-	where, args := uc.buildWhereClause()
-	query := uc.factory.GenerateUpdateSQL(uc.tableName, uc.fieldList, where)
-	args = append(uc.valueList, args...)
-	return uc.db.Execute(query, args...)
-}
-
-// Fields sets the fields for insert
-func (ic *InsertChain) Fields(fields ...string) *InsertChain {
-	ic.fieldList = fields
-	return ic
-}
-
-// Values sets the values for insert
-func (ic *InsertChain) Values(values ...interface{}) *InsertChain {
-	ic.valueList = values
-	ic.batchMode = false
-	return ic
-}
-
-// BatchValues sets multiple rows of values for batch insert
-func (ic *InsertChain) BatchValues(values [][]interface{}) *InsertChain {
-	ic.batchMode = true
-	flatValues := make([]interface{}, 0, len(values)*len(ic.fieldList))
-	for _, row := range values {
-		flatValues = append(flatValues, row...)
-	}
-	ic.valueList = flatValues
-	return ic
-}
-
-// Execute executes the insert operation
-func (ic *InsertChain) Execute() (sql.Result, error) {
-	if len(ic.fieldList) == 0 {
-		return nil, fmt.Errorf("no fields specified for insert")
-	}
-
-	if ic.batchMode {
-		if len(ic.valueList)%len(ic.fieldList) != 0 {
-			return nil, fmt.Errorf("batch values count is not a multiple of field count")
-		}
-		query := ic.factory.GenerateBatchInsertSQL(ic.tableName, ic.fieldList, len(ic.valueList)/len(ic.fieldList))
-		return ic.db.Execute(query, ic.valueList...)
-	}
-
-	if len(ic.fieldList) != len(ic.valueList) {
-		return nil, fmt.Errorf("number of fields (%d) does not match number of values (%d)", len(ic.fieldList), len(ic.valueList))
-	}
-	query := ic.factory.GenerateInsertSQL(ic.tableName, ic.fieldList)
-	return ic.db.Execute(query, ic.valueList...)
-}
-
-// Execute executes the delete operation
-func (dc *DeleteChain) Execute() (sql.Result, error) {
-	where, args := dc.buildWhereClause()
-	query := dc.factory.GenerateDeleteSQL(dc.tableName, where)
-	return dc.db.Execute(query, args...)
-}
-
-// Model sets the fields and values from a struct
-func (ic *InsertChain) Model(model interface{}) *InsertChain {
-	v := reflect.ValueOf(model)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-	if v.Kind() != reflect.Struct {
-		return ic
-	}
-
-	t := v.Type()
-	fields := make([]string, 0)
-	values := make([]interface{}, 0)
-
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
+	// Create a map of column names to struct fields
+	fieldMap := make(map[string]reflect.StructField)
+	for i := 0; i < elemType.NumField(); i++ {
+		field := elemType.Field(i)
 		tag := field.Tag.Get("gom")
 		if tag == "" || tag == "-" {
 			continue
 		}
-
-		fields = append(fields, tag)
-		values = append(values, v.Field(i).Interface())
+		// Parse tag to get column name
+		parts := strings.Split(tag, ",")
+		columnName := parts[0]
+		fieldMap[columnName] = field
 	}
 
-	return ic.Fields(fields...).Values(values...)
-}
+	// Iterate through each map and create struct instances
+	for _, item := range qr.Data {
+		// Create a new struct instance
+		structPtr := reflect.New(elemType)
+		structVal := structPtr.Elem()
 
-// Models sets multiple models for batch insert
-func (ic *InsertChain) Models(models interface{}) *InsertChain {
-	v := reflect.ValueOf(models)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-	if v.Kind() != reflect.Slice {
-		return ic
-	}
-
-	if v.Len() == 0 {
-		return ic
-	}
-
-	// Get fields from the first model
-	first := v.Index(0)
-	if first.Kind() == reflect.Ptr {
-		first = first.Elem()
-	}
-	if first.Kind() != reflect.Struct {
-		return ic
-	}
-
-	t := first.Type()
-	fields := make([]string, 0)
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
-		tag := field.Tag.Get("gom")
-		if tag == "" || tag == "-" {
-			continue
-		}
-		fields = append(fields, tag)
-	}
-
-	// Get values from all models
-	values := make([][]interface{}, v.Len())
-	for i := 0; i < v.Len(); i++ {
-		model := v.Index(i)
-		if model.Kind() == reflect.Ptr {
-			model = model.Elem()
-		}
-		if model.Kind() != reflect.Struct {
-			continue
-		}
-
-		modelValues := make([]interface{}, 0, len(fields))
-		for j := 0; j < t.NumField(); j++ {
-			field := t.Field(j)
-			tag := field.Tag.Get("gom")
-			if tag == "" || tag == "-" {
+		// Fill the struct fields
+		for key, value := range item {
+			// Find the corresponding field
+			field, ok := fieldMap[key]
+			if !ok {
 				continue
 			}
-			modelValues = append(modelValues, model.Field(j).Interface())
-		}
-		values[i] = modelValues
-	}
 
-	return ic.Fields(fields...).BatchValues(values)
-}
-
-// Model sets the fields and values from a struct
-func (uc *UpdateChain) Model(model interface{}, excludeFields ...string) *UpdateChain {
-	v := reflect.ValueOf(model)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-	if v.Kind() != reflect.Struct {
-		return uc
-	}
-
-	// Create a map of excluded fields for faster lookup
-	excludeMap := make(map[string]bool)
-	for _, field := range excludeFields {
-		excludeMap[field] = true
-	}
-
-	t := v.Type()
-	fields := make([]string, 0)
-	values := make([]interface{}, 0)
-
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
-		tag := field.Tag.Get("gom")
-		if tag == "" || tag == "-" {
-			continue
+			// Set the field value
+			fieldVal := structVal.FieldByName(field.Name)
+			if err := setFieldValue(fieldVal, value); err != nil {
+				return fmt.Errorf("failed to set field %s: %v", field.Name, err)
+			}
 		}
 
-		// Skip excluded fields
-		if excludeMap[tag] {
-			continue
+		// Append the struct to slice
+		if isPtr {
+			newSlice = reflect.Append(newSlice, structPtr)
+		} else {
+			newSlice = reflect.Append(newSlice, structVal)
 		}
-
-		fields = append(fields, tag)
-		values = append(values, v.Field(i).Interface())
 	}
 
-	return uc.Fields(fields...).Values(values...)
+	// Set the result back to the destination slice
+	sliceValue.Set(newSlice)
+	return nil
 }
 
-// ModelWithFields sets the fields and values from a struct, only including specified fields
-func (uc *UpdateChain) ModelWithFields(model interface{}, includeFields ...string) *UpdateChain {
-	v := reflect.ValueOf(model)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-	if v.Kind() != reflect.Struct {
-		return uc
+// setFieldValue sets the appropriate value to the struct field
+func setFieldValue(field reflect.Value, value interface{}) error {
+	if value == nil {
+		return nil
 	}
 
-	// Create a map of included fields for faster lookup
-	includeMap := make(map[string]bool)
-	for _, field := range includeFields {
-		includeMap[field] = true
-	}
-
-	t := v.Type()
-	fields := make([]string, 0)
-	values := make([]interface{}, 0)
-
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
-		tag := field.Tag.Get("gom")
-		if tag == "" || tag == "-" {
-			continue
+	// Handle the case where value is a pointer
+	valueVal := reflect.ValueOf(value)
+	if valueVal.Kind() == reflect.Ptr {
+		if valueVal.IsNil() {
+			return nil
 		}
+		valueVal = valueVal.Elem()
+	}
 
-		// Only include specified fields
-		if !includeMap[tag] {
-			continue
+	switch field.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		switch v := value.(type) {
+		case int64:
+			field.SetInt(v)
+		case int32:
+			field.SetInt(int64(v))
+		case int:
+			field.SetInt(int64(v))
+		case []uint8:
+			i, err := strconv.ParseInt(string(v), 10, 64)
+			if err != nil {
+				return err
+			}
+			field.SetInt(i)
+		case string:
+			i, err := strconv.ParseInt(v, 10, 64)
+			if err != nil {
+				return err
+			}
+			field.SetInt(i)
 		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		switch v := value.(type) {
+		case uint64:
+			field.SetUint(v)
+		case uint32:
+			field.SetUint(uint64(v))
+		case uint:
+			field.SetUint(uint64(v))
+		case []uint8:
+			i, err := strconv.ParseUint(string(v), 10, 64)
+			if err != nil {
+				return err
+			}
+			field.SetUint(i)
+		case string:
+			i, err := strconv.ParseUint(v, 10, 64)
+			if err != nil {
+				return err
+			}
+			field.SetUint(i)
+		}
+	case reflect.Float32, reflect.Float64:
+		switch v := value.(type) {
+		case float64:
+			field.SetFloat(v)
+		case float32:
+			field.SetFloat(float64(v))
+		case []uint8:
+			f, err := strconv.ParseFloat(string(v), 64)
+			if err != nil {
+				return err
+			}
+			field.SetFloat(f)
+		case string:
+			f, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				return err
+			}
+			field.SetFloat(f)
+		}
+	case reflect.String:
+		switch v := value.(type) {
+		case string:
+			field.SetString(v)
+		case []uint8:
+			field.SetString(string(v))
+		}
+	case reflect.Bool:
+		switch v := value.(type) {
+		case bool:
+			field.SetBool(v)
+		case []uint8:
+			b, err := strconv.ParseBool(string(v))
+			if err != nil {
+				return err
+			}
+			field.SetBool(b)
+		case string:
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return err
+			}
+			field.SetBool(b)
+		}
+	case reflect.Struct:
+		if field.Type() == reflect.TypeOf(time.Time{}) {
+			switch v := value.(type) {
+			case time.Time:
+				field.Set(reflect.ValueOf(v))
+			case []uint8:
+				t, err := time.Parse("2006-01-02 15:04:05", string(v))
+				if err != nil {
+					return err
+				}
+				field.Set(reflect.ValueOf(t))
+			case string:
+				t, err := time.Parse("2006-01-02 15:04:05", v)
+				if err != nil {
+					return err
+				}
+				field.Set(reflect.ValueOf(t))
+			}
+		}
+	}
+	return nil
+}
 
-		fields = append(fields, tag)
-		values = append(values, v.Field(i).Interface())
+// getTableNameFromStruct derives table name from struct name or ITableModel interface
+func getTableNameFromStruct(t reflect.Type, model interface{}) string {
+	// Check if model implements ITableModel interface
+	if tableModel, ok := model.(define.ITableModel); ok {
+		if tableName := tableModel.TableName(); tableName != "" {
+			return tableName
+		}
 	}
 
-	return uc.Fields(fields...).Values(values...)
-}
+	tableName := t.Name()
 
-// In adds an IN condition for DeleteChain
-func (dc *DeleteChain) In(field string, values ...interface{}) *DeleteChain {
-	dc.Chain.In(field, values...)
-	return dc
-}
+	// Handle query struct
+	tableName = strings.TrimSuffix(tableName, "Query")
 
-// In adds an IN condition for UpdateChain
-func (uc *UpdateChain) In(field string, values ...interface{}) *UpdateChain {
-	uc.Chain.In(field, values...)
-	return uc
-}
-
-// In adds an IN condition for QueryChain
-func (qc *QueryChain) In(field string, values ...interface{}) *QueryChain {
-	qc.Chain.In(field, values...)
-	return qc
-}
-
-// In adds an IN condition for InsertChain
-func (ic *InsertChain) In(field string, values ...interface{}) *InsertChain {
-	ic.Chain.In(field, values...)
-	return ic
-}
-
-// And adds an AND condition for QueryChain
-func (qc *QueryChain) And(cond string, args ...interface{}) *QueryChain {
-	qc.Chain.And(cond, args...)
-	return qc
-}
-
-// And adds an AND condition for UpdateChain
-func (uc *UpdateChain) And(cond string, args ...interface{}) *UpdateChain {
-	uc.Chain.And(cond, args...)
-	return uc
-}
-
-// And adds an AND condition for DeleteChain
-func (dc *DeleteChain) And(cond string, args ...interface{}) *DeleteChain {
-	dc.Chain.And(cond, args...)
-	return dc
-}
-
-// And adds an AND condition for InsertChain
-func (ic *InsertChain) And(cond string, args ...interface{}) *InsertChain {
-	ic.Chain.And(cond, args...)
-	return ic
-}
-
-// Group adds a condition group
-func (c *Chain) Group(condType define.ConditionType, conditions ...*define.Condition) *Chain {
-	if condType == define.TypeAnd {
-		c.conds = append(c.conds, define.NewAndCondition(conditions...))
-	} else {
-		c.conds = append(c.conds, define.NewOrCondition(conditions...))
+	// Convert CamelCase to snake_case
+	var result []rune
+	for i, r := range tableName {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			result = append(result, '_')
+		}
+		result = append(result, r)
 	}
-	return c
+	tableName = strings.ToLower(string(result))
+
+	// Remove common suffixes
+	suffixes := []string{"_model", "_entity", "_struct"}
+	for _, suffix := range suffixes {
+		tableName = strings.TrimSuffix(tableName, suffix)
+	}
+
+	// Add 's' for plural form
+	if !strings.HasSuffix(tableName, "s") {
+		tableName += "s"
+	}
+
+	return tableName
 }
 
-// Group adds a condition group for QueryChain
-func (qc *QueryChain) Group(condType define.ConditionType, conditions ...*define.Condition) *QueryChain {
-	qc.Chain.Group(condType, conditions...)
-	return qc
+// CreateTable creates a table based on the model struct
+func (c *Chain) CreateTable(model interface{}) error {
+	modelType := reflect.TypeOf(model)
+	if modelType.Kind() == reflect.Ptr {
+		modelType = modelType.Elem()
+	}
+
+	if modelType.Kind() != reflect.Struct {
+		return fmt.Errorf("model must be a struct or pointer to struct")
+	}
+
+	// Get table name if not set
+	if c.tableName == "" {
+		c.tableName = getTableNameFromStruct(modelType, model)
+	}
+
+	// Check if model implements ITableModel interface
+	if tableModel, ok := model.(define.ITableModel); ok {
+		if createSql := tableModel.CreateSql(); createSql != "" {
+			if define.Debug {
+				log.Printf("[SQL] %s\n", createSql)
+			}
+			_, err := c.db.DB.Exec(createSql)
+			if err != nil {
+				log.Printf("[ERROR] Failed to create table: %v\n", err)
+				log.Printf("[SQL] %s\n", createSql)
+			}
+			return err
+		}
+	}
+
+	// Build and execute CREATE TABLE statement using default logic
+	sql := c.factory.BuildCreateTable(c.tableName, modelType)
+	if define.Debug {
+		log.Printf("[SQL] %s\n", sql)
+	}
+	_, err := c.db.DB.Exec(sql)
+	if err != nil {
+		log.Printf("[ERROR] Failed to create table: %v\n", err)
+		log.Printf("[SQL] %s\n", sql)
+	}
+	return err
 }
 
-// Group adds a condition group for UpdateChain
-func (uc *UpdateChain) Group(condType define.ConditionType, conditions ...*define.Condition) *UpdateChain {
-	uc.Chain.Group(condType, conditions...)
-	return uc
+// Begin starts a new transaction
+func (c *Chain) Begin() error {
+	if c.tx != nil {
+		return fmt.Errorf("transaction already in progress")
+	}
+
+	tx, err := c.db.DB.Begin()
+	if err != nil {
+		return err
+	}
+
+	// Create a backup of current chain
+	originalChain := &Chain{
+		db:           c.db,
+		factory:      c.factory,
+		tableName:    c.tableName,
+		conds:        c.conds,
+		fieldList:    c.fieldList,
+		orderByExpr:  c.orderByExpr,
+		limitCount:   c.limitCount,
+		offsetCount:  c.offsetCount,
+		updateFields: c.updateFields,
+		insertFields: c.insertFields,
+		batchValues:  c.batchValues,
+	}
+
+	// Update current chain with transaction
+	c.originalChain = originalChain
+	c.tx = tx
+
+	return nil
 }
 
-// Group adds a condition group for DeleteChain
-func (dc *DeleteChain) Group(condType define.ConditionType, conditions ...*define.Condition) *DeleteChain {
-	dc.Chain.Group(condType, conditions...)
-	return dc
+// Commit commits the transaction
+func (c *Chain) Commit() error {
+	if c.tx == nil {
+		return fmt.Errorf("no transaction in progress")
+	}
+
+	err := c.tx.Commit()
+	if err != nil {
+		return err
+	}
+
+	c.cleanup()
+	return nil
 }
 
-// Eq adds an equals condition for QueryChain
-func (qc *QueryChain) Eq(field string, value interface{}) *QueryChain {
-	qc.Chain.Eq(field, value)
-	return qc
+// Rollback rolls back the transaction
+func (c *Chain) Rollback() error {
+	if c.tx == nil {
+		return fmt.Errorf("no transaction in progress")
+	}
+
+	err := c.tx.Rollback()
+	if err != nil {
+		return err
+	}
+
+	c.cleanup()
+	return nil
 }
 
-// Ne adds a not equals condition for QueryChain
-func (qc *QueryChain) Ne(field string, value interface{}) *QueryChain {
-	qc.Chain.Ne(field, value)
-	return qc
+// cleanup restores the chain to its original state
+func (c *Chain) cleanup() {
+	if c.originalChain == nil {
+		return
+	}
+
+	// Restore original values
+	c.db = c.originalChain.db
+	c.factory = c.originalChain.factory
+	c.tableName = c.originalChain.tableName
+	c.conds = c.originalChain.conds
+	c.fieldList = c.originalChain.fieldList
+	c.orderByExpr = c.originalChain.orderByExpr
+	c.limitCount = c.originalChain.limitCount
+	c.offsetCount = c.originalChain.offsetCount
+	c.updateFields = c.originalChain.updateFields
+	c.insertFields = c.originalChain.insertFields
+	c.batchValues = c.originalChain.batchValues
+
+	// Clear transaction and original chain
+	c.tx = nil
+	c.originalChain = nil
 }
 
-// Gt adds a greater than condition for QueryChain
-func (qc *QueryChain) Gt(field string, value interface{}) *QueryChain {
-	qc.Chain.Gt(field, value)
-	return qc
-}
+// Transaction executes a function within a transaction
+func (c *Chain) Transaction(fn func(*Chain) error) error {
+	err := c.Begin()
+	if err != nil {
+		return err
+	}
 
-// Lt adds a less than condition for QueryChain
-func (qc *QueryChain) Lt(field string, value interface{}) *QueryChain {
-	qc.Chain.Lt(field, value)
-	return qc
-}
+	err = fn(c)
+	if err != nil {
+		// Rollback on error
+		if rbErr := c.Rollback(); rbErr != nil {
+			return fmt.Errorf("error rolling back: %v (original error: %v)", rbErr, err)
+		}
+		return err
+	}
 
-// Gte adds a greater than or equals condition for QueryChain
-func (qc *QueryChain) Gte(field string, value interface{}) *QueryChain {
-	qc.Chain.Gte(field, value)
-	return qc
-}
+	// Commit the transaction
+	if err = c.Commit(); err != nil {
+		return fmt.Errorf("error committing: %v", err)
+	}
 
-// Lte adds a less than or equals condition for QueryChain
-func (qc *QueryChain) Lte(field string, value interface{}) *QueryChain {
-	qc.Chain.Lte(field, value)
-	return qc
+	return nil
 }
-
-// Like adds a LIKE condition for QueryChain
-func (qc *QueryChain) Like(field string, value string) *QueryChain {
-	qc.Chain.Like(field, value)
-	return qc
-}
-
-// NotLike adds a NOT LIKE condition for QueryChain
-func (qc *QueryChain) NotLike(field string, value string) *QueryChain {
-	qc.Chain.NotLike(field, value)
-	return qc
-}
-
-// LikeLeft adds a left LIKE condition for QueryChain
-func (qc *QueryChain) LikeLeft(field string, value string) *QueryChain {
-	qc.Chain.LikeLeft(field, value)
-	return qc
-}
-
-// LikeRight adds a right LIKE condition for QueryChain
-func (qc *QueryChain) LikeRight(field string, value string) *QueryChain {
-	qc.Chain.LikeRight(field, value)
-	return qc
-}
-
-// Between adds a BETWEEN condition for QueryChain
-func (qc *QueryChain) Between(field string, start, end interface{}) *QueryChain {
-	qc.Chain.Between(field, start, end)
-	return qc
-}
-
-// IsNull adds an IS NULL condition for QueryChain
-func (qc *QueryChain) IsNull(field string) *QueryChain {
-	qc.Chain.IsNull(field)
-	return qc
-}
-
-// IsNotNull adds an IS NOT NULL condition for QueryChain
-func (qc *QueryChain) IsNotNull(field string) *QueryChain {
-	qc.Chain.IsNotNull(field)
-	return qc
-}
-
-// NotLike adds a NOT LIKE condition
-func (c *Chain) NotLike(field string, value string) *Chain {
-	c.conds = append(c.conds, &define.Condition{
-		Field:    field,
-		Operator: define.NotLike,
-		Value:    value,
-	})
-	return c
-}
-
-// NotIn adds a NOT IN condition for QueryChain
-func (qc *QueryChain) NotIn(field string, values ...interface{}) *QueryChain {
-	qc.Chain.NotIn(field, values...)
-	return qc
-}
-
-// Between adds a BETWEEN condition for QueryChain
