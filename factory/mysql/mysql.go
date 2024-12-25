@@ -21,13 +21,8 @@ func New() define.SQLFactory {
 	return &MySQLFactory{}
 }
 
-// Connect creates a new DB connection and returns a DB instance
-func (f *MySQLFactory) Connect(dsn string) (*define.DB, error) {
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		return nil, err
-	}
-	return define.NewDB(db, f), nil
+func (f *MySQLFactory) Connect(dsn string) (*sql.DB, error) {
+	return sql.Open("mysql", dsn)
 }
 
 // GenerateSelectSQL generates a SELECT statement
@@ -146,4 +141,75 @@ func (f *MySQLFactory) GenerateBatchDeleteSQL(table string, where string, valueC
 		where,
 		strings.Join(placeholders, ", "),
 	)
+}
+
+// BuildCondition builds a SQL condition from a Condition object
+func (f *MySQLFactory) BuildCondition(cond *define.Condition) (string, []interface{}) {
+	if cond.Raw != "" {
+		return cond.Raw, cond.Args
+	}
+
+	switch cond.Type {
+	case define.TypeAnd, define.TypeOr:
+		var subclauses []string
+		var args []interface{}
+		for _, sub := range cond.SubConds {
+			subclause, subargs := f.BuildCondition(sub)
+			if subclause != "" {
+				subclauses = append(subclauses, "("+subclause+")")
+				args = append(args, subargs...)
+			}
+		}
+		if len(subclauses) == 0 {
+			return "", nil
+		}
+		op := " AND "
+		if cond.Type == define.TypeOr {
+			op = " OR "
+		}
+		return strings.Join(subclauses, op), args
+	}
+
+	switch cond.Operator {
+	case define.Eq:
+		return cond.Field + " = ?", []interface{}{cond.Value}
+	case define.Ne:
+		return cond.Field + " != ?", []interface{}{cond.Value}
+	case define.Gt:
+		return cond.Field + " > ?", []interface{}{cond.Value}
+	case define.Lt:
+		return cond.Field + " < ?", []interface{}{cond.Value}
+	case define.Gte:
+		return cond.Field + " >= ?", []interface{}{cond.Value}
+	case define.Lte:
+		return cond.Field + " <= ?", []interface{}{cond.Value}
+	case define.In:
+		placeholders := make([]string, len(cond.Values))
+		for i := range placeholders {
+			placeholders[i] = "?"
+		}
+		return cond.Field + " IN (" + strings.Join(placeholders, ", ") + ")", cond.Values
+	case define.NotIn:
+		placeholders := make([]string, len(cond.Values))
+		for i := range placeholders {
+			placeholders[i] = "?"
+		}
+		return cond.Field + " NOT IN (" + strings.Join(placeholders, ", ") + ")", cond.Values
+	case define.Like:
+		return cond.Field + " LIKE CONCAT('%', ?, '%')", []interface{}{cond.Value}
+	case define.NotLike:
+		return cond.Field + " NOT LIKE CONCAT('%', ?, '%')", []interface{}{cond.Value}
+	case define.LikeLeft:
+		return cond.Field + " LIKE CONCAT('%', ?)", []interface{}{cond.Value}
+	case define.LikeRight:
+		return cond.Field + " LIKE CONCAT(?, '%')", []interface{}{cond.Value}
+	case define.IsNull:
+		return cond.Field + " IS NULL", nil
+	case define.IsNotNull:
+		return cond.Field + " IS NOT NULL", nil
+	case define.Between:
+		return cond.Field + " BETWEEN ? AND ?", cond.Values
+	}
+
+	return "", nil
 }

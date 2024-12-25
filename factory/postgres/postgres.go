@@ -22,13 +22,10 @@ func New() define.SQLFactory {
 }
 
 // Connect creates a new DB connection and returns a DB instance
-func (f *PostgresFactory) Connect(dsn string) (*define.DB, error) {
+func (f *PostgresFactory) Connect(dsn string) (*sql.DB, error) {
 	// Use pgx driver name
-	db, err := sql.Open("pgx", dsn)
-	if err != nil {
-		return nil, err
-	}
-	return define.NewDB(db, f), nil
+	return sql.Open("pgx", dsn)
+
 }
 
 // GenerateSelectSQL generates a SELECT statement
@@ -49,7 +46,9 @@ func (f *PostgresFactory) GenerateSelectSQL(table string, fields []string, where
 			query += fmt.Sprintf(" OFFSET %d", offset)
 		}
 	}
-
+	if define.Debug {
+		fmt.Println("sql:", query)
+	}
 	return query
 }
 
@@ -160,4 +159,75 @@ func (f *PostgresFactory) GenerateBatchDeleteSQL(table string, where string, val
 		where,
 		strings.Join(placeholders, ", "),
 	)
+}
+
+// BuildCondition builds a SQL condition from a Condition object
+func (f *PostgresFactory) BuildCondition(cond *define.Condition) (string, []interface{}) {
+	if cond.Raw != "" {
+		return cond.Raw, cond.Args
+	}
+
+	switch cond.Type {
+	case define.TypeAnd, define.TypeOr:
+		var subclauses []string
+		var args []interface{}
+		for _, sub := range cond.SubConds {
+			subclause, subargs := f.BuildCondition(sub)
+			if subclause != "" {
+				subclauses = append(subclauses, "("+subclause+")")
+				args = append(args, subargs...)
+			}
+		}
+		if len(subclauses) == 0 {
+			return "", nil
+		}
+		op := " AND "
+		if cond.Type == define.TypeOr {
+			op = " OR "
+		}
+		return strings.Join(subclauses, op), args
+	}
+
+	switch cond.Operator {
+	case define.Eq:
+		return cond.Field + " = $1", []interface{}{cond.Value}
+	case define.Ne:
+		return cond.Field + " != $1", []interface{}{cond.Value}
+	case define.Gt:
+		return cond.Field + " > $1", []interface{}{cond.Value}
+	case define.Lt:
+		return cond.Field + " < $1", []interface{}{cond.Value}
+	case define.Gte:
+		return cond.Field + " >= $1", []interface{}{cond.Value}
+	case define.Lte:
+		return cond.Field + " <= $1", []interface{}{cond.Value}
+	case define.In:
+		placeholders := make([]string, len(cond.Values))
+		for i := range placeholders {
+			placeholders[i] = fmt.Sprintf("$%d", i+1)
+		}
+		return cond.Field + " IN (" + strings.Join(placeholders, ", ") + ")", cond.Values
+	case define.NotIn:
+		placeholders := make([]string, len(cond.Values))
+		for i := range placeholders {
+			placeholders[i] = fmt.Sprintf("$%d", i+1)
+		}
+		return cond.Field + " NOT IN (" + strings.Join(placeholders, ", ") + ")", cond.Values
+	case define.Like:
+		return cond.Field + " LIKE '%' || $1 || '%'", []interface{}{cond.Value}
+	case define.NotLike:
+		return cond.Field + " NOT LIKE '%' || $1 || '%'", []interface{}{cond.Value}
+	case define.LikeLeft:
+		return cond.Field + " LIKE '%' || $1", []interface{}{cond.Value}
+	case define.LikeRight:
+		return cond.Field + " LIKE $1 || '%'", []interface{}{cond.Value}
+	case define.IsNull:
+		return cond.Field + " IS NULL", nil
+	case define.IsNotNull:
+		return cond.Field + " IS NOT NULL", nil
+	case define.Between:
+		return cond.Field + " BETWEEN $1 AND $2", cond.Values
+	}
+
+	return "", nil
 }
