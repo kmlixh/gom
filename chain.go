@@ -1,6 +1,7 @@
 package gom
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -21,6 +22,12 @@ type Chain struct {
 
 	// Store original chain for transaction rollback
 	originalChain *Chain
+
+	// Transaction isolation level
+	isolationLevel sql.IsolationLevel
+
+	// Model for potential ID callback
+	model interface{}
 
 	// Common fields
 	tableName string
@@ -103,6 +110,9 @@ func (c *Chain) BatchValues(values []map[string]interface{}) *Chain {
 
 // From sets the table name and conditions from a struct or string
 func (c *Chain) From(model interface{}) *Chain {
+	// Store the model for potential ID callback
+	c.model = model
+
 	// Handle string type parameter
 	if tableName, ok := model.(string); ok {
 		c.tableName = tableName
@@ -286,61 +296,115 @@ func (c *Chain) One() (*QueryResult, error) {
 }
 
 // Save executes an INSERT or UPDATE query
-func (c *Chain) Save() (sql.Result, error) {
+func (c *Chain) Save() (define.Result, error) {
 	if len(c.conds) > 0 {
 		// If there are conditions, do an update
 		if c.updateFields == nil {
 			c.updateFields = make(map[string]interface{})
 		}
-		sql, args := c.factory.BuildUpdate(c.tableName, c.updateFields, c.conds)
-		if sql == "" {
-			return nil, fmt.Errorf("no fields to update")
+		sqlStr, args := c.factory.BuildUpdate(c.tableName, c.updateFields, c.conds)
+		if sqlStr == "" {
+			return define.Result{}, fmt.Errorf("no fields to update")
 		}
 		if define.Debug {
-			log.Printf("[SQL] %s %v", sql, args)
+			log.Printf("[SQL] %s %v", sqlStr, args)
 		}
 		if c.tx != nil {
-			return c.tx.Exec(sql, args...)
+			result, err := c.tx.Exec(sqlStr, args...)
+			if err != nil {
+				return define.Result{}, err
+			}
+			affected, _ := result.RowsAffected()
+			return define.Result{Affected: affected}, nil
 		}
-		return c.db.DB.Exec(sql, args...)
+		result, err := c.db.DB.Exec(sqlStr, args...)
+		if err != nil {
+			return define.Result{}, err
+		}
+		affected, _ := result.RowsAffected()
+		return define.Result{Affected: affected}, nil
 	}
 
 	// Otherwise, do an insert
 	if len(c.batchValues) > 0 {
-		sql, args := c.factory.BuildBatchInsert(c.tableName, c.batchValues)
+		sqlStr, args := c.factory.BuildBatchInsert(c.tableName, c.batchValues)
 		if define.Debug {
-			log.Printf("[SQL] %s %v", sql, args)
+			log.Printf("[SQL] %s %v", sqlStr, args)
 		}
 		if c.tx != nil {
-			return c.tx.Exec(sql, args...)
+			result, err := c.tx.Exec(sqlStr, args...)
+			if err != nil {
+				return define.Result{}, err
+			}
+			affected, _ := result.RowsAffected()
+			lastID, _ := result.LastInsertId()
+			return define.Result{ID: lastID, Affected: affected}, nil
 		}
-		return c.db.DB.Exec(sql, args...)
+		result, err := c.db.DB.Exec(sqlStr, args...)
+		if err != nil {
+			return define.Result{}, err
+		}
+		affected, _ := result.RowsAffected()
+		lastID, _ := result.LastInsertId()
+		return define.Result{ID: lastID, Affected: affected}, nil
 	}
 
-	sql, args := c.factory.BuildInsert(c.tableName, c.insertFields)
+	sqlStr, args := c.factory.BuildInsert(c.tableName, c.insertFields)
 	if define.Debug {
-		log.Printf("[SQL] %s %v", sql, args)
+		log.Printf("[SQL] %s %v", sqlStr, args)
 	}
 
 	// For PostgreSQL, we need to scan the returned ID
-	if strings.Contains(sql, "RETURNING") {
+	if strings.Contains(sqlStr, "RETURNING") {
 		var id int64
 		var err error
 		if c.tx != nil {
-			err = c.tx.QueryRow(sql, args...).Scan(&id)
+			err = c.tx.QueryRow(sqlStr, args...).Scan(&id)
 		} else {
-			err = c.db.DB.QueryRow(sql, args...).Scan(&id)
+			err = c.db.DB.QueryRow(sqlStr, args...).Scan(&id)
 		}
 		if err != nil {
-			return nil, err
+			return define.Result{}, err
 		}
-		return &define.Result{ID: id}, nil
+
+		// Try to set ID back to the entity if it exists
+		if c.model != nil {
+			if modelValue := reflect.ValueOf(c.model); modelValue.Kind() == reflect.Ptr {
+				if idField := modelValue.Elem().FieldByName("ID"); idField.IsValid() && idField.CanSet() {
+					idField.SetInt(id)
+				}
+			}
+		}
+
+		return define.Result{ID: id, Affected: 1}, nil
 	}
 
+	var result sql.Result
+	var err error
+
 	if c.tx != nil {
-		return c.tx.Exec(sql, args...)
+		result, err = c.tx.Exec(sqlStr, args...)
+	} else {
+		result, err = c.db.DB.Exec(sqlStr, args...)
 	}
-	return c.db.DB.Exec(sql, args...)
+
+	if err != nil {
+		return define.Result{}, err
+	}
+
+	affected, _ := result.RowsAffected()
+	lastID, _ := result.LastInsertId()
+
+	// Try to set ID back to the entity if it exists
+	if c.model != nil {
+		if modelValue := reflect.ValueOf(c.model); modelValue.Kind() == reflect.Ptr {
+			if idField := modelValue.Elem().FieldByName("ID"); idField.IsValid() && idField.CanSet() {
+				idField.SetInt(lastID)
+			}
+		}
+	}
+
+	return define.Result{ID: lastID, Affected: affected}, nil
 }
 
 // Update executes an UPDATE query
@@ -747,30 +811,41 @@ func (c *Chain) CreateTable(model interface{}) error {
 	return err
 }
 
-// Begin starts a new transaction
+// Begin starts a new transaction with optional isolation level
 func (c *Chain) Begin() error {
 	if c.tx != nil {
 		return fmt.Errorf("transaction already in progress")
 	}
 
-	tx, err := c.db.DB.Begin()
+	var tx *sql.Tx
+	var err error
+
+	if c.isolationLevel != 0 {
+		tx, err = c.db.DB.BeginTx(context.Background(), &sql.TxOptions{
+			Isolation: c.isolationLevel,
+		})
+	} else {
+		tx, err = c.db.DB.Begin()
+	}
+
 	if err != nil {
 		return err
 	}
 
 	// Create a backup of current chain
 	originalChain := &Chain{
-		db:           c.db,
-		factory:      c.factory,
-		tableName:    c.tableName,
-		conds:        c.conds,
-		fieldList:    c.fieldList,
-		orderByExpr:  c.orderByExpr,
-		limitCount:   c.limitCount,
-		offsetCount:  c.offsetCount,
-		updateFields: c.updateFields,
-		insertFields: c.insertFields,
-		batchValues:  c.batchValues,
+		db:             c.db,
+		factory:        c.factory,
+		tableName:      c.tableName,
+		conds:          c.conds,
+		fieldList:      c.fieldList,
+		orderByExpr:    c.orderByExpr,
+		limitCount:     c.limitCount,
+		offsetCount:    c.offsetCount,
+		updateFields:   c.updateFields,
+		insertFields:   c.insertFields,
+		batchValues:    c.batchValues,
+		isolationLevel: c.isolationLevel,
 	}
 
 	// Update current chain with transaction
@@ -856,4 +931,42 @@ func (c *Chain) Transaction(fn func(*Chain) error) error {
 	}
 
 	return nil
+}
+
+// IsInTransaction returns whether the chain is currently in a transaction
+func (c *Chain) IsInTransaction() bool {
+	return c.tx != nil
+}
+
+// SetIsolationLevel sets the isolation level for the next transaction
+func (c *Chain) SetIsolationLevel(level sql.IsolationLevel) *Chain {
+	c.isolationLevel = level
+	return c
+}
+
+// Savepoint creates a savepoint with the given name
+func (c *Chain) Savepoint(name string) error {
+	if !c.IsInTransaction() {
+		return fmt.Errorf("savepoint can only be created within a transaction")
+	}
+	_, err := c.tx.Exec(fmt.Sprintf("SAVEPOINT %s", name))
+	return err
+}
+
+// RollbackTo rolls back to the specified savepoint
+func (c *Chain) RollbackTo(name string) error {
+	if !c.IsInTransaction() {
+		return fmt.Errorf("rollback to savepoint can only be done within a transaction")
+	}
+	_, err := c.tx.Exec(fmt.Sprintf("ROLLBACK TO SAVEPOINT %s", name))
+	return err
+}
+
+// ReleaseSavepoint releases the specified savepoint
+func (c *Chain) ReleaseSavepoint(name string) error {
+	if !c.IsInTransaction() {
+		return fmt.Errorf("release savepoint can only be done within a transaction")
+	}
+	_, err := c.tx.Exec(fmt.Sprintf("RELEASE SAVEPOINT %s", name))
+	return err
 }

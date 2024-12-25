@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"time"
@@ -10,272 +11,292 @@ import (
 	_ "github.com/kmlixh/gom/v4/factory/postgres"
 )
 
+// 演示PostgreSQL特有的RETURNING功能
+func demonstrateReturning(db *gom.DB) error {
+	fmt.Println("\nDemonstrating PostgreSQL RETURNING clause...")
+
+	// 插入并返回生成的ID
+	query := `
+		INSERT INTO users (username, email, age, active, role, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, created_at
+	`
+
+	result, err := db.Chain().RawQuery(query,
+		"pg_user",
+		"pg@example.com",
+		28,
+		true,
+		"user",
+		time.Now(),
+		time.Now(),
+	)
+
+	if err != nil {
+		return fmt.Errorf("insert with returning failed: %v", err)
+	}
+
+	if len(result.Data) > 0 {
+		fmt.Printf("Inserted user with ID: %v\n", result.Data[0]["id"])
+	}
+	return nil
+}
+
+// 演示PostgreSQL的JSONB操作
+func demonstrateJsonbOperations(db *gom.DB) error {
+	fmt.Println("\nDemonstrating JSONB operations...")
+
+	// 创建带JSONB列的表
+	_, err := db.Chain().RawExecute(`
+		CREATE TABLE IF NOT EXISTS user_settings (
+			id SERIAL PRIMARY KEY,
+			user_id BIGINT REFERENCES users(id),
+			preferences JSONB,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+
+	if err != nil {
+		return fmt.Errorf("create table failed: %v", err)
+	}
+
+	// 插入JSONB数据
+	_, err = db.Chain().RawExecute(`
+		INSERT INTO user_settings (user_id, preferences)
+		SELECT id, '{"theme": "dark", "notifications": true}'::jsonb
+		FROM users
+		WHERE username = $1
+	`, "pg_user")
+
+	if err != nil {
+		return fmt.Errorf("insert jsonb failed: %v", err)
+	}
+
+	// 查询JSONB数据
+	result, err := db.Chain().RawQuery(`
+		SELECT u.username, s.preferences->>'theme' as theme
+		FROM users u
+		JOIN user_settings s ON u.id = s.user_id
+		WHERE s.preferences @> '{"notifications": true}'::jsonb
+	`)
+
+	if err != nil {
+		return fmt.Errorf("query jsonb failed: %v", err)
+	}
+
+	fmt.Printf("Found %d users with notification preferences\n", len(result.Data))
+	return nil
+}
+
+// 演示PostgreSQL的全文搜索
+func demonstrateFullTextSearch(db *gom.DB) error {
+	fmt.Println("\nDemonstrating full-text search...")
+
+	// 添加全文搜索列
+	_, err := db.Chain().RawExecute(`
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS search_vector tsvector
+		GENERATED ALWAYS AS (
+			setweight(to_tsvector('english', coalesce(username,'')), 'A') ||
+			setweight(to_tsvector('english', coalesce(email,'')), 'B')
+		) STORED
+	`)
+
+	if err != nil {
+		return fmt.Errorf("add search vector failed: %v", err)
+	}
+
+	// 创建全文搜索索引
+	_, err = db.Chain().RawExecute(`
+		CREATE INDEX IF NOT EXISTS users_search_idx ON users USING GIN (search_vector)
+	`)
+
+	if err != nil {
+		return fmt.Errorf("create search index failed: %v", err)
+	}
+
+	// 执行全文搜索
+	result, err := db.Chain().RawQuery(`
+		SELECT username, email, ts_rank(search_vector, query) as rank
+		FROM users, plainto_tsquery('english', $1) query
+		WHERE search_vector @@ query
+		ORDER BY rank DESC
+	`, "user")
+
+	if err != nil {
+		return fmt.Errorf("full-text search failed: %v", err)
+	}
+
+	fmt.Printf("Found %d matching documents\n", len(result.Data))
+	return nil
+}
+
+// 演示PostgreSQL的递归查询
+func demonstrateRecursiveQueries(db *gom.DB) error {
+	fmt.Println("\nDemonstrating recursive queries...")
+
+	// 创建层级数据表
+	_, err := db.Chain().RawExecute(`
+		CREATE TABLE IF NOT EXISTS categories (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			parent_id INT REFERENCES categories(id),
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+
+	if err != nil {
+		return fmt.Errorf("create categories table failed: %v", err)
+	}
+
+	// 插入示例数据
+	_, err = db.Chain().RawExecute(`
+		INSERT INTO categories (name, parent_id) VALUES
+		('Electronics', NULL),
+		('Computers', 1),
+		('Laptops', 2),
+		('Gaming Laptops', 3)
+		ON CONFLICT DO NOTHING
+	`)
+
+	if err != nil {
+		return fmt.Errorf("insert categories failed: %v", err)
+	}
+
+	// 执行递归查询
+	result, err := db.Chain().RawQuery(`
+		WITH RECURSIVE category_tree AS (
+			SELECT id, name, parent_id, 1 as level, name::text as path
+			FROM categories
+			WHERE parent_id IS NULL
+			
+			UNION ALL
+			
+			SELECT c.id, c.name, c.parent_id, ct.level + 1,
+				(ct.path || ' > ' || c.name::text)
+			FROM categories c
+			JOIN category_tree ct ON ct.id = c.parent_id
+		)
+		SELECT path, level
+		FROM category_tree
+		ORDER BY path
+	`)
+
+	if err != nil {
+		return fmt.Errorf("recursive query failed: %v", err)
+	}
+
+	fmt.Println("Category hierarchy:")
+	for _, row := range result.Data {
+		fmt.Printf("%s (Level %v)\n", row["path"], row["level"])
+	}
+	return nil
+}
+
+// 演示事务和并发控制
+func demonstrateConcurrencyControl(db *gom.DB) error {
+	fmt.Println("\nDemonstrating concurrency control...")
+
+	return db.Chain().Transaction(func(chain *gom.Chain) error {
+		// 设置事务隔离级别为可序列化
+		chain.SetIsolationLevel(sql.LevelSerializable)
+
+		// 使用SKIP LOCKED进行并发处理
+		result, err := chain.RawQuery(`
+			SELECT id, username
+			FROM users
+			WHERE active = true
+			FOR UPDATE SKIP LOCKED
+			LIMIT 5
+		`)
+
+		if err != nil {
+			return fmt.Errorf("select with skip locked failed: %v", err)
+		}
+
+		fmt.Printf("Locked %d rows for processing\n", len(result.Data))
+
+		// 处理锁定的记录
+		for _, row := range result.Data {
+			_, err = chain.RawExecute(`
+				UPDATE users
+				SET updated_at = CURRENT_TIMESTAMP
+				WHERE id = $1
+			`, row["id"])
+
+			if err != nil {
+				return fmt.Errorf("update locked row failed: %v", err)
+			}
+		}
+
+		return nil
+	})
+}
+
 func main() {
-	// Connect to PostgreSQL
+	// 连接到PostgreSQL
 	db, err := gom.Open("postgres", "postgres://postgres:yzy123@192.168.110.249:5432/test?sslmode=disable", true)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer db.Close()
 
-	// Drop existing tables if they exist
-	fmt.Println("Dropping existing tables...")
-	_, err = db.Chain().RawExecute("DROP TABLE IF EXISTS user_profiles")
+	// 清理并创建表
+	fmt.Println("Setting up database...")
+	_, err = db.Chain().RawExecute("DROP TABLE IF EXISTS user_settings CASCADE")
 	if err != nil {
 		log.Fatal(err)
 	}
-	_, err = db.Chain().RawExecute("DROP TABLE IF EXISTS users")
+	_, err = db.Chain().RawExecute("DROP TABLE IF EXISTS user_profiles CASCADE")
 	if err != nil {
 		log.Fatal(err)
 	}
-	_, err = db.Chain().RawExecute("DROP TABLE IF EXISTS user_roles")
+	_, err = db.Chain().RawExecute("DROP TABLE IF EXISTS users CASCADE")
+	if err != nil {
+		log.Fatal(err)
+	}
+	_, err = db.Chain().RawExecute("DROP TABLE IF EXISTS user_roles CASCADE")
+	if err != nil {
+		log.Fatal(err)
+	}
+	_, err = db.Chain().RawExecute("DROP TABLE IF EXISTS categories CASCADE")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Create tables using Chain().CreateTable()
-	fmt.Println("Creating tables...")
+	// 创建基础表
 	err = db.Chain().CreateTable(&example.UserRole{})
 	if err != nil {
-		log.Fatalf("Failed to create user_roles table: %v", err)
+		log.Fatal(err)
 	}
-	fmt.Println("Created user_roles table")
-
 	err = db.Chain().CreateTable(&example.User{})
 	if err != nil {
-		log.Fatalf("Failed to create users table: %v", err)
+		log.Fatal(err)
 	}
-	fmt.Println("Created users table")
-
 	err = db.Chain().CreateTable(&example.UserProfile{})
 	if err != nil {
-		log.Fatalf("Failed to create user_profiles table: %v", err)
-	}
-	fmt.Println("Created user_profiles table")
-
-	// Test 1: Insert a role using Chain().From().Save()
-	fmt.Println("\nTest 1: Inserting role...")
-	role := &example.UserRole{
-		Name:        "admin",
-		Description: "Administrator role",
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
-	}
-	result, err := db.Chain().From(role).Save()
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Created admin role")
-
-	// Test 2: Insert a user with Chain().From().Save()
-	fmt.Println("\nTest 2: Inserting user...")
-	user := &example.User{
-		Username:  "john_doe",
-		Email:     "john@example.com",
-		Age:       30,
-		Active:    true,
-		Role:      "admin",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-	result, err = db.Chain().From(user).Save()
-	if err != nil {
-		log.Fatal(err)
-	}
-	userID, err := result.LastInsertId()
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("Inserted user with ID: %d\n", userID)
-
-	// Test 3: Insert user profile with Chain().From().Save()
-	fmt.Println("\nTest 3: Inserting user profile...")
-	profile := &example.UserProfile{
-		UserID:    userID,
-		Avatar:    "/avatars/john.jpg",
-		Bio:       "Software Engineer",
-		Location:  "San Francisco",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-	_, err = db.Chain().From(profile).Save()
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Created user profile")
-
-	// Test 4: Query user with Chain().From().Where()
-	fmt.Println("\nTest 4: Querying user by username...")
-	var users []example.User
-	queryResult, err := db.Chain().From(&example.User{}).Where("username", "=", "john_doe").List()
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = queryResult.Into(&users)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if len(users) > 0 {
-		fmt.Printf("Found user: %s (ID: %d, Email: %s)\n", users[0].Username, users[0].ID, users[0].Email)
-	} else {
-		fmt.Println("User not found")
-	}
-
-	// Test 5: Update user with Chain().From().Set().Where()
-	fmt.Println("\nTest 5: Updating user age...")
-	_, err = db.Chain().From(&example.User{}).Set("age", 31).Where("id", "=", userID).Save()
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Updated user age")
-
-	// Test 6: Batch insert users
-	fmt.Println("\nTest 6: Batch inserting users...")
-	batchUsers := []example.User{
-		{
-			Username:  "user1",
-			Email:     "user1@example.com",
-			Age:       25,
-			Active:    true,
-			Role:      "user",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		},
-		{
-			Username:  "user2",
-			Email:     "user2@example.com",
-			Age:       28,
-			Active:    true,
-			Role:      "user",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		},
-	}
-
-	// Convert slice of users to slice of maps
-	var batchMaps []map[string]interface{}
-	for _, u := range batchUsers {
-		batchMaps = append(batchMaps, map[string]interface{}{
-			"username":   u.Username,
-			"email":      u.Email,
-			"age":        u.Age,
-			"active":     u.Active,
-			"role":       u.Role,
-			"created_at": u.CreatedAt,
-			"updated_at": u.UpdatedAt,
-		})
-	}
-
-	_, err = db.Chain().From(&example.User{}).BatchValues(batchMaps).Save()
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Batch inserted users")
-
-	// Test 7: Pagination with Chain().From().Page()
-	fmt.Println("\nTest 7: Testing pagination...")
-	var pagedUsers []example.User
-	queryResult, err = db.Chain().From(&example.User{}).OrderBy("id ASC").Limit(2).Offset(0).List()
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = queryResult.Into(&pagedUsers)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("Page 1 (size 2) users count: %d\n", len(pagedUsers))
-
-	// Test 8: Complex query using UserQuery struct
-	fmt.Println("\nTest 8: Complex query using UserQuery...")
-	minAge := 25
-	isActive := true
-	queryModel := &example.UserQuery{
-		MinAge:   &minAge,
-		IsActive: &isActive,
-	}
-	var queryUsers []example.User
-	queryResult, err = db.Chain().From(queryModel).List()
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = queryResult.Into(&queryUsers)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("Found %d active users with age >= 25\n", len(queryUsers))
-
-	// Test 9: Raw query execution
-	fmt.Println("\nTest 9: Raw query execution...")
-	var rawUsers []example.User
-	rawResult, err := db.Chain().RawQuery(`
-		SELECT u.*, p.avatar, p.bio, p.location 
-		FROM users u 
-		LEFT JOIN user_profiles p ON u.id = p.user_id 
-		WHERE u.id = $1`, userID)
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = rawResult.Into(&rawUsers)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if len(rawUsers) > 0 {
-		fmt.Printf("Found user with raw query: %s (ID: %d, Email: %s)\n", rawUsers[0].Username, rawUsers[0].ID, rawUsers[0].Email)
-	} else {
-		fmt.Println("User not found with raw query")
-	}
-
-	// Test 10: Delete operation
-	fmt.Println("\nTest 10: Delete operation...")
-	_, err = db.Chain().From(&example.User{}).Where("username", "=", "user2").Delete()
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Deleted user2")
-
-	// Test 11: Custom table model
-	fmt.Println("\nTest 11: Testing custom table model...")
-	// Drop existing custom_users table
-	_, err = db.Chain().RawExecute("DROP TABLE IF EXISTS custom_users CASCADE")
-	if err != nil {
 		log.Fatal(err)
 	}
 
-	err = db.Chain().CreateTable(&example.CustomUser{})
-	if err != nil {
+	// 演示PostgreSQL特有功能
+	if err := demonstrateReturning(db); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("Created custom_users table")
 
-	customUser := &example.CustomUser{
-		Username:  "custom_user",
-		Email:     "custom@example.com",
-		Age:       35,
-		Active:    true,
-		Role:      "admin",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-	result, err = db.Chain().From(customUser).Save()
-	if err != nil {
+	if err := demonstrateJsonbOperations(db); err != nil {
 		log.Fatal(err)
 	}
-	customUserID, err := result.LastInsertId()
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("Inserted custom user with ID: %d\n", customUserID)
 
-	var customUsers []example.CustomUser
-	queryResult, err = db.Chain().From(&example.CustomUser{}).List()
-	if err != nil {
+	if err := demonstrateFullTextSearch(db); err != nil {
 		log.Fatal(err)
 	}
-	err = queryResult.Into(&customUsers)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("Found %d custom users\n", len(customUsers))
 
-	fmt.Println("\nAll tests completed successfully!")
+	if err := demonstrateRecursiveQueries(db); err != nil {
+		log.Fatal(err)
+	}
+
+	if err := demonstrateConcurrencyControl(db); err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("\nAll PostgreSQL examples completed successfully!")
 }

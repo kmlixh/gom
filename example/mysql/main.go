@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"time"
@@ -11,16 +12,196 @@ import (
 	_ "github.com/kmlixh/gom/v4/factory/mysql"
 )
 
+// 演示批量插入操作
+func demonstrateBatchInsert(db *gom.DB) error {
+	fmt.Println("\nDemonstrating batch insert...")
+	users := []map[string]interface{}{
+		{
+			"username":   "batch_user1",
+			"email":      "batch1@example.com",
+			"age":        25,
+			"active":     true,
+			"role":       "user",
+			"created_at": time.Now(),
+			"updated_at": time.Now(),
+		},
+		{
+			"username":   "batch_user2",
+			"email":      "batch2@example.com",
+			"age":        30,
+			"active":     true,
+			"role":       "user",
+			"created_at": time.Now(),
+			"updated_at": time.Now(),
+		},
+	}
+
+	// 先创建一个角色
+	role := &example.UserRole{
+		Name:        "user",
+		Description: "Normal user role",
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+	_, err := db.Chain().From(role).Save()
+	if err != nil {
+		return fmt.Errorf("create role failed: %v", err)
+	}
+
+	_, err = db.Chain().From("users").BatchValues(users).Save()
+	if err != nil {
+		return fmt.Errorf("batch insert failed: %v", err)
+	}
+	fmt.Println("Batch insert successful")
+	return nil
+}
+
+// 演示复杂查询
+func demonstrateComplexQuery(db *gom.DB) error {
+	fmt.Println("\nDemonstrating complex query...")
+
+	// 使用Query模型进行范围查询
+	minAge := 25
+	maxAge := 35
+	isActive := true
+
+	queryModel := &example.UserQuery{
+		MinAge:   &minAge,
+		MaxAge:   &maxAge,
+		IsActive: &isActive,
+	}
+
+	var users []example.User
+	result, err := db.Chain().From(queryModel).
+		OrderBy("age DESC").
+		Page(1, 10).
+		List()
+
+	if err != nil {
+		return fmt.Errorf("complex query failed: %v", err)
+	}
+
+	err = result.Into(&users)
+	if err != nil {
+		return fmt.Errorf("scanning results failed: %v", err)
+	}
+
+	fmt.Printf("Found %d users matching criteria\n", len(users))
+	return nil
+}
+
+// 演示事务和锁
+func demonstrateTransactionAndLocking(db *gom.DB) error {
+	fmt.Println("\nDemonstrating transaction with row locking...")
+
+	return db.Chain().Transaction(func(chain *gom.Chain) error {
+		// 设置事务隔离级别
+		chain.SetIsolationLevel(sql.LevelRepeatableRead)
+
+		// 使用FOR UPDATE进行锁定
+		var users []example.User
+		result, err := chain.RawQuery("SELECT * FROM users WHERE age > ? FOR UPDATE", 30)
+		if err != nil {
+			return fmt.Errorf("select for update failed: %v", err)
+		}
+
+		err = result.Into(&users)
+		if err != nil {
+			return fmt.Errorf("scanning results failed: %v", err)
+		}
+
+		// 更新锁定的记录
+		for _, user := range users {
+			_, err = chain.From(&example.User{}).
+				Set("age", user.Age+1).
+				Where("id", "=", user.ID).
+				Update()
+
+			if err != nil {
+				return fmt.Errorf("update failed: %v", err)
+			}
+		}
+
+		return nil
+	})
+}
+
+// 演示关联查询
+func demonstrateJoinQueries(db *gom.DB) error {
+	fmt.Println("\nDemonstrating join queries...")
+
+	// 先创建一些用户配置文件
+	for i := 1; i <= 2; i++ {
+		profile := &example.UserProfile{
+			UserID:    int64(i),
+			Avatar:    fmt.Sprintf("/avatars/user%d.jpg", i),
+			Bio:       fmt.Sprintf("Test user %d bio", i),
+			Location:  "Test Location",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+		_, err := db.Chain().From(profile).Save()
+		if err != nil {
+			return fmt.Errorf("create profile failed: %v", err)
+		}
+	}
+
+	query := `
+		SELECT u.*, p.avatar, p.bio, p.location 
+		FROM users u 
+		LEFT JOIN user_profiles p ON u.id = p.user_id 
+		WHERE u.age > ?
+	`
+
+	result, err := db.Chain().RawQuery(query, 25)
+	if err != nil {
+		return fmt.Errorf("join query failed: %v", err)
+	}
+
+	fmt.Printf("Found %d records with profile information\n", len(result.Data))
+	return nil
+}
+
+// 演示自增ID回填
+func demonstrateAutoIncrementId(db *gom.DB) error {
+	fmt.Println("\nDemonstrating auto-increment ID filling...")
+
+	user := &example.User{
+		Username:  "auto_id_test",
+		Email:     "auto_id@example.com",
+		Age:       25,
+		Active:    true,
+		Role:      "user",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	fmt.Printf("Before save - User ID: %d\n", user.ID)
+
+	result, err := db.Chain().From(user).Save()
+	if err != nil {
+		return fmt.Errorf("save user failed: %v", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("get last insert id failed: %v", err)
+	}
+
+	fmt.Printf("After save - Result ID: %d, User ID: %d\n", id, user.ID)
+	return nil
+}
+
 func main() {
-	// Connect to MySQL
+	// 连接到MySQL
 	db, err := gom.Open("mysql", "root:123456@tcp(192.168.110.249:3306)/test?parseTime=true", true)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer db.Close()
 
-	// Drop existing tables if they exist
-	fmt.Println("Dropping existing tables...")
+	// 清理并创建表
+	fmt.Println("Setting up database...")
 	_, err = db.Chain().RawExecute("DROP TABLE IF EXISTS user_profiles")
 	if err != nil {
 		log.Fatal(err)
@@ -34,203 +215,50 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Create tables using Chain().CreateTable()
+	// 创建表
 	fmt.Println("Creating tables...")
 	err = db.Chain().CreateTable(&example.UserRole{})
 	if err != nil {
-		log.Fatalf("Failed to create user_roles table: %v", err)
+		log.Fatal(err)
 	}
 	fmt.Println("Created user_roles table")
 
 	err = db.Chain().CreateTable(&example.User{})
 	if err != nil {
-		log.Fatalf("Failed to create users table: %v", err)
+		log.Fatal(err)
 	}
 	fmt.Println("Created users table")
 
 	err = db.Chain().CreateTable(&example.UserProfile{})
 	if err != nil {
-		log.Fatalf("Failed to create user_profiles table: %v", err)
+		log.Fatal(err)
 	}
 	fmt.Println("Created user_profiles table")
 
-	// Test 1: Insert a role using Chain().From().Save()
-	fmt.Println("\nTest 1: Inserting role...")
-	role := &example.UserRole{
-		Name:        "admin",
-		Description: "Administrator role",
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
-	}
-	result, err := db.Chain().From(role).Save()
-	if err != nil {
+	// 演示批量插入
+	if err := demonstrateBatchInsert(db); err != nil {
 		log.Fatal(err)
-	}
-	fmt.Println("Created admin role")
-
-	// Test 2: Insert a user with Chain().From().Save()
-	fmt.Println("\nTest 2: Inserting user...")
-	user := &example.User{
-		Username:  "john_doe",
-		Email:     "john@example.com",
-		Age:       30,
-		Active:    true,
-		Role:      "admin",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-	result, err = db.Chain().From(user).Save()
-	if err != nil {
-		log.Fatal(err)
-	}
-	userID, _ := result.LastInsertId()
-	fmt.Printf("Inserted user with ID: %d\n", userID)
-
-	// Test 3: Insert user profile with Chain().From().Save()
-	fmt.Println("\nTest 3: Inserting user profile...")
-	profile := &example.UserProfile{
-		UserID:    userID,
-		Avatar:    "/avatars/john.jpg",
-		Bio:       "Software Engineer",
-		Location:  "San Francisco",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
-	_, err = db.Chain().From(profile).Save()
-	if err != nil {
+	// 演示复杂查询
+	if err := demonstrateComplexQuery(db); err != nil {
 		log.Fatal(err)
-	}
-	fmt.Println("Created user profile")
-
-	// Test 4: Query user with Chain().From().Where()
-	fmt.Println("\nTest 4: Querying user by username...")
-	var users []example.User
-	queryResult, err := db.Chain().From(&example.User{}).Where("username", "=", "john_doe").List()
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = queryResult.Into(&users)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if len(users) > 0 {
-		fmt.Printf("Found user: %s (ID: %d)\n", users[0].Username, users[0].ID)
-	} else {
-		fmt.Println("User not found")
 	}
 
-	// Test 5: Update user with Chain().From().Set().Where()
-	fmt.Println("\nTest 5: Updating user age...")
-	_, err = db.Chain().From(&example.User{}).Set("age", 31).Where("id", "=", userID).Save()
-	if err != nil {
+	// 演示事务和锁
+	if err := demonstrateTransactionAndLocking(db); err != nil {
 		log.Fatal(err)
-	}
-	fmt.Println("Updated user age")
-
-	// Test 6: Batch insert users
-	fmt.Println("\nTest 6: Batch inserting users...")
-	batchUsers := []example.User{
-		{
-			Username:  "user1",
-			Email:     "user1@example.com",
-			Age:       25,
-			Active:    true,
-			Role:      "user",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		},
-		{
-			Username:  "user2",
-			Email:     "user2@example.com",
-			Age:       28,
-			Active:    true,
-			Role:      "user",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		},
 	}
 
-	// Convert slice of users to slice of maps
-	var batchMaps []map[string]interface{}
-	for _, u := range batchUsers {
-		batchMaps = append(batchMaps, map[string]interface{}{
-			"username":   u.Username,
-			"email":      u.Email,
-			"age":        u.Age,
-			"active":     u.Active,
-			"role":       u.Role,
-			"created_at": u.CreatedAt,
-			"updated_at": u.UpdatedAt,
-		})
+	// 演示关联查询
+	if err := demonstrateJoinQueries(db); err != nil {
+		log.Fatal(err)
 	}
 
-	_, err = db.Chain().From(&example.User{}).BatchValues(batchMaps).Save()
-	if err != nil {
+	// 演示自增ID回填
+	if err := demonstrateAutoIncrementId(db); err != nil {
 		log.Fatal(err)
-	}
-	fmt.Println("Batch inserted users")
-
-	// Test 7: Pagination with Chain().From().Page()
-	fmt.Println("\nTest 7: Testing pagination...")
-	var pagedUsers []example.User
-	queryResult, err = db.Chain().From(&example.User{}).OrderBy("id ASC").Limit(2).Offset(0).List()
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = queryResult.Into(&pagedUsers)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("Page 1 (size 2) users count: %d\n", len(pagedUsers))
-
-	// Test 8: Complex query using UserQuery struct
-	fmt.Println("\nTest 8: Complex query using UserQuery...")
-	minAge := 25
-	isActive := true
-	queryModel := &example.UserQuery{
-		MinAge:   &minAge,
-		IsActive: &isActive,
-	}
-	var queryUsers []example.User
-	queryResult, err = db.Chain().From(queryModel).List()
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = queryResult.Into(&queryUsers)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("Found %d active users with age >= 25\n", len(queryUsers))
-
-	// Test 9: Raw query execution
-	fmt.Println("\nTest 9: Raw query execution...")
-	var rawUsers []example.User
-	rawResult, err := db.Chain().RawQuery(`
-		SELECT u.*, p.avatar, p.bio, p.location 
-		FROM users u 
-		LEFT JOIN user_profiles p ON u.id = p.user_id 
-		WHERE u.id = ?`, userID)
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = rawResult.Into(&rawUsers)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if len(rawUsers) > 0 {
-		fmt.Printf("Found user with raw query: %s\n", rawUsers[0].Username)
-	} else {
-		fmt.Println("User not found with raw query")
 	}
 
-	// Test 10: Delete operation
-	fmt.Println("\nTest 10: Delete operation...")
-	_, err = db.Chain().From(&example.User{}).Where("username", "=", "user2").Delete()
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Deleted user2")
-
-	fmt.Println("\nAll tests completed successfully!")
+	fmt.Println("\nAll MySQL examples completed successfully!")
 }
