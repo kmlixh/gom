@@ -15,6 +15,9 @@ import (
 type Factory struct{}
 
 func init() {
+	RegisterFactory()
+}
+func RegisterFactory() {
 	define.RegisterFactory("mysql", &Factory{})
 }
 

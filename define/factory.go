@@ -11,6 +11,9 @@ type TableInfo struct {
 	TableComment string       // 表注释
 	PrimaryKeys  []string     // 主键列表
 	Columns      []ColumnInfo // 列信息
+	HasDecimal   bool         // 是否包含 Decimal 类型
+	HasUUID      bool         // 是否包含 UUID 类型
+	HasIP        bool         // 是否包含 IP 类型
 }
 
 // ColumnInfo 列信息

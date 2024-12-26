@@ -19,6 +19,9 @@ func (f *Factory) Connect(dsn string) (*sql.DB, error) {
 }
 
 func init() {
+	RegisterFactory()
+}
+func RegisterFactory() {
 	define.RegisterFactory("postgres", &Factory{})
 }
 
