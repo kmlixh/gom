@@ -114,13 +114,247 @@ func (c *Chain) Offset(count int) *Chain {
 	return c
 }
 
-// Where adds a where condition
-func (c *Chain) Where(field string, op string, value interface{}) *Chain {
-	c.conds = append(c.conds, &define.Condition{
-		Field: field,
-		Op:    op,
-		Value: value,
-	})
+// Where adds a where condition with custom operator
+func (c *Chain) Where(field string, op define.OpType, value interface{}) *Chain {
+	c.conds = append(c.conds, define.NewCondition(field, op, value))
+	return c
+}
+
+// Eq adds an equals condition
+func (c *Chain) Eq(field string, value interface{}) *Chain {
+	c.conds = append(c.conds, define.Eq(field, value))
+	return c
+}
+
+// Ne adds a not equals condition
+func (c *Chain) Ne(field string, value interface{}) *Chain {
+	c.conds = append(c.conds, define.Ne(field, value))
+	return c
+}
+
+// Gt adds a greater than condition
+func (c *Chain) Gt(field string, value interface{}) *Chain {
+	c.conds = append(c.conds, define.Gt(field, value))
+	return c
+}
+
+// Ge adds a greater than or equal condition
+func (c *Chain) Ge(field string, value interface{}) *Chain {
+	c.conds = append(c.conds, define.Ge(field, value))
+	return c
+}
+
+// Lt adds a less than condition
+func (c *Chain) Lt(field string, value interface{}) *Chain {
+	c.conds = append(c.conds, define.Lt(field, value))
+	return c
+}
+
+// Le adds a less than or equal condition
+func (c *Chain) Le(field string, value interface{}) *Chain {
+	c.conds = append(c.conds, define.Le(field, value))
+	return c
+}
+
+// Like adds a LIKE condition
+func (c *Chain) Like(field string, value interface{}) *Chain {
+	c.conds = append(c.conds, define.Like(field, value))
+	return c
+}
+
+// NotLike adds a NOT LIKE condition
+func (c *Chain) NotLike(field string, value interface{}) *Chain {
+	c.conds = append(c.conds, define.NotLike(field, value))
+	return c
+}
+
+// In adds an IN condition
+func (c *Chain) In(field string, value interface{}) *Chain {
+	c.conds = append(c.conds, define.In(field, value))
+	return c
+}
+
+// NotIn adds a NOT IN condition
+func (c *Chain) NotIn(field string, value interface{}) *Chain {
+	c.conds = append(c.conds, define.NotIn(field, value))
+	return c
+}
+
+// IsNull adds an IS NULL condition
+func (c *Chain) IsNull(field string) *Chain {
+	c.conds = append(c.conds, define.IsNull(field))
+	return c
+}
+
+// IsNotNull adds an IS NOT NULL condition
+func (c *Chain) IsNotNull(field string) *Chain {
+	c.conds = append(c.conds, define.IsNotNull(field))
+	return c
+}
+
+// Between adds a BETWEEN condition
+func (c *Chain) Between(field string, start, end interface{}) *Chain {
+	c.conds = append(c.conds, define.Between(field, start, end))
+	return c
+}
+
+// NotBetween adds a NOT BETWEEN condition
+func (c *Chain) NotBetween(field string, start, end interface{}) *Chain {
+	c.conds = append(c.conds, define.NotBetween(field, start, end))
+	return c
+}
+
+// OrEq adds an OR equals condition
+func (c *Chain) OrEq(field string, value interface{}) *Chain {
+	if len(c.conds) > 0 {
+		lastCond := c.conds[len(c.conds)-1]
+		lastCond.Or(define.Eq(field, value))
+	} else {
+		c.conds = append(c.conds, define.Eq(field, value))
+	}
+	return c
+}
+
+// OrNe adds an OR not equals condition
+func (c *Chain) OrNe(field string, value interface{}) *Chain {
+	if len(c.conds) > 0 {
+		lastCond := c.conds[len(c.conds)-1]
+		lastCond.Or(define.Ne(field, value))
+	} else {
+		c.conds = append(c.conds, define.Ne(field, value))
+	}
+	return c
+}
+
+// OrGt adds an OR greater than condition
+func (c *Chain) OrGt(field string, value interface{}) *Chain {
+	if len(c.conds) > 0 {
+		lastCond := c.conds[len(c.conds)-1]
+		lastCond.Or(define.Gt(field, value))
+	} else {
+		c.conds = append(c.conds, define.Gt(field, value))
+	}
+	return c
+}
+
+// OrGe adds an OR greater than or equal condition
+func (c *Chain) OrGe(field string, value interface{}) *Chain {
+	if len(c.conds) > 0 {
+		lastCond := c.conds[len(c.conds)-1]
+		lastCond.Or(define.Ge(field, value))
+	} else {
+		c.conds = append(c.conds, define.Ge(field, value))
+	}
+	return c
+}
+
+// OrLt adds an OR less than condition
+func (c *Chain) OrLt(field string, value interface{}) *Chain {
+	if len(c.conds) > 0 {
+		lastCond := c.conds[len(c.conds)-1]
+		lastCond.Or(define.Lt(field, value))
+	} else {
+		c.conds = append(c.conds, define.Lt(field, value))
+	}
+	return c
+}
+
+// OrLe adds an OR less than or equal condition
+func (c *Chain) OrLe(field string, value interface{}) *Chain {
+	if len(c.conds) > 0 {
+		lastCond := c.conds[len(c.conds)-1]
+		lastCond.Or(define.Le(field, value))
+	} else {
+		c.conds = append(c.conds, define.Le(field, value))
+	}
+	return c
+}
+
+// OrLike adds an OR LIKE condition
+func (c *Chain) OrLike(field string, value interface{}) *Chain {
+	if len(c.conds) > 0 {
+		lastCond := c.conds[len(c.conds)-1]
+		lastCond.Or(define.Like(field, value))
+	} else {
+		c.conds = append(c.conds, define.Like(field, value))
+	}
+	return c
+}
+
+// OrNotLike adds an OR NOT LIKE condition
+func (c *Chain) OrNotLike(field string, value interface{}) *Chain {
+	if len(c.conds) > 0 {
+		lastCond := c.conds[len(c.conds)-1]
+		lastCond.Or(define.NotLike(field, value))
+	} else {
+		c.conds = append(c.conds, define.NotLike(field, value))
+	}
+	return c
+}
+
+// OrIn adds an OR IN condition
+func (c *Chain) OrIn(field string, value interface{}) *Chain {
+	if len(c.conds) > 0 {
+		lastCond := c.conds[len(c.conds)-1]
+		lastCond.Or(define.In(field, value))
+	} else {
+		c.conds = append(c.conds, define.In(field, value))
+	}
+	return c
+}
+
+// OrNotIn adds an OR NOT IN condition
+func (c *Chain) OrNotIn(field string, value interface{}) *Chain {
+	if len(c.conds) > 0 {
+		lastCond := c.conds[len(c.conds)-1]
+		lastCond.Or(define.NotIn(field, value))
+	} else {
+		c.conds = append(c.conds, define.NotIn(field, value))
+	}
+	return c
+}
+
+// OrIsNull adds an OR IS NULL condition
+func (c *Chain) OrIsNull(field string) *Chain {
+	if len(c.conds) > 0 {
+		lastCond := c.conds[len(c.conds)-1]
+		lastCond.Or(define.IsNull(field))
+	} else {
+		c.conds = append(c.conds, define.IsNull(field))
+	}
+	return c
+}
+
+// OrIsNotNull adds an OR IS NOT NULL condition
+func (c *Chain) OrIsNotNull(field string) *Chain {
+	if len(c.conds) > 0 {
+		lastCond := c.conds[len(c.conds)-1]
+		lastCond.Or(define.IsNotNull(field))
+	} else {
+		c.conds = append(c.conds, define.IsNotNull(field))
+	}
+	return c
+}
+
+// OrBetween adds an OR BETWEEN condition
+func (c *Chain) OrBetween(field string, start, end interface{}) *Chain {
+	if len(c.conds) > 0 {
+		lastCond := c.conds[len(c.conds)-1]
+		lastCond.Or(define.Between(field, start, end))
+	} else {
+		c.conds = append(c.conds, define.Between(field, start, end))
+	}
+	return c
+}
+
+// OrNotBetween adds an OR NOT BETWEEN condition
+func (c *Chain) OrNotBetween(field string, start, end interface{}) *Chain {
+	if len(c.conds) > 0 {
+		lastCond := c.conds[len(c.conds)-1]
+		lastCond.Or(define.NotBetween(field, start, end))
+	} else {
+		c.conds = append(c.conds, define.NotBetween(field, start, end))
+	}
 	return c
 }
 
@@ -191,13 +425,13 @@ func (c *Chain) From(model interface{}) *Chain {
 			if !value.IsZero() {
 				switch {
 				case strings.HasPrefix(field.Name, "Min"):
-					c.Where(strings.TrimPrefix(columnName, "min_"), ">=", value.Interface())
+					c.Where(strings.TrimPrefix(columnName, "min_"), define.OpGe, value.Interface())
 				case strings.HasPrefix(field.Name, "Max"):
-					c.Where(strings.TrimPrefix(columnName, "max_"), "<=", value.Interface())
+					c.Where(strings.TrimPrefix(columnName, "max_"), define.OpLe, value.Interface())
 				case field.Name == "IsActive":
-					c.Where("active", "=", value.Interface())
+					c.Where("active", define.OpEq, value.Interface())
 				default:
-					c.Where(columnName, "=", value.Interface())
+					c.Where(columnName, define.OpEq, value.Interface())
 				}
 			}
 			continue
@@ -206,7 +440,7 @@ func (c *Chain) From(model interface{}) *Chain {
 		// Handle normal model fields
 		if !value.IsZero() {
 			if field.Name == "ID" {
-				c.Where(columnName, "=", value.Interface())
+				c.Where(columnName, define.OpEq, value.Interface())
 			} else {
 				if c.insertFields == nil {
 					c.insertFields = make(map[string]interface{})
@@ -1023,4 +1257,29 @@ func (qr *QueryResult) First() *QueryResult {
 		}
 	}
 	return &QueryResult{err: sql.ErrNoRows}
+}
+
+// Where2 adds a condition directly
+func (c *Chain) Where2(cond *define.Condition) *Chain {
+	c.conds = append(c.conds, cond)
+	return c
+}
+
+// NewCondition creates a new condition with AND join type
+func (c *Chain) NewCondition() *define.Condition {
+	return &define.Condition{Join: define.JoinAnd}
+}
+
+// WhereGroup starts a new condition group with AND join type
+func (c *Chain) WhereGroup() *define.Condition {
+	cond := &define.Condition{Join: define.JoinAnd, IsSubGroup: true}
+	c.conds = append(c.conds, cond)
+	return cond
+}
+
+// OrWhereGroup starts a new condition group with OR join type
+func (c *Chain) OrWhereGroup() *define.Condition {
+	cond := &define.Condition{Join: define.JoinOr, IsSubGroup: true}
+	c.conds = append(c.conds, cond)
+	return cond
 }

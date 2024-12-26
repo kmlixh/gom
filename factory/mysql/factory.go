@@ -25,6 +25,95 @@ func (f *Factory) Connect(dsn string) (*sql.DB, error) {
 	return sql.Open("mysql", dsn)
 }
 
+// getOperator converts OpType to MySQL operator string
+func (f *Factory) getOperator(op define.OpType) string {
+	switch op {
+	case define.OpEq:
+		return "="
+	case define.OpNe:
+		return "!="
+	case define.OpGt:
+		return ">"
+	case define.OpGe:
+		return ">="
+	case define.OpLt:
+		return "<"
+	case define.OpLe:
+		return "<="
+	case define.OpLike:
+		return "LIKE"
+	case define.OpNotLike:
+		return "NOT LIKE"
+	case define.OpIn:
+		return "IN"
+	case define.OpNotIn:
+		return "NOT IN"
+	case define.OpIsNull:
+		return "IS NULL"
+	case define.OpIsNotNull:
+		return "IS NOT NULL"
+	case define.OpBetween:
+		return "BETWEEN"
+	case define.OpNotBetween:
+		return "NOT BETWEEN"
+	default:
+		return "="
+	}
+}
+
+// buildCondition builds a single condition clause
+func (f *Factory) buildCondition(cond *define.Condition) (string, []interface{}) {
+	if cond.IsSubGroup && len(cond.SubConds) > 0 {
+		var subCondStrs []string
+		var subArgs []interface{}
+
+		for _, subCond := range cond.SubConds {
+			subStr, subArg := f.buildCondition(subCond)
+			if subStr != "" {
+				if subCond.Join == define.JoinOr && len(subCondStrs) > 0 {
+					subCondStrs = append(subCondStrs, "OR", subStr)
+				} else if len(subCondStrs) > 0 {
+					subCondStrs = append(subCondStrs, "AND", subStr)
+				} else {
+					subCondStrs = append(subCondStrs, subStr)
+				}
+				subArgs = append(subArgs, subArg...)
+			}
+		}
+
+		if len(subCondStrs) > 0 {
+			return "(" + strings.Join(subCondStrs, " ") + ")", subArgs
+		}
+		return "", nil
+	}
+
+	if cond.Field == "" {
+		return "", nil
+	}
+
+	op := f.getOperator(cond.Op)
+	switch cond.Op {
+	case define.OpIsNull, define.OpIsNotNull:
+		return fmt.Sprintf("`%s` %s", cond.Field, op), nil
+	case define.OpIn, define.OpNotIn:
+		if values, ok := cond.Value.([]interface{}); ok {
+			placeholders := make([]string, len(values))
+			for i := range values {
+				placeholders[i] = "?"
+			}
+			return fmt.Sprintf("`%s` %s (%s)", cond.Field, op, strings.Join(placeholders, ", ")), values
+		}
+		return fmt.Sprintf("`%s` %s (?)", cond.Field, op), []interface{}{cond.Value}
+	case define.OpBetween, define.OpNotBetween:
+		if values, ok := cond.Value.([]interface{}); ok && len(values) == 2 {
+			return fmt.Sprintf("`%s` %s ? AND ?", cond.Field, op), values
+		}
+		return "", nil
+	default:
+		return fmt.Sprintf("`%s` %s ?", cond.Field, op), []interface{}{cond.Value}
+	}
+}
+
 // BuildSelect builds a SELECT query for MySQL
 func (f *Factory) BuildSelect(table string, fields []string, conditions []*define.Condition, orderBy string, limit, offset int) (string, []interface{}) {
 	var args []interface{}
@@ -48,11 +137,20 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 	if len(conditions) > 0 {
 		query += " WHERE "
 		var condStrings []string
-		for _, cond := range conditions {
-			condStrings = append(condStrings, fmt.Sprintf("`%s` %s ?", cond.Field, cond.Op))
-			args = append(args, cond.Value)
+		for i, cond := range conditions {
+			condStr, condArgs := f.buildCondition(cond)
+			if condStr != "" {
+				if cond.Join == define.JoinOr && i > 0 {
+					condStrings = append(condStrings, "OR", condStr)
+				} else if i > 0 {
+					condStrings = append(condStrings, "AND", condStr)
+				} else {
+					condStrings = append(condStrings, condStr)
+				}
+				args = append(args, condArgs...)
+			}
 		}
-		query += strings.Join(condStrings, " AND ")
+		query += strings.Join(condStrings, " ")
 	}
 
 	// Add order by
@@ -355,7 +453,7 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 			&col.Comment,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("扫描���信息失败: %v", err)
+			return nil, fmt.Errorf("扫描信息失败: %v", err)
 		}
 
 		// 设置列属性

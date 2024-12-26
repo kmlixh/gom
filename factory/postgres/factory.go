@@ -25,10 +25,101 @@ func RegisterFactory() {
 	define.RegisterFactory("postgres", &Factory{})
 }
 
+// getOperator converts OpType to PostgreSQL operator string
+func (f *Factory) getOperator(op define.OpType) string {
+	switch op {
+	case define.OpEq:
+		return "="
+	case define.OpNe:
+		return "!="
+	case define.OpGt:
+		return ">"
+	case define.OpGe:
+		return ">="
+	case define.OpLt:
+		return "<"
+	case define.OpLe:
+		return "<="
+	case define.OpLike:
+		return "LIKE"
+	case define.OpNotLike:
+		return "NOT LIKE"
+	case define.OpIn:
+		return "IN"
+	case define.OpNotIn:
+		return "NOT IN"
+	case define.OpIsNull:
+		return "IS NULL"
+	case define.OpIsNotNull:
+		return "IS NOT NULL"
+	case define.OpBetween:
+		return "BETWEEN"
+	case define.OpNotBetween:
+		return "NOT BETWEEN"
+	default:
+		return "="
+	}
+}
+
+// buildCondition builds a single condition clause
+func (f *Factory) buildCondition(cond *define.Condition, startParam int) (string, []interface{}, int) {
+	if cond.IsSubGroup && len(cond.SubConds) > 0 {
+		var subCondStrs []string
+		var subArgs []interface{}
+		currentParam := startParam
+
+		for _, subCond := range cond.SubConds {
+			subStr, subArg, newParam := f.buildCondition(subCond, currentParam)
+			if subStr != "" {
+				if subCond.Join == define.JoinOr && len(subCondStrs) > 0 {
+					subCondStrs = append(subCondStrs, "OR", subStr)
+				} else if len(subCondStrs) > 0 {
+					subCondStrs = append(subCondStrs, "AND", subStr)
+				} else {
+					subCondStrs = append(subCondStrs, subStr)
+				}
+				subArgs = append(subArgs, subArg...)
+				currentParam = newParam
+			}
+		}
+
+		if len(subCondStrs) > 0 {
+			return "(" + strings.Join(subCondStrs, " ") + ")", subArgs, currentParam
+		}
+		return "", nil, startParam
+	}
+
+	if cond.Field == "" {
+		return "", nil, startParam
+	}
+
+	op := f.getOperator(cond.Op)
+	switch cond.Op {
+	case define.OpIsNull, define.OpIsNotNull:
+		return fmt.Sprintf("%s %s", cond.Field, op), nil, startParam
+	case define.OpIn, define.OpNotIn:
+		if values, ok := cond.Value.([]interface{}); ok {
+			placeholders := make([]string, len(values))
+			for i := range values {
+				placeholders[i] = fmt.Sprintf("$%d", startParam+i)
+			}
+			return fmt.Sprintf("%s %s (%s)", cond.Field, op, strings.Join(placeholders, ", ")), values, startParam + len(values)
+		}
+		return fmt.Sprintf("%s %s ($%d)", cond.Field, op, startParam), []interface{}{cond.Value}, startParam + 1
+	case define.OpBetween, define.OpNotBetween:
+		if values, ok := cond.Value.([]interface{}); ok && len(values) == 2 {
+			return fmt.Sprintf("%s %s $%d AND $%d", cond.Field, op, startParam, startParam+1), values, startParam + 2
+		}
+		return "", nil, startParam
+	default:
+		return fmt.Sprintf("%s %s $%d", cond.Field, op, startParam), []interface{}{cond.Value}, startParam + 1
+	}
+}
+
 // BuildSelect builds a SELECT query for PostgreSQL
 func (f *Factory) BuildSelect(table string, fields []string, conditions []*define.Condition, orderBy string, limit, offset int) (string, []interface{}) {
 	var args []interface{}
-	var paramCount int
+	var paramCount int = 1
 	query := "SELECT "
 
 	// Add fields
@@ -45,12 +136,21 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 	if len(conditions) > 0 {
 		query += " WHERE "
 		var condStrings []string
-		for _, cond := range conditions {
-			paramCount++
-			condStrings = append(condStrings, fmt.Sprintf("%s %s $%d", cond.Field, cond.Op, paramCount))
-			args = append(args, cond.Value)
+		for i, cond := range conditions {
+			condStr, condArgs, newParamCount := f.buildCondition(cond, paramCount)
+			if condStr != "" {
+				if cond.Join == define.JoinOr && i > 0 {
+					condStrings = append(condStrings, "OR", condStr)
+				} else if i > 0 {
+					condStrings = append(condStrings, "AND", condStr)
+				} else {
+					condStrings = append(condStrings, condStr)
+				}
+				args = append(args, condArgs...)
+				paramCount = newParamCount
+			}
 		}
-		query += strings.Join(condStrings, " AND ")
+		query += strings.Join(condStrings, " ")
 	}
 
 	// Add order by
@@ -60,14 +160,13 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 
 	// Add limit and offset
 	if limit > 0 {
-
-		paramCount++
 		query += fmt.Sprintf(" LIMIT $%d", paramCount)
 		args = append(args, limit)
+		paramCount++
 		if offset > 0 {
-			paramCount++
 			query += fmt.Sprintf(" OFFSET $%d", paramCount)
 			args = append(args, offset)
+			paramCount++
 		}
 	}
 
@@ -77,15 +176,15 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 // BuildUpdate builds an UPDATE query for PostgreSQL
 func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, conditions []*define.Condition) (string, []interface{}) {
 	var args []interface{}
-	var paramCount int
+	var paramCount int = 1
 	query := "UPDATE " + table + " SET "
 
 	// Add fields
 	var fieldStrings []string
 	for field, value := range fields {
-		paramCount++
 		fieldStrings = append(fieldStrings, fmt.Sprintf("%s = $%d", field, paramCount))
 		args = append(args, value)
+		paramCount++
 	}
 	query += strings.Join(fieldStrings, ", ")
 
@@ -94,12 +193,18 @@ func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, condi
 		query += " WHERE "
 		var condStrings []string
 		for _, cond := range conditions {
-			paramCount++
-			condStrings = append(condStrings, fmt.Sprintf("%s %s $%d", cond.Field, cond.Op, paramCount))
-			args = append(args, cond.Value)
+			condStr, condArgs, newParamCount := f.buildCondition(cond, paramCount)
+			if condStr != "" {
+				condStrings = append(condStrings, condStr)
+				args = append(args, condArgs...)
+				paramCount = newParamCount
+			}
 		}
 		query += strings.Join(condStrings, " AND ")
 	}
+
+	// Add RETURNING clause for PostgreSQL
+	query += " RETURNING id"
 
 	return query, args
 }
@@ -364,7 +469,7 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 		schema = parts[0]
 		table = parts[1]
 	} else {
-		// 如果没有指定 schema，默认使用 public
+		// 如果没指定 schema，默认使用 public
 		schema = "public"
 		table = tableName
 	}
