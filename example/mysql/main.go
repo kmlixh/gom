@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -72,18 +73,15 @@ func demonstrateComplexQuery(db *gom.DB) error {
 	}
 
 	var users []example.User
-	result, err := db.Chain().From(queryModel).
-		OrderBy("age DESC").
+	err := db.Chain().From(queryModel).
+		OrderByDesc("age").
+		OrderBy("username").
 		Page(1, 10).
-		List()
+		List().
+		Into(&users)
 
 	if err != nil {
 		return fmt.Errorf("complex query failed: %v", err)
-	}
-
-	err = result.Into(&users)
-	if err != nil {
-		return fmt.Errorf("scanning results failed: %v", err)
 	}
 
 	fmt.Printf("Found %d users matching criteria\n", len(users))
@@ -100,14 +98,10 @@ func demonstrateTransactionAndLocking(db *gom.DB) error {
 
 		// 使用FOR UPDATE进行锁定
 		var users []example.User
-		result, err := chain.RawQuery("SELECT * FROM users WHERE age > ? FOR UPDATE", 30)
+		err := chain.RawQuery("SELECT * FROM users WHERE age > ? FOR UPDATE", 30).
+			Into(&users)
 		if err != nil {
 			return fmt.Errorf("select for update failed: %v", err)
-		}
-
-		err = result.Into(&users)
-		if err != nil {
-			return fmt.Errorf("scanning results failed: %v", err)
 		}
 
 		// 更新锁定的记录
@@ -146,6 +140,21 @@ func demonstrateJoinQueries(db *gom.DB) error {
 		}
 	}
 
+	// 定义一个包含所需字段的结构体
+	type UserWithProfile struct {
+		ID        int64     `gom:"id"`
+		Username  string    `gom:"username"`
+		Email     string    `gom:"email"`
+		Age       int       `gom:"age"`
+		Active    bool      `gom:"active"`
+		Role      string    `gom:"role"`
+		CreatedAt time.Time `gom:"created_at"`
+		UpdatedAt time.Time `gom:"updated_at"`
+		Avatar    string    `gom:"avatar"`
+		Bio       string    `gom:"bio"`
+		Location  string    `gom:"location"`
+	}
+
 	query := `
 		SELECT u.*, p.avatar, p.bio, p.location 
 		FROM users u 
@@ -153,12 +162,17 @@ func demonstrateJoinQueries(db *gom.DB) error {
 		WHERE u.age > ?
 	`
 
-	result, err := db.Chain().RawQuery(query, 25)
+	var results []UserWithProfile
+	err := db.Chain().RawQuery(query, 25).Into(&results)
 	if err != nil {
 		return fmt.Errorf("join query failed: %v", err)
 	}
 
-	fmt.Printf("Found %d records with profile information\n", len(result.Data))
+	fmt.Printf("Found %d records with profile information\n", len(results))
+	for _, r := range results {
+		fmt.Printf("User: %s (Age: %d), Location: %s, Bio: %s\n",
+			r.Username, r.Age, r.Location, r.Bio)
+	}
 	return nil
 }
 
@@ -196,9 +210,15 @@ func demonstrateAutoIncrementId(db *gom.DB) error {
 func demonstrateCodeGeneration(db *gom.DB) error {
 	fmt.Println("\nDemonstrating code generation...")
 
+	// 创建目标目录
+	err := os.MkdirAll("./generated", 0755)
+	if err != nil {
+		return fmt.Errorf("failed to create directory: %v", err)
+	}
+
 	// 生成单个表的结构体
 	fmt.Println("Generating struct for 'users' table...")
-	err := db.GenerateStruct("users", "./generated", "models")
+	err = db.GenerateStruct("users", "./generated", "models")
 	if err != nil {
 		return fmt.Errorf("generate struct for users failed: %v", err)
 	}
@@ -215,6 +235,53 @@ func demonstrateCodeGeneration(db *gom.DB) error {
 	}
 
 	fmt.Println("Code generation completed successfully")
+	return nil
+}
+
+// 演示各种数据类型
+func demonstrateDataTypes(db *gom.DB) error {
+	fmt.Println("\nDemonstrating various data types...")
+
+	// 删除并创建测试表
+	_, err := db.Chain().RawExecute("DROP TABLE IF EXISTS test_types")
+	if err != nil {
+		return fmt.Errorf("drop table failed: %v", err)
+	}
+
+	_, err = db.Chain().RawExecute(`
+		CREATE TABLE test_types (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT 'Primary key',
+			tiny_int_col TINYINT COMMENT 'Tiny integer column',
+			small_int_col SMALLINT COMMENT 'Small integer column',
+			int_col INT COMMENT 'Integer column',
+			big_int_col BIGINT COMMENT 'Big integer column',
+			float_col FLOAT COMMENT 'Float column',
+			double_col DOUBLE COMMENT 'Double column',
+			decimal_col DECIMAL(10,2) COMMENT 'Decimal column',
+			varchar_col VARCHAR(255) COMMENT 'Varchar column',
+			text_col TEXT COMMENT 'Text column',
+			date_col DATE COMMENT 'Date column',
+			datetime_col DATETIME COMMENT 'Datetime column',
+			timestamp_col TIMESTAMP COMMENT 'Timestamp column',
+			bool_col BOOLEAN COMMENT 'Boolean column',
+			nullable_int INT NULL COMMENT 'Nullable integer column',
+			nullable_string VARCHAR(255) NULL COMMENT 'Nullable string column',
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Creation time',
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time'
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Test table for various data types'
+	`)
+	if err != nil {
+		return fmt.Errorf("create table failed: %v", err)
+	}
+
+	// 生成 test_types 表的结构体
+	fmt.Println("Generating struct for 'test_types' table...")
+	err = db.GenerateStruct("test_types", "./generated", "models")
+	if err != nil {
+		return fmt.Errorf("generate struct for test_types failed: %v", err)
+	}
+
+	fmt.Println("Code generation for test_types completed successfully")
 	return nil
 }
 
@@ -288,6 +355,11 @@ func main() {
 
 	// 演示代码生成
 	if err := demonstrateCodeGeneration(db); err != nil {
+		log.Fatal(err)
+	}
+
+	// 演示各种数据类型
+	if err := demonstrateDataTypes(db); err != nil {
 		log.Fatal(err)
 	}
 

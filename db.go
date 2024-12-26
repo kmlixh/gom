@@ -154,7 +154,10 @@ func generateStructFile(tableInfo *define.TableInfo, outputDir, packageName stri
 	defer file.Close()
 
 	// 使用模板生成代码
-	tmpl, err := template.New("struct").Parse(structTemplate)
+	tmpl, err := template.New("struct").Funcs(template.FuncMap{
+		"toGoName": toGoName,
+		"goType":   goType,
+	}).Parse(structTemplate)
 	if err != nil {
 		return fmt.Errorf("解析模板失败: %v", err)
 	}

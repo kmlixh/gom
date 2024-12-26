@@ -14,6 +14,20 @@ import (
 	"github.com/kmlixh/gom/v4/define"
 )
 
+// OrderType represents the type of ordering
+type OrderType int
+
+const (
+	OrderAsc  OrderType = iota // Ascending order
+	OrderDesc                  // Descending order
+)
+
+// OrderBy represents an order by clause
+type OrderBy struct {
+	Field string
+	Type  OrderType
+}
+
 // Chain represents the base chain structure
 type Chain struct {
 	db      *DB
@@ -34,10 +48,10 @@ type Chain struct {
 	conds     []*define.Condition
 
 	// Query specific fields
-	fieldList   []string
-	orderByExpr string
-	limitCount  int
-	offsetCount int
+	fieldList    []string
+	orderByExprs []OrderBy // 修改为 OrderBy 切片
+	limitCount   int
+	offsetCount  int
 
 	// Update specific fields
 	updateFields map[string]interface{}
@@ -59,10 +73,33 @@ func (c *Chain) Fields(fields ...string) *Chain {
 	return c
 }
 
-// OrderBy sets the order by expression
-func (c *Chain) OrderBy(expr string) *Chain {
-	c.orderByExpr = expr
+// OrderBy adds an ascending order by clause
+func (c *Chain) OrderBy(field string) *Chain {
+	c.orderByExprs = append(c.orderByExprs, OrderBy{Field: field, Type: OrderAsc})
 	return c
+}
+
+// OrderByDesc adds a descending order by clause
+func (c *Chain) OrderByDesc(field string) *Chain {
+	c.orderByExprs = append(c.orderByExprs, OrderBy{Field: field, Type: OrderDesc})
+	return c
+}
+
+// buildOrderByExpr builds the ORDER BY expression
+func (c *Chain) buildOrderByExpr() string {
+	if len(c.orderByExprs) == 0 {
+		return ""
+	}
+
+	var orders []string
+	for _, order := range c.orderByExprs {
+		if order.Type == OrderDesc {
+			orders = append(orders, order.Field+" DESC")
+		} else {
+			orders = append(orders, order.Field)
+		}
+	}
+	return strings.Join(orders, ", ")
 }
 
 // Limit sets the limit count
@@ -183,8 +220,9 @@ func (c *Chain) From(model interface{}) *Chain {
 }
 
 // List executes a SELECT query and returns all results
-func (c *Chain) List() (*QueryResult, error) {
-	sqlStr, args := c.factory.BuildSelect(c.tableName, c.fieldList, c.conds, c.orderByExpr, c.limitCount, c.offsetCount)
+func (c *Chain) List() *QueryResult {
+	orderByExpr := c.buildOrderByExpr()
+	sqlStr, args := c.factory.BuildSelect(c.tableName, c.fieldList, c.conds, orderByExpr, c.limitCount, c.offsetCount)
 	if define.Debug {
 		// Convert pointer values to actual values for logging
 		logArgs := make([]interface{}, len(args))
@@ -206,13 +244,13 @@ func (c *Chain) List() (*QueryResult, error) {
 		rows, err = c.db.DB.Query(sqlStr, args...)
 	}
 	if err != nil {
-		return nil, err
+		return &QueryResult{err: err}
 	}
 	defer rows.Close()
 
 	columns, err := rows.Columns()
 	if err != nil {
-		return nil, err
+		return &QueryResult{err: err}
 	}
 
 	var result []map[string]interface{}
@@ -224,7 +262,7 @@ func (c *Chain) List() (*QueryResult, error) {
 
 		err = rows.Scan(values...)
 		if err != nil {
-			return nil, err
+			return &QueryResult{err: err}
 		}
 
 		row := make(map[string]interface{})
@@ -249,50 +287,42 @@ func (c *Chain) List() (*QueryResult, error) {
 	return &QueryResult{
 		Data:    result,
 		Columns: columns,
-	}, nil
+	}
 }
 
 // First returns the first result
-func (c *Chain) First() (*QueryResult, error) {
-	c.limitCount = 1
+func (c *Chain) First() *QueryResult {
+	c.Limit(1)
 	return c.List()
 }
 
 // Last returns the last result
-func (c *Chain) Last() (*QueryResult, error) {
-	if c.orderByExpr == "" {
-		if len(c.fieldList) > 0 && c.fieldList[0] != "*" {
-			c.orderByExpr = c.fieldList[0] + " DESC"
-		}
+func (c *Chain) Last() *QueryResult {
+	if len(c.orderByExprs) == 0 {
+		c.OrderByDesc("id")
 	} else {
-		if !strings.Contains(strings.ToUpper(c.orderByExpr), "DESC") {
-			c.orderByExpr += " DESC"
+		// 反转所有排序的方向
+		newOrders := make([]OrderBy, len(c.orderByExprs))
+		for i, order := range c.orderByExprs {
+			if order.Type == OrderAsc {
+				newOrders[i] = OrderBy{Field: order.Field, Type: OrderDesc}
+			} else {
+				newOrders[i] = OrderBy{Field: order.Field, Type: OrderAsc}
+			}
 		}
+		c.orderByExprs = newOrders
 	}
-	c.limitCount = 1
+	c.Limit(1)
 	return c.List()
 }
 
 // One returns exactly one result
-func (c *Chain) One() (*QueryResult, error) {
-	c.limitCount = 2 // Get 2 to check if there are multiple results
-	result, err := c.List()
-	if err != nil {
-		return nil, err
+func (c *Chain) One() *QueryResult {
+	result := c.List()
+	if result.Size() != 1 {
+		return &QueryResult{err: fmt.Errorf("expected 1 result, got %d", result.Size())}
 	}
-
-	if result.Empty() {
-		return nil, fmt.Errorf("no record found")
-	}
-
-	if result.Size() > 1 {
-		return nil, fmt.Errorf("multiple records found")
-	}
-
-	return &QueryResult{
-		Data:    result.Data[:1],
-		Columns: result.Columns,
-	}, nil
+	return result
 }
 
 // Save executes an INSERT or UPDATE query
@@ -449,18 +479,19 @@ func (c *Chain) Page(pageNum, pageSize int) *Chain {
 
 // Into scans the result into a struct or slice of structs
 func (c *Chain) Into(dest interface{}) error {
-	result, err := c.List()
-	if err != nil {
-		return err
+	result := c.List()
+	if result.err != nil {
+		return result.err
 	}
 	return result.Into(dest)
 }
 
-// RawQuery executes a raw SQL query with args
-func (c *Chain) RawQuery(sqlStr string, args ...interface{}) (*QueryResult, error) {
+// RawQuery executes a raw SQL query
+func (c *Chain) RawQuery(sqlStr string, args ...interface{}) *QueryResult {
 	if define.Debug {
-		log.Printf("[SQL] %s %v\n", sqlStr, args)
+		log.Printf("[SQL] %s %v", sqlStr, args)
 	}
+
 	var rows *sql.Rows
 	var err error
 	if c.tx != nil {
@@ -469,13 +500,13 @@ func (c *Chain) RawQuery(sqlStr string, args ...interface{}) (*QueryResult, erro
 		rows, err = c.db.DB.Query(sqlStr, args...)
 	}
 	if err != nil {
-		return nil, err
+		return &QueryResult{err: err}
 	}
 	defer rows.Close()
 
 	columns, err := rows.Columns()
 	if err != nil {
-		return nil, err
+		return &QueryResult{err: err}
 	}
 
 	var result []map[string]interface{}
@@ -487,7 +518,7 @@ func (c *Chain) RawQuery(sqlStr string, args ...interface{}) (*QueryResult, erro
 
 		err = rows.Scan(values...)
 		if err != nil {
-			return nil, err
+			return &QueryResult{err: err}
 		}
 
 		row := make(map[string]interface{})
@@ -501,7 +532,7 @@ func (c *Chain) RawQuery(sqlStr string, args ...interface{}) (*QueryResult, erro
 	return &QueryResult{
 		Data:    result,
 		Columns: columns,
-	}, nil
+	}
 }
 
 // RawExecute executes a raw SQL statement with args
@@ -519,6 +550,12 @@ func (c *Chain) RawExecute(sql string, args ...interface{}) (sql.Result, error) 
 type QueryResult struct {
 	Data    []map[string]interface{} `json:"data"`
 	Columns []string                 `json:"columns"`
+	err     error
+}
+
+// Error returns the error if any
+func (qr *QueryResult) Error() error {
+	return qr.err
 }
 
 // Empty returns true if the result is empty
@@ -533,6 +570,9 @@ func (qr *QueryResult) Size() int {
 
 // Into scans the result into a slice of structs
 func (qr *QueryResult) Into(dest interface{}) error {
+	if qr.err != nil {
+		return qr.err
+	}
 	destValue := reflect.ValueOf(dest)
 	if destValue.Kind() != reflect.Ptr {
 		return fmt.Errorf("dest must be a pointer")
@@ -617,7 +657,7 @@ func setFieldValue(field reflect.Value, value interface{}) error {
 		if valueVal.IsNil() {
 			return nil
 		}
-		valueVal = valueVal.Elem()
+		value = valueVal.Elem().Interface()
 	}
 
 	switch field.Kind() {
@@ -839,7 +879,7 @@ func (c *Chain) Begin() error {
 		tableName:      c.tableName,
 		conds:          c.conds,
 		fieldList:      c.fieldList,
-		orderByExpr:    c.orderByExpr,
+		orderByExprs:   c.orderByExprs,
 		limitCount:     c.limitCount,
 		offsetCount:    c.offsetCount,
 		updateFields:   c.updateFields,
@@ -897,7 +937,7 @@ func (c *Chain) cleanup() {
 	c.tableName = c.originalChain.tableName
 	c.conds = c.originalChain.conds
 	c.fieldList = c.originalChain.fieldList
-	c.orderByExpr = c.originalChain.orderByExpr
+	c.orderByExprs = c.originalChain.orderByExprs
 	c.limitCount = c.originalChain.limitCount
 	c.offsetCount = c.originalChain.offsetCount
 	c.updateFields = c.originalChain.updateFields
@@ -969,4 +1009,18 @@ func (c *Chain) ReleaseSavepoint(name string) error {
 	}
 	_, err := c.tx.Exec(fmt.Sprintf("RELEASE SAVEPOINT %s", name))
 	return err
+}
+
+// First returns the first result or error if no results
+func (qr *QueryResult) First() *QueryResult {
+	if qr.err != nil {
+		return qr
+	}
+	if len(qr.Data) > 0 {
+		return &QueryResult{
+			Data:    qr.Data[:1],
+			Columns: qr.Columns,
+		}
+	}
+	return &QueryResult{err: sql.ErrNoRows}
 }
