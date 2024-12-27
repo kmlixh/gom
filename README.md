@@ -105,7 +105,7 @@ func main() {
   -pattern string
         表名匹配模式 (PostgreSQL 可用 schema.table* 格式)
   -tag string
-        标签风格 (gom/db) (默认 "gom")
+        标签风格 (gom/db) (���认 "gom")
   -prefix string
         表名前缀（生成时会去掉）
   -suffix string
@@ -152,4 +152,36 @@ func main() {
 ## 许可证
 
 MIT License
+
+## 统计方法
+
+GOM 提供了以下统计方法：
+
+```go
+// 计算记录总数
+count, err := db.Chain().Table("users").Count()
+
+// 计算字段平均值
+avgAge, err := db.Chain().Table("users").Eq("active", true).Avg("age")
+
+// 计算字段总和
+sumAge, err := db.Chain().Table("users").Eq("role", "admin").Sum("age")
+```
+
+这些统计方法都支持：
+- 与条件查询方法配合使用
+- 处理 NULL 值和空结果集
+- 支持复杂条件组合
+
+## 版本历史
+
+### v4.0.5 (2024-01-02)
+
+新特性：
+- 添加统计相关方法
+  - `Count()`: 计算记录总数
+  - `Sum(field)`: 计算字段总和
+  - `Avg(field)`: 计算字段平均值
+- 所有统计方法支持条件过滤
+- 优化了 NULL 值和空结果集的处理
 

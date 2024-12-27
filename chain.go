@@ -1283,3 +1283,45 @@ func (c *Chain) OrWhereGroup() *define.Condition {
 	c.conds = append(c.conds, cond)
 	return cond
 }
+
+// Count returns the count of records
+func (c *Chain) Count() (int64, error) {
+	var count int64
+	sqlStr, args := c.factory.BuildSelect(c.tableName, []string{"COUNT(*) as count"}, c.conds, "", 0, 0)
+	row := c.db.DB.QueryRow(sqlStr, args...)
+	err := row.Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// Sum calculates the sum of a specific field
+func (c *Chain) Sum(field string) (float64, error) {
+	var sum float64
+	sqlStr, args := c.factory.BuildSelect(c.tableName, []string{fmt.Sprintf("SUM(%s) as sum_value", field)}, c.conds, "", 0, 0)
+	row := c.db.DB.QueryRow(sqlStr, args...)
+	err := row.Scan(&sum)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return sum, nil
+}
+
+// Avg calculates the average of a specific field
+func (c *Chain) Avg(field string) (float64, error) {
+	var avg float64
+	sqlStr, args := c.factory.BuildSelect(c.tableName, []string{fmt.Sprintf("AVG(%s) as avg_value", field)}, c.conds, "", 0, 0)
+	row := c.db.DB.QueryRow(sqlStr, args...)
+	err := row.Scan(&avg)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return avg, nil
+}

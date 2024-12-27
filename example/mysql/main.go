@@ -165,4 +165,42 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// 统计示例
+	fmt.Println("\n=== 统计示例 ===")
+
+	// 计算用户总数
+	totalUsers, err := chain.Table("users").Count()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("总用户数: %d\n", totalUsers)
+
+	// 计算活跃用户的平均年龄
+	avgAge, err := chain.Table("users").
+		Eq("active", true).
+		Avg("age")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("活跃用户平均年龄: %.2f\n", avgAge)
+
+	// 计算管理员的年龄总和
+	sumAge, err := chain.Table("users").
+		Eq("role", "admin").
+		Sum("age")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("管理员年龄总和: %.0f\n", sumAge)
+
+	// 复杂条件的统计
+	activeAdminCount, err := chain.Table("users").
+		Where2(define.Eq("active", true).
+			And(define.In("role", []string{"admin", "superadmin"}))).
+		Count()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("活跃管理员数量: %d\n", activeAdminCount)
 }
