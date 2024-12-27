@@ -105,7 +105,7 @@ func main() {
   -pattern string
         表名匹配模式 (PostgreSQL 可用 schema.table* 格式)
   -tag string
-        标签风格 (gom/db) (���认 "gom")
+        标签风格 (gom/db) (默认 "gom")
   -prefix string
         表名前缀（生成时会去掉）
   -suffix string
@@ -175,7 +175,7 @@ sumAge, err := db.Chain().Table("users").Eq("role", "admin").Sum("age")
 
 ## 版本历史
 
-### v4.0.5 (2024-01-02)
+### v4.0.5 (2024-01-02 21:27 UTC+8)
 
 新特性：
 - 添加统计相关方法
