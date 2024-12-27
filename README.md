@@ -175,7 +175,7 @@ sumAge, err := db.Chain().Table("users").Eq("role", "admin").Sum("age")
 
 ## 版本历史
 
-### v4.0.5 (2024-01-02 21:27 UTC+8)
+### v4.0.5 (2024-12-27 13:35 UTC+8)
 
 新特性：
 - 添加统计相关方法
