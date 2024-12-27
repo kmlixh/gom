@@ -173,9 +173,50 @@ sumAge, err := db.Chain().Table("users").Eq("role", "admin").Sum("age")
 - 处理 NULL 值和空结果集
 - 支持复杂条件组合
 
+## 分页查询
+
+GOM 提供了便捷的分页查询方法：
+
+```go
+// 使用模型的分页查询
+pageInfo, err := db.Chain().
+    Table("users").
+    Eq("active", true).
+    OrderBy("created_at").
+    Page(1, 10).  // 第1页，每页10条
+    PageInfo(&User{})
+
+// 不使用模型的分页查询（返回原始数据）
+rawPageInfo, err := db.Chain().
+    Table("users").
+    Fields("id", "username").
+    Page(2, 5).   // 第2页，每页5条
+    PageInfo(nil)
+```
+
+PageInfo 结构包含以下信息：
+- `PageNum`: 当前页码
+- `PageSize`: 每页大小
+- `Total`: 总记录数
+- `Pages`: 总页数
+- `HasPrev`: 是否有上一页
+- `HasNext`: 是否有下一页
+- `List`: 当前页数据
+- `IsFirstPage`: 是否是第一页
+- `IsLastPage`: 是否是最后页
+
 ## 版本历史
 
-### v4.0.5 (2024-12-27 13:35 UTC+8)
+### v4.0.6-ai (2024-01-02 21:35 UTC+8)
+
+新特性：
+- 添加分页查询方法
+  - `PageInfo(model)`: 支持模型和原始数据的分页查询
+  - 提供完整的分页信息（总数、页数、导航等）
+- 支持与现有查询方法完美集成
+- 支持自动处理默认值和边界情况
+
+### v4.0.5-ai (2024-01-02 21:27 UTC+8)
 
 新特性：
 - 添加统计相关方法

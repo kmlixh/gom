@@ -1325,3 +1325,78 @@ func (c *Chain) Avg(field string) (float64, error) {
 	}
 	return avg, nil
 }
+
+// PageInfo represents pagination information
+type PageInfo struct {
+	PageNum     int         `json:"pageNum"`     // 当前页码
+	PageSize    int         `json:"pageSize"`    // 每页大小
+	Total       int64       `json:"total"`       // 总记录数
+	Pages       int         `json:"pages"`       // 总页数
+	HasPrev     bool        `json:"hasPrev"`     // 是否有上一页
+	HasNext     bool        `json:"hasNext"`     // 是否有下一页
+	List        interface{} `json:"list"`        // 当前页数据
+	IsFirstPage bool        `json:"isFirstPage"` // 是否是第一页
+	IsLastPage  bool        `json:"isLastPage"`  // 是否是最后页
+}
+
+// PageInfo executes a paginated query and returns pagination information
+func (c *Chain) PageInfo(model interface{}) (*PageInfo, error) {
+	// 获取总记录数
+	total, err := c.Count()
+	if err != nil {
+		return nil, err
+	}
+
+	// 如果没有设置页码和页大小，设置默认值
+	if c.limitCount <= 0 {
+		c.limitCount = 10
+	}
+	if c.offsetCount < 0 {
+		c.offsetCount = 0
+	}
+
+	// 计算当前页码
+	pageNum := (c.offsetCount / c.limitCount) + 1
+	pageSize := c.limitCount
+
+	// 计算总页数
+	pages := int((total + int64(pageSize) - 1) / int64(pageSize))
+
+	// 获取当前页数据
+	var list interface{}
+	if model != nil {
+		// 如果提供了模型，使用模型类型创建切片
+		sliceType := reflect.SliceOf(reflect.TypeOf(model))
+		if sliceType.Kind() == reflect.Ptr {
+			sliceType = reflect.SliceOf(sliceType.Elem())
+		}
+		slice := reflect.New(sliceType)
+		err = c.Into(slice.Interface())
+		if err != nil {
+			return nil, err
+		}
+		list = slice.Elem().Interface()
+	} else {
+		// 如果没有提供模型，返回原始查询结果
+		result := c.List()
+		if result.err != nil {
+			return nil, result.err
+		}
+		list = result.Data
+	}
+
+	// 构建分页信息
+	pageInfo := &PageInfo{
+		PageNum:     pageNum,
+		PageSize:    pageSize,
+		Total:       total,
+		Pages:       pages,
+		HasPrev:     pageNum > 1,
+		HasNext:     pageNum < pages,
+		List:        list,
+		IsFirstPage: pageNum == 1,
+		IsLastPage:  pageNum == pages,
+	}
+
+	return pageInfo, nil
+}

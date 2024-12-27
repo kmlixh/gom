@@ -203,4 +203,47 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Printf("活跃管理员数量: %d\n", activeAdminCount)
+
+	// 分页查询示例
+	fmt.Println("\n=== 分页查询示例 ===")
+
+	// 使用模型的分页查询
+	pageInfo, err := chain.Table("users").
+		Eq("active", true).
+		OrderBy("created_at").
+		Page(1, 10). // 第1页，每页10条
+		PageInfo(&example.User{})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("总记录数: %d\n", pageInfo.Total)
+	fmt.Printf("总页数: %d\n", pageInfo.Pages)
+	fmt.Printf("当前页: %d\n", pageInfo.PageNum)
+	fmt.Printf("每页大小: %d\n", pageInfo.PageSize)
+	fmt.Printf("是否有上一页: %v\n", pageInfo.HasPrev)
+	fmt.Printf("是否有下一页: %v\n", pageInfo.HasNext)
+
+	// 类型断言获取用户列表
+	if users, ok := pageInfo.List.([]example.User); ok {
+		for _, user := range users {
+			fmt.Printf("用户ID: %d, 用户名: %s\n", user.ID, user.Username)
+		}
+	}
+
+	// 不使用模型的分页查询（返回原始数据）
+	rawPageInfo, err := chain.Table("users").
+		Fields("id", "username", "email").
+		Page(2, 5). // 第2页，每页5条
+		PageInfo(nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("\n原始数据分页查询结果:\n")
+	fmt.Printf("总记录数: %d\n", rawPageInfo.Total)
+	fmt.Printf("当前页数据:\n")
+	for _, item := range rawPageInfo.List.([]map[string]interface{}) {
+		fmt.Printf("ID: %v, 用户名: %v\n", item["id"], item["username"])
+	}
 }
