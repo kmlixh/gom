@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/lib/pq"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func init() {
@@ -29,7 +29,7 @@ func TestGenerator(t *testing.T) {
 	}
 
 	// 测试 PostgreSQL 连接
-	if db, err := sql.Open("postgres", pgURL); err != nil {
+	if db, err := sql.Open("pgx", pgURL); err != nil {
 		t.Skip("PostgreSQL connection failed:", err)
 	} else {
 		db.Close()
@@ -51,7 +51,7 @@ func TestGenerator(t *testing.T) {
 		{
 			name: "PostgreSQL Generator",
 			options: Options{
-				Driver:      "postgres",
+				Driver:      "pgx",
 				URL:         pgURL,
 				OutputDir:   "testdata/postgres",
 				PackageName: "models",
@@ -100,7 +100,7 @@ func TestGenerator(t *testing.T) {
 			// 执行代码生成
 			if err := generator.Generate(); err != nil {
 				if !tt.wantErr {
-					t.Fatalf("生成代码失败: %v", err)
+					t.Fatalf("生���代码失败: %v", err)
 				}
 				return
 			}
