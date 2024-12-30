@@ -6,10 +6,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"text/template"
 	"time"
+	"unicode"
 
 	"github.com/kmlixh/gom/v4/define"
 )
@@ -260,4 +262,47 @@ func goType(dbType string, isNullable bool) string {
 		return "*" + goType
 	}
 	return goType
+}
+
+// GetTableName 获取结构体对应的表名
+func (db *DB) GetTableName(model interface{}) (string, error) {
+	// 处理字符串类型
+	if tableName, ok := model.(string); ok {
+		return tableName, nil
+	}
+
+	// 获取模型类型
+	modelType := reflect.TypeOf(model)
+	if modelType.Kind() == reflect.Ptr {
+		modelType = modelType.Elem()
+	}
+
+	// 检查是否是结构体
+	if modelType.Kind() != reflect.Struct {
+		return "", fmt.Errorf("model must be a struct or pointer to struct, got %v", modelType.Kind())
+	}
+
+	// 如果实现了 TableName 接口，使用接口方法
+	if tableNamer, ok := model.(define.ITableModel); ok {
+		if tableName := tableNamer.TableName(); tableName != "" {
+			return tableName, nil
+		}
+	}
+
+	// 使用结构体名称转换为表名
+	tableName := modelType.Name()
+
+	// 处理查询结构体
+	tableName = strings.TrimSuffix(tableName, "Query")
+
+	// 转换为蛇形命名
+	var result []rune
+	for i, r := range tableName {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			result = append(result, '_')
+		}
+		result = append(result, unicode.ToLower(r))
+	}
+
+	return string(result), nil
 }

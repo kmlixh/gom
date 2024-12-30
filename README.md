@@ -105,7 +105,7 @@ func main() {
   -pattern string
         表名匹配模式 (PostgreSQL 可用 schema.table* 格式)
   -tag string
-        标签风格 (gom/db) (���认 "gom")
+        标签风格 (gom/db) (默认 "gom")
   -prefix string
         表名前缀（生成时会去掉）
   -suffix string
@@ -161,7 +161,7 @@ GOM 提供了以下统计方法：
 // 计算记录总数
 count, err := db.Chain().Table("users").Count()
 
-// 计算字段���均值
+// 计算字段平均值
 avgAge, err := db.Chain().Table("users").Eq("active", true).Avg("age")
 
 // 计算字段总和
@@ -206,6 +206,16 @@ PageInfo 结构包含以下信息：
 - `IsLastPage`: 是否是最后页
 
 ## 版本历史
+
+### v4.0.8-ai (2024-01-02 21:50 UTC+8)
+
+新特性：
+- 添加 `GetTableName` 方法
+  - 支持从结构体获取表名
+  - 支持自定义表名接口
+  - 自动处理命名转换（驼峰转蛇形）
+  - 严格的类型检查
+  - 返回错误信息
 
 ### v4.0.7-ai (2024-01-02 21:45 UTC+8)
 
