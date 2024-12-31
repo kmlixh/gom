@@ -246,4 +246,50 @@ func main() {
 	for _, item := range rawPageInfo.List.([]map[string]interface{}) {
 		fmt.Printf("ID: %v, 用户名: %v\n", item["id"], item["username"])
 	}
+
+	// 使用结构体更新示例
+	fmt.Println("\n=== 结构体更新示例 ===")
+
+	// 创建更新对象
+	updateUser := &example.User{
+		Username:  "updated_john",
+		Email:     "john.new@example.com",
+		Age:       30,
+		UpdatedAt: time.Now(),
+	}
+
+	// 使用结构体更新
+	result1, err := chain.Table("users").
+		Eq("username", "john_doe").
+		Update(updateUser)
+	if err != nil {
+		log.Fatal(err)
+	}
+	rowsAffected, _ := result1.RowsAffected()
+	fmt.Printf("更新了 %d 条记录\n", rowsAffected)
+
+	// 使用不同类型的结构体更新
+	type UserRole struct {
+		Role string `gom:"role"`
+	}
+	type UserStatus struct {
+		Active    bool      `gom:"active"`
+		UpdatedAt time.Time `gom:"updated_at"`
+	}
+
+	// 分别更新角色和状态
+	updateRole := &UserRole{Role: "senior_admin"}
+	updateStatus := &UserStatus{
+		Active:    true,
+		UpdatedAt: time.Now(),
+	}
+
+	result2, err := chain.Table("users").
+		Eq("username", "updated_john").
+		Update(updateRole, updateStatus)
+	if err != nil {
+		log.Fatal(err)
+	}
+	rowsAffected, _ = result2.RowsAffected()
+	fmt.Printf("使用不同类型的结构体更新了 %d 条记录\n", rowsAffected)
 }

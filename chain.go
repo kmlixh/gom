@@ -560,7 +560,23 @@ func (c *Chain) One() *QueryResult {
 }
 
 // Save executes an INSERT or UPDATE query
-func (c *Chain) Save() (define.Result, error) {
+func (c *Chain) Save(models ...interface{}) (define.Result, error) {
+	// 如果没有提供模型，使用已设置的字段
+	if len(models) == 0 {
+		return c.saveWithFields()
+	}
+
+	// 如果只有一个模型，不需要事务
+	if len(models) == 1 {
+		return c.saveSingleModel(models[0])
+	}
+
+	// 多个模型需要使用事务
+	return c.saveMultipleModels(models)
+}
+
+// saveWithFields saves using the existing fields
+func (c *Chain) saveWithFields() (define.Result, error) {
 	if len(c.conds) > 0 {
 		// If there are conditions, do an update
 		if c.updateFields == nil {
@@ -613,6 +629,136 @@ func (c *Chain) Save() (define.Result, error) {
 		return define.Result{ID: lastID, Affected: affected}, nil
 	}
 
+	return c.executeInsert()
+}
+
+// saveSingleModel saves a single model without transaction
+func (c *Chain) saveSingleModel(model interface{}) (define.Result, error) {
+	c.model = model
+	fields, err := c.extractModelFields(model)
+	if err != nil {
+		return define.Result{}, err
+	}
+
+	if len(fields) == 0 {
+		return define.Result{}, fmt.Errorf("no fields to save")
+	}
+
+	if len(c.conds) > 0 {
+		// Update
+		c.updateFields = fields
+		sqlStr, args := c.factory.BuildUpdate(c.tableName, fields, c.conds)
+		if define.Debug {
+			log.Printf("[SQL] %s %v", sqlStr, args)
+		}
+		if c.tx != nil {
+			result, err := c.tx.Exec(sqlStr, args...)
+			if err != nil {
+				return define.Result{}, err
+			}
+			affected, _ := result.RowsAffected()
+			return define.Result{Affected: affected}, nil
+		}
+		result, err := c.db.DB.Exec(sqlStr, args...)
+		if err != nil {
+			return define.Result{}, err
+		}
+		affected, _ := result.RowsAffected()
+		return define.Result{Affected: affected}, nil
+	}
+
+	// Insert
+	c.insertFields = fields
+	return c.executeInsert()
+}
+
+// saveMultipleModels saves multiple models within a transaction
+func (c *Chain) saveMultipleModels(models []interface{}) (define.Result, error) {
+	// 如果已经在事务中，直接使用现有事务
+	if c.tx != nil {
+		return c.executeMultipleSaves(models)
+	}
+
+	// 开启新事务
+	tx, err := c.db.DB.Begin()
+	if err != nil {
+		return define.Result{}, fmt.Errorf("failed to begin transaction: %v", err)
+	}
+
+	// 创建新的带事务的 Chain
+	txChain := &Chain{
+		db:        c.db,
+		tx:        tx,
+		tableName: c.tableName,
+		conds:     c.conds,
+		factory:   c.factory,
+	}
+
+	result, err := txChain.executeMultipleSaves(models)
+	if err != nil {
+		// 发生错误时回滚事务
+		rollbackErr := tx.Rollback()
+		if rollbackErr != nil {
+			return define.Result{}, fmt.Errorf("save failed: %v, rollback failed: %v", err, rollbackErr)
+		}
+		return define.Result{}, fmt.Errorf("save failed: %v", err)
+	}
+
+	// 提交事务
+	if err := tx.Commit(); err != nil {
+		return define.Result{}, fmt.Errorf("failed to commit transaction: %v", err)
+	}
+
+	return result, nil
+}
+
+// executeMultipleSaves executes saves for multiple models
+func (c *Chain) executeMultipleSaves(models []interface{}) (define.Result, error) {
+	var totalAffected int64
+	var lastID int64
+
+	for i, model := range models {
+		c.model = model
+		fields, err := c.extractModelFields(model)
+		if err != nil {
+			return define.Result{}, fmt.Errorf("failed to extract fields from model %d: %v", i+1, err)
+		}
+
+		if len(fields) == 0 {
+			return define.Result{}, fmt.Errorf("no fields to save in model %d", i+1)
+		}
+
+		var result define.Result
+		if len(c.conds) > 0 {
+			// Update
+			sqlStr, args := c.factory.BuildUpdate(c.tableName, fields, c.conds)
+			if define.Debug {
+				log.Printf("[SQL] %s %v", sqlStr, args)
+			}
+			sqlResult, err := c.tx.Exec(sqlStr, args...)
+			if err != nil {
+				return define.Result{}, fmt.Errorf("failed to update model %d: %v", i+1, err)
+			}
+			affected, _ := sqlResult.RowsAffected()
+			result = define.Result{Affected: affected}
+		} else {
+			// Insert
+			c.insertFields = fields
+			result, err = c.executeInsert()
+			if err != nil {
+				return define.Result{}, fmt.Errorf("failed to insert model %d: %v", i+1, err)
+			}
+			lastID = result.ID
+		}
+
+		totalAffected += result.Affected
+	}
+
+	return define.Result{ID: lastID, Affected: totalAffected}, nil
+}
+
+// executeInsert executes an INSERT query
+func (c *Chain) executeInsert() (define.Result, error) {
 	sqlStr, args := c.factory.BuildInsert(c.tableName, c.insertFields)
 	if define.Debug {
 		log.Printf("[SQL] %s %v", sqlStr, args)
@@ -672,30 +818,355 @@ func (c *Chain) Save() (define.Result, error) {
 }
 
 // Update executes an UPDATE query
-func (c *Chain) Update() (sql.Result, error) {
-	if len(c.updateFields) == 0 && len(c.insertFields) > 0 {
-		c.updateFields = c.insertFields
+func (c *Chain) Update(models ...interface{}) (sql.Result, error) {
+	// 如果没有提供模型，使用已设置的更新字段
+	if len(models) == 0 {
+		if len(c.updateFields) == 0 && len(c.insertFields) > 0 {
+			c.updateFields = c.insertFields
+		}
+		sql, args := c.factory.BuildUpdate(c.tableName, c.updateFields, c.conds)
+		if define.Debug {
+			log.Printf("[SQL] %s %v\n", sql, args)
+		}
+		if c.tx != nil {
+			return c.tx.Exec(sql, args...)
+		}
+		return c.db.DB.Exec(sql, args...)
 	}
-	sql, args := c.factory.BuildUpdate(c.tableName, c.updateFields, c.conds)
+
+	// 如果只有一个模型，不需要事务
+	if len(models) == 1 {
+		return c.updateSingleModel(models[0])
+	}
+
+	// 多个模型需要使用事务
+	return c.updateMultipleModels(models)
+}
+
+// updateSingleModel updates a single model without transaction
+func (c *Chain) updateSingleModel(model interface{}) (sql.Result, error) {
+	updateFields, err := c.extractModelFields(model)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(updateFields) == 0 {
+		return nil, fmt.Errorf("no fields to update")
+	}
+
+	sql, args := c.factory.BuildUpdate(c.tableName, updateFields, c.conds)
 	if define.Debug {
 		log.Printf("[SQL] %s %v\n", sql, args)
 	}
+
 	if c.tx != nil {
 		return c.tx.Exec(sql, args...)
 	}
 	return c.db.DB.Exec(sql, args...)
 }
 
+// updateMultipleModels updates multiple models within a transaction
+func (c *Chain) updateMultipleModels(models []interface{}) (sql.Result, error) {
+	// 如果已经在事务中，直接使用现有事务
+	if c.tx != nil {
+		return c.executeMultipleUpdates(models)
+	}
+
+	// 开启新事务
+	tx, err := c.db.DB.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %v", err)
+	}
+
+	// 创建新的带事务的 Chain
+	txChain := &Chain{
+		db:        c.db,
+		tx:        tx,
+		tableName: c.tableName,
+		conds:     c.conds,
+		factory:   c.factory,
+	}
+
+	result, err := txChain.executeMultipleUpdates(models)
+	if err != nil {
+		// 发生错误时回滚事务
+		rollbackErr := tx.Rollback()
+		if rollbackErr != nil {
+			return nil, fmt.Errorf("update failed: %v, rollback failed: %v", err, rollbackErr)
+		}
+		return nil, fmt.Errorf("update failed: %v", err)
+	}
+
+	// 提交事务
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %v", err)
+	}
+
+	return result, nil
+}
+
+// executeMultipleUpdates executes updates for multiple models
+func (c *Chain) executeMultipleUpdates(models []interface{}) (sql.Result, error) {
+	var lastResult sql.Result
+
+	for i, model := range models {
+		updateFields, err := c.extractModelFields(model)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract fields from model %d: %v", i+1, err)
+		}
+
+		if len(updateFields) == 0 {
+			return nil, fmt.Errorf("no fields to update in model %d", i+1)
+		}
+
+		sql, args := c.factory.BuildUpdate(c.tableName, updateFields, c.conds)
+		if define.Debug {
+			log.Printf("[SQL] %s %v\n", sql, args)
+		}
+
+		result, err := c.tx.Exec(sql, args...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to update model %d: %v", i+1, err)
+		}
+
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get affected rows for model %d: %v", i+1, err)
+		}
+
+		if affected == 0 {
+			return nil, fmt.Errorf("no rows affected when updating model %d", i+1)
+		}
+
+		lastResult = result
+	}
+
+	return lastResult, nil
+}
+
+// extractModelFields extracts fields from a model
+func (c *Chain) extractModelFields(model interface{}) (map[string]interface{}, error) {
+	modelType := reflect.TypeOf(model)
+	if modelType.Kind() == reflect.Ptr {
+		modelType = modelType.Elem()
+	}
+	modelValue := reflect.ValueOf(model)
+	if modelValue.Kind() == reflect.Ptr {
+		modelValue = modelValue.Elem()
+	}
+
+	if modelType.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("model must be a struct or pointer to struct, got %v", modelType.Kind())
+	}
+
+	updateFields := make(map[string]interface{})
+
+	for i := 0; i < modelType.NumField(); i++ {
+		field := modelType.Field(i)
+		value := modelValue.Field(i)
+
+		tag := field.Tag.Get("gom")
+		if tag == "" || tag == "-" {
+			continue
+		}
+
+		parts := strings.Split(tag, ",")
+		columnName := parts[0]
+
+		isPrimary := false
+		for _, opt := range parts[1:] {
+			if opt == "@" {
+				isPrimary = true
+				break
+			}
+		}
+		if isPrimary {
+			continue
+		}
+
+		if !value.IsZero() {
+			updateFields[columnName] = value.Interface()
+		}
+	}
+
+	return updateFields, nil
+}
+
 // Delete executes a DELETE query
-func (c *Chain) Delete() (sql.Result, error) {
+func (c *Chain) Delete(models ...interface{}) (sql.Result, error) {
+	// 如果没有提供模型，使用已设置的条件
+	if len(models) == 0 {
+		sql, args := c.factory.BuildDelete(c.tableName, c.conds)
+		if define.Debug {
+			log.Printf("[SQL] %s %v", sql, args)
+		}
+		if c.tx != nil {
+			return c.tx.Exec(sql, args...)
+		}
+		return c.db.DB.Exec(sql, args...)
+	}
+
+	// 如果只有一个模型，不需要事务
+	if len(models) == 1 {
+		return c.deleteSingleModel(models[0])
+	}
+
+	// 多个模型需要使用事务
+	return c.deleteMultipleModels(models)
+}
+
+// deleteSingleModel deletes a single model without transaction
+func (c *Chain) deleteSingleModel(model interface{}) (sql.Result, error) {
+	// 获取模型的主键值
+	pkValue, err := c.extractPrimaryKeyValue(model)
+	if err != nil {
+		return nil, err
+	}
+
+	// 使用主键作为删除条件
+	c.conds = append(c.conds, &define.Condition{
+		Field: "id",
+		Op:    define.OpEq,
+		Value: pkValue,
+	})
+
 	sql, args := c.factory.BuildDelete(c.tableName, c.conds)
 	if define.Debug {
 		log.Printf("[SQL] %s %v", sql, args)
 	}
+
 	if c.tx != nil {
 		return c.tx.Exec(sql, args...)
 	}
 	return c.db.DB.Exec(sql, args...)
+}
+
+// deleteMultipleModels deletes multiple models within a transaction
+func (c *Chain) deleteMultipleModels(models []interface{}) (sql.Result, error) {
+	// 如果已经在事务中，直接使用现有事务
+	if c.tx != nil {
+		return c.executeMultipleDeletes(models)
+	}
+
+	// 开启新事务
+	tx, err := c.db.DB.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %v", err)
+	}
+
+	// 创建新的带事务的 Chain
+	txChain := &Chain{
+		db:        c.db,
+		tx:        tx,
+		tableName: c.tableName,
+		conds:     c.conds,
+		factory:   c.factory,
+	}
+
+	result, err := txChain.executeMultipleDeletes(models)
+	if err != nil {
+		// 发生错误时回滚事务
+		rollbackErr := tx.Rollback()
+		if rollbackErr != nil {
+			return nil, fmt.Errorf("delete failed: %v, rollback failed: %v", err, rollbackErr)
+		}
+		return nil, fmt.Errorf("delete failed: %v", err)
+	}
+
+	// 提交事务
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %v", err)
+	}
+
+	return result, nil
+}
+
+// executeMultipleDeletes executes deletes for multiple models
+func (c *Chain) executeMultipleDeletes(models []interface{}) (sql.Result, error) {
+	var lastResult sql.Result
+	var totalAffected int64
+
+	for i, model := range models {
+		// 获取模型的主键值
+		pkValue, err := c.extractPrimaryKeyValue(model)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract primary key from model %d: %v", i+1, err)
+		}
+
+		// 使用主键作为删除条件
+		c.conds = []*define.Condition{
+			{
+				Field: "id",
+				Op:    define.OpEq,
+				Value: pkValue,
+			},
+		}
+
+		sql, args := c.factory.BuildDelete(c.tableName, c.conds)
+		if define.Debug {
+			log.Printf("[SQL] %s %v", sql, args)
+		}
+
+		result, err := c.tx.Exec(sql, args...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to delete model %d: %v", i+1, err)
+		}
+
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get affected rows for model %d: %v", i+1, err)
+		}
+
+		if affected == 0 {
+			return nil, fmt.Errorf("no rows affected when deleting model %d", i+1)
+		}
+
+		totalAffected += affected
+		lastResult = result
+	}
+
+	return lastResult, nil
+}
+
+// extractPrimaryKeyValue extracts the primary key value from a model
+func (c *Chain) extractPrimaryKeyValue(model interface{}) (interface{}, error) {
+	modelType := reflect.TypeOf(model)
+	if modelType.Kind() == reflect.Ptr {
+		modelType = modelType.Elem()
+	}
+	modelValue := reflect.ValueOf(model)
+	if modelValue.Kind() == reflect.Ptr {
+		modelValue = modelValue.Elem()
+	}
+
+	if modelType.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("model must be a struct or pointer to struct, got %v", modelType.Kind())
+	}
+
+	// 查找主键字段
+	for i := 0; i < modelType.NumField(); i++ {
+		field := modelType.Field(i)
+		value := modelValue.Field(i)
+
+		tag := field.Tag.Get("gom")
+		if tag == "" || tag == "-" {
+			continue
+		}
+
+		parts := strings.Split(tag, ",")
+		columnName := parts[0]
+
+		for _, opt := range parts[1:] {
+			if opt == "@" && columnName == "id" {
+				if value.IsZero() {
+					return nil, fmt.Errorf("primary key value is zero")
+				}
+				return value.Interface(), nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("no primary key field found in model")
 }
 
 // Page sets the page number and page size for pagination

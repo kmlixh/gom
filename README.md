@@ -207,6 +207,89 @@ PageInfo 结构包含以下信息：
 
 ## 版本历史
 
+### v4.1.0-ai (2024-12-31 10:15 UTC+8)
+
+新特性：
+- 增强 `Save`、`Update` 和 `Delete` 方法
+  - 支持不定长参数，可同时处理多个对象
+  - 自动事务支持，确保多对象操作的原子性
+  - 智能事务管理：单对象操作不使用事务，多对象自动使用事务
+  - 详细的错误信息，包含失败对象的序号
+  - 自动回滚机制，任何操作失败时回滚整个事务
+  - 影响行数检查，确保操作成功执行
+
+使用示例：
+```go
+// 保存多个对象（自动使用事务）
+user1 := &User{Name: "user1", Age: 20}
+user2 := &User{Name: "user2", Age: 25}
+result, err := db.Chain().
+    Table("users").
+    Save(user1, user2)
+
+// 更新多个不同类型的对象（自动使用事务）
+type UserRole struct {
+    Role string `gom:"role"`
+}
+type UserStatus struct {
+    Active bool `gom:"active"`
+}
+role := &UserRole{Role: "admin"}
+status := &UserStatus{Active: true}
+result, err = db.Chain().
+    Table("users").
+    Eq("id", 1).
+    Update(role, status)
+
+// 删除多个对象（自动使用事务）
+result, err = db.Chain().
+    Table("users").
+    Delete(user1, user2)
+```
+
+### v4.0.9-ai (2024-01-02 22:00 UTC+8)
+
+新特性：
+- 增强 `Update` 方法
+  - 支持传入不定长结构体参数
+  - 支持不同类型的结构体更新
+  - 每个结构体独立执行更新
+  - 自动解析非空字段
+  - 自动排除主键字段
+
+使用示例：
+```go
+// 使用完整结构体更新
+updateUser := &User{
+    Username: "new_name",
+    Email:    "new@example.com",
+}
+result1, err := db.Chain().
+    Table("users").
+    Eq("id", 1).
+    Update(updateUser)
+
+// 使用不同类型的结构体更新
+type UserRole struct {
+    Role string `gom:"role"`
+}
+type UserStatus struct {
+    Active    bool      `gom:"active"`
+    UpdatedAt time.Time `gom:"updated_at"`
+}
+
+// 分别更新角色和状态
+updateRole := &UserRole{Role: "admin"}
+updateStatus := &UserStatus{
+    Active:    true,
+    UpdatedAt: time.Now(),
+}
+result2, err := db.Chain().
+    Table("users").
+    Eq("id", 1).
+    Update(updateRole, updateStatus)
+```
+
 ### v4.0.8-ai (2024-01-02 21:50 UTC+8)
 
 新特性：
@@ -216,8 +299,6 @@ PageInfo 结构包含以下信息：
   - 自动处理命名转换（驼峰转蛇形）
   - 严格的类型检查
   - 返回错误信息
-
-### v4.0.7-ai (2024-01-02 21:45 UTC+8)
 
 更新：
 - 更新 MySQL 驱动到 v1.8.1
