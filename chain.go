@@ -423,7 +423,16 @@ func (c *Chain) From(model interface{}) *Chain {
 }
 
 // List executes a SELECT query and returns all results
-func (c *Chain) List() *QueryResult {
+func (c *Chain) List(dest ...interface{}) *QueryResult {
+	result := c.list()
+	if len(dest) > 0 && result.err == nil {
+		result.err = result.Into(dest[0])
+	}
+	return result
+}
+
+// list is the internal implementation of List
+func (c *Chain) list() *QueryResult {
 	orderByExpr := c.factory.BuildOrderBy(c.orderByExprs)
 	sqlStr, args := c.factory.BuildSelect(c.tableName, c.fieldList, c.conds, orderByExpr, c.limitCount, c.offsetCount)
 	if define.Debug {
@@ -485,36 +494,24 @@ func (c *Chain) List() *QueryResult {
 }
 
 // First returns the first result
-func (c *Chain) First() *QueryResult {
+func (c *Chain) First(dest ...interface{}) *QueryResult {
 	c.Limit(1)
-	return c.List()
-}
-
-// Last returns the last result
-func (c *Chain) Last() *QueryResult {
-	if len(c.orderByExprs) == 0 {
-		c.OrderByDesc("id")
-	} else {
-		// 反转所有排序的方向
-		newOrders := make([]define.OrderBy, len(c.orderByExprs))
-		for i, order := range c.orderByExprs {
-			if order.Type == define.OrderAsc {
-				newOrders[i] = define.OrderBy{Field: order.Field, Type: define.OrderDesc}
-			} else {
-				newOrders[i] = define.OrderBy{Field: order.Field, Type: define.OrderAsc}
-			}
-		}
-		c.orderByExprs = newOrders
+	result := c.list()
+	if len(dest) > 0 && result.err == nil {
+		result.err = result.Into(dest[0])
 	}
-	c.Limit(1)
-	return c.List()
+	return result
 }
 
 // One returns exactly one result
-func (c *Chain) One() *QueryResult {
-	result := c.List()
+func (c *Chain) One(dest ...interface{}) *QueryResult {
+	result := c.list()
 	if result.Size() != 1 {
-		return &QueryResult{err: fmt.Errorf("expected 1 result, got %d", result.Size())}
+		result.err = fmt.Errorf("expected 1 result, got %d", result.Size())
+		return result
+	}
+	if len(dest) > 0 && result.err == nil {
+		result.err = result.Into(dest[0])
 	}
 	return result
 }
@@ -1717,8 +1714,16 @@ func (c *Chain) OrWhereGroup() *define.Condition {
 
 // Count returns the count of records
 func (c *Chain) Count() (int64, error) {
+	return c.Count2("*")
+}
+
+// Count2 returns the count of specified field
+func (c *Chain) Count2(field string) (int64, error) {
 	var count int64
-	sqlStr, args := c.factory.BuildSelect(c.tableName, []string{"COUNT(*) as count"}, c.conds, "", 0, 0)
+	sqlStr, args := c.factory.BuildSelect(c.tableName, []string{fmt.Sprintf("COUNT(%s) as count", field)}, c.conds, "", 0, 0)
+	if define.Debug {
+		log.Printf("[SQL] %s %v\n", sqlStr, args)
+	}
 	row := c.db.DB.QueryRow(sqlStr, args...)
 	err := row.Scan(&count)
 	if err != nil {
