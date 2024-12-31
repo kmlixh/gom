@@ -524,3 +524,20 @@ func (f *Factory) GetTables(db *sql.DB, pattern string) ([]string, error) {
 
 	return tables, nil
 }
+
+// BuildOrderBy builds the ORDER BY clause
+func (f *Factory) BuildOrderBy(orders []define.OrderBy) string {
+	if len(orders) == 0 {
+		return ""
+	}
+
+	var orderClauses []string
+	for _, order := range orders {
+		if order.Type == define.OrderDesc {
+			orderClauses = append(orderClauses, "`"+order.Field+"` DESC")
+		} else {
+			orderClauses = append(orderClauses, "`"+order.Field+"`")
+		}
+	}
+	return strings.Join(orderClauses, ", ")
+}

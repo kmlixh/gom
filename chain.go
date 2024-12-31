@@ -14,20 +14,6 @@ import (
 	"github.com/kmlixh/gom/v4/define"
 )
 
-// OrderType represents the type of ordering
-type OrderType int
-
-const (
-	OrderAsc  OrderType = iota // Ascending order
-	OrderDesc                  // Descending order
-)
-
-// OrderBy represents an order by clause
-type OrderBy struct {
-	Field string
-	Type  OrderType
-}
-
 // Chain represents the base chain structure
 type Chain struct {
 	db      *DB
@@ -49,7 +35,7 @@ type Chain struct {
 
 	// Query specific fields
 	fieldList    []string
-	orderByExprs []OrderBy // 修改为 OrderBy 切片
+	orderByExprs []define.OrderBy
 	limitCount   int
 	offsetCount  int
 
@@ -75,31 +61,14 @@ func (c *Chain) Fields(fields ...string) *Chain {
 
 // OrderBy adds an ascending order by clause
 func (c *Chain) OrderBy(field string) *Chain {
-	c.orderByExprs = append(c.orderByExprs, OrderBy{Field: field, Type: OrderAsc})
+	c.orderByExprs = append(c.orderByExprs, define.OrderBy{Field: field, Type: define.OrderAsc})
 	return c
 }
 
 // OrderByDesc adds a descending order by clause
 func (c *Chain) OrderByDesc(field string) *Chain {
-	c.orderByExprs = append(c.orderByExprs, OrderBy{Field: field, Type: OrderDesc})
+	c.orderByExprs = append(c.orderByExprs, define.OrderBy{Field: field, Type: define.OrderDesc})
 	return c
-}
-
-// buildOrderByExpr builds the ORDER BY expression
-func (c *Chain) buildOrderByExpr() string {
-	if len(c.orderByExprs) == 0 {
-		return ""
-	}
-
-	var orders []string
-	for _, order := range c.orderByExprs {
-		if order.Type == OrderDesc {
-			orders = append(orders, order.Field+" DESC")
-		} else {
-			orders = append(orders, order.Field)
-		}
-	}
-	return strings.Join(orders, ", ")
 }
 
 // Limit sets the limit count
@@ -455,19 +424,10 @@ func (c *Chain) From(model interface{}) *Chain {
 
 // List executes a SELECT query and returns all results
 func (c *Chain) List() *QueryResult {
-	orderByExpr := c.buildOrderByExpr()
+	orderByExpr := c.factory.BuildOrderBy(c.orderByExprs)
 	sqlStr, args := c.factory.BuildSelect(c.tableName, c.fieldList, c.conds, orderByExpr, c.limitCount, c.offsetCount)
 	if define.Debug {
-		// Convert pointer values to actual values for logging
-		logArgs := make([]interface{}, len(args))
-		for i, arg := range args {
-			if reflect.TypeOf(arg).Kind() == reflect.Ptr {
-				logArgs[i] = reflect.ValueOf(arg).Elem().Interface()
-			} else {
-				logArgs[i] = arg
-			}
-		}
-		log.Printf("[SQL] %s %v", sqlStr, logArgs)
+		log.Printf("[SQL] %s %v\n", sqlStr, args)
 	}
 
 	var rows *sql.Rows
@@ -536,12 +496,12 @@ func (c *Chain) Last() *QueryResult {
 		c.OrderByDesc("id")
 	} else {
 		// 反转所有排序的方向
-		newOrders := make([]OrderBy, len(c.orderByExprs))
+		newOrders := make([]define.OrderBy, len(c.orderByExprs))
 		for i, order := range c.orderByExprs {
-			if order.Type == OrderAsc {
-				newOrders[i] = OrderBy{Field: order.Field, Type: OrderDesc}
+			if order.Type == define.OrderAsc {
+				newOrders[i] = define.OrderBy{Field: order.Field, Type: define.OrderDesc}
 			} else {
-				newOrders[i] = OrderBy{Field: order.Field, Type: OrderAsc}
+				newOrders[i] = define.OrderBy{Field: order.Field, Type: define.OrderAsc}
 			}
 		}
 		c.orderByExprs = newOrders

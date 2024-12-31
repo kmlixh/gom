@@ -5,6 +5,20 @@ import (
 	"reflect"
 )
 
+// OrderType represents the type of ordering
+type OrderType int
+
+const (
+	OrderAsc  OrderType = iota // Ascending order
+	OrderDesc                  // Descending order
+)
+
+// OrderBy represents an order by clause
+type OrderBy struct {
+	Field string
+	Type  OrderType
+}
+
 // TableInfo 表信息
 type TableInfo struct {
 	TableName    string       // 表名
@@ -60,6 +74,9 @@ type SQLFactory interface {
 	// pattern: 表名匹配模式，支持 * 通配符
 	// 对于 PostgreSQL，pattern 可以是 schema.table 格式
 	GetTables(db *sql.DB, pattern string) ([]string, error)
+
+	// BuildOrderBy builds the ORDER BY clause
+	BuildOrderBy(orders []OrderBy) string
 }
 
 // Debug flag for enabling debug mode
