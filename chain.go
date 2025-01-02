@@ -511,13 +511,30 @@ func (c *Chain) One(dest ...interface{}) *QueryResult {
 		return result
 	}
 	if len(dest) > 0 && result.err == nil {
-		result.err = result.Into(dest[0])
+		// Create a slice of the same type as dest
+		destValue := reflect.ValueOf(dest[0])
+		if destValue.Kind() != reflect.Ptr {
+			result.err = fmt.Errorf("dest must be a pointer")
+			return result
+		}
+		elemType := destValue.Elem().Type()
+		sliceType := reflect.SliceOf(elemType)
+		slicePtr := reflect.New(sliceType)
+
+		// Convert the result into the slice
+		result.err = result.Into(slicePtr.Interface())
+		if result.err != nil {
+			return result
+		}
+
+		// Set the first element back to dest
+		destValue.Elem().Set(slicePtr.Elem().Index(0))
 	}
 	return result
 }
 
 // Save executes an INSERT or UPDATE query
-func (c *Chain) Save(models ...interface{}) (define.Result, error) {
+func (c *Chain) Save(models ...interface{}) define.Result {
 	// 如果没有提供模型，使用已设置的字段
 	if len(models) == 0 {
 		return c.saveWithFields()
@@ -533,7 +550,7 @@ func (c *Chain) Save(models ...interface{}) (define.Result, error) {
 }
 
 // saveWithFields saves using the existing fields
-func (c *Chain) saveWithFields() (define.Result, error) {
+func (c *Chain) saveWithFields() define.Result {
 	if len(c.conds) > 0 {
 		// If there are conditions, do an update
 		if c.updateFields == nil {
@@ -541,7 +558,7 @@ func (c *Chain) saveWithFields() (define.Result, error) {
 		}
 		sqlStr, args := c.factory.BuildUpdate(c.tableName, c.updateFields, c.conds)
 		if sqlStr == "" {
-			return define.Result{}, fmt.Errorf("no fields to update")
+			return define.Result{Error: fmt.Errorf("no fields to update")}
 		}
 		if define.Debug {
 			log.Printf("[SQL] %s %v", sqlStr, args)
@@ -549,17 +566,17 @@ func (c *Chain) saveWithFields() (define.Result, error) {
 		if c.tx != nil {
 			result, err := c.tx.Exec(sqlStr, args...)
 			if err != nil {
-				return define.Result{}, err
+				return define.Result{Error: err}
 			}
 			affected, _ := result.RowsAffected()
-			return define.Result{Affected: affected}, nil
+			return define.Result{Affected: affected}
 		}
 		result, err := c.db.DB.Exec(sqlStr, args...)
 		if err != nil {
-			return define.Result{}, err
+			return define.Result{Error: err}
 		}
 		affected, _ := result.RowsAffected()
-		return define.Result{Affected: affected}, nil
+		return define.Result{Affected: affected}
 	}
 
 	// Otherwise, do an insert
@@ -571,34 +588,34 @@ func (c *Chain) saveWithFields() (define.Result, error) {
 		if c.tx != nil {
 			result, err := c.tx.Exec(sqlStr, args...)
 			if err != nil {
-				return define.Result{}, err
+				return define.Result{Error: err}
 			}
 			affected, _ := result.RowsAffected()
 			lastID, _ := result.LastInsertId()
-			return define.Result{ID: lastID, Affected: affected}, nil
+			return define.Result{ID: lastID, Affected: affected}
 		}
 		result, err := c.db.DB.Exec(sqlStr, args...)
 		if err != nil {
-			return define.Result{}, err
+			return define.Result{Error: err}
 		}
 		affected, _ := result.RowsAffected()
 		lastID, _ := result.LastInsertId()
-		return define.Result{ID: lastID, Affected: affected}, nil
+		return define.Result{ID: lastID, Affected: affected}
 	}
 
 	return c.executeInsert()
 }
 
 // saveSingleModel saves a single model without transaction
-func (c *Chain) saveSingleModel(model interface{}) (define.Result, error) {
+func (c *Chain) saveSingleModel(model interface{}) define.Result {
 	c.model = model
 	fields, err := c.extractModelFields(model)
 	if err != nil {
-		return define.Result{}, err
+		return define.Result{Error: err}
 	}
 
 	if len(fields) == 0 {
-		return define.Result{}, fmt.Errorf("no fields to save")
+		return define.Result{Error: fmt.Errorf("no fields to save")}
 	}
 
 	if len(c.conds) > 0 {
@@ -611,17 +628,17 @@ func (c *Chain) saveSingleModel(model interface{}) (define.Result, error) {
 		if c.tx != nil {
 			result, err := c.tx.Exec(sqlStr, args...)
 			if err != nil {
-				return define.Result{}, err
+				return define.Result{Error: err}
 			}
 			affected, _ := result.RowsAffected()
-			return define.Result{Affected: affected}, nil
+			return define.Result{Affected: affected}
 		}
 		result, err := c.db.DB.Exec(sqlStr, args...)
 		if err != nil {
-			return define.Result{}, err
+			return define.Result{Error: err}
 		}
 		affected, _ := result.RowsAffected()
-		return define.Result{Affected: affected}, nil
+		return define.Result{Affected: affected}
 	}
 
 	// Insert
@@ -630,7 +647,7 @@ func (c *Chain) saveSingleModel(model interface{}) (define.Result, error) {
 }
 
 // saveMultipleModels saves multiple models within a transaction
-func (c *Chain) saveMultipleModels(models []interface{}) (define.Result, error) {
+func (c *Chain) saveMultipleModels(models []interface{}) define.Result {
 	// 如果已经在事务中，直接使用现有事务
 	if c.tx != nil {
 		return c.executeMultipleSaves(models)
@@ -639,7 +656,7 @@ func (c *Chain) saveMultipleModels(models []interface{}) (define.Result, error) 
 	// 开启新事务
 	tx, err := c.db.DB.Begin()
 	if err != nil {
-		return define.Result{}, fmt.Errorf("failed to begin transaction: %v", err)
+		return define.Result{Error: fmt.Errorf("failed to begin transaction: %v", err)}
 	}
 
 	// 创建新的带事务的 Chain
@@ -651,26 +668,26 @@ func (c *Chain) saveMultipleModels(models []interface{}) (define.Result, error) 
 		factory:   c.factory,
 	}
 
-	result, err := txChain.executeMultipleSaves(models)
-	if err != nil {
+	result := txChain.executeMultipleSaves(models)
+	if result.Error != nil {
 		// 发生错误时回滚事务
 		rollbackErr := tx.Rollback()
 		if rollbackErr != nil {
-			return define.Result{}, fmt.Errorf("save failed: %v, rollback failed: %v", err, rollbackErr)
+			return define.Result{Error: fmt.Errorf("save failed: %v, rollback failed: %v", result.Error, rollbackErr)}
 		}
-		return define.Result{}, fmt.Errorf("save failed: %v", err)
+		return define.Result{Error: fmt.Errorf("save failed: %v", result.Error)}
 	}
 
 	// 提交事务
 	if err := tx.Commit(); err != nil {
-		return define.Result{}, fmt.Errorf("failed to commit transaction: %v", err)
+		return define.Result{Error: fmt.Errorf("failed to commit transaction: %v", err)}
 	}
 
-	return result, nil
+	return result
 }
 
 // executeMultipleSaves executes saves for multiple models
-func (c *Chain) executeMultipleSaves(models []interface{}) (define.Result, error) {
+func (c *Chain) executeMultipleSaves(models []interface{}) define.Result {
 	var totalAffected int64
 	var lastID int64
 
@@ -678,11 +695,11 @@ func (c *Chain) executeMultipleSaves(models []interface{}) (define.Result, error
 		c.model = model
 		fields, err := c.extractModelFields(model)
 		if err != nil {
-			return define.Result{}, fmt.Errorf("failed to extract fields from model %d: %v", i+1, err)
+			return define.Result{Error: fmt.Errorf("failed to extract fields from model %d: %v", i+1, err)}
 		}
 
 		if len(fields) == 0 {
-			return define.Result{}, fmt.Errorf("no fields to save in model %d", i+1)
+			return define.Result{Error: fmt.Errorf("no fields to save in model %d", i+1)}
 		}
 
 		var result define.Result
@@ -694,16 +711,16 @@ func (c *Chain) executeMultipleSaves(models []interface{}) (define.Result, error
 			}
 			sqlResult, err := c.tx.Exec(sqlStr, args...)
 			if err != nil {
-				return define.Result{}, fmt.Errorf("failed to update model %d: %v", i+1, err)
+				return define.Result{Error: fmt.Errorf("failed to update model %d: %v", i+1, err)}
 			}
 			affected, _ := sqlResult.RowsAffected()
 			result = define.Result{Affected: affected}
 		} else {
 			// Insert
 			c.insertFields = fields
-			result, err = c.executeInsert()
-			if err != nil {
-				return define.Result{}, fmt.Errorf("failed to insert model %d: %v", i+1, err)
+			result = c.executeInsert()
+			if result.Error != nil {
+				return define.Result{Error: fmt.Errorf("failed to insert model %d: %v", i+1, result.Error)}
 			}
 			lastID = result.ID
 		}
@@ -711,11 +728,11 @@ func (c *Chain) executeMultipleSaves(models []interface{}) (define.Result, error
 		totalAffected += result.Affected
 	}
 
-	return define.Result{ID: lastID, Affected: totalAffected}, nil
+	return define.Result{ID: lastID, Affected: totalAffected}
 }
 
 // executeInsert executes an INSERT query
-func (c *Chain) executeInsert() (define.Result, error) {
+func (c *Chain) executeInsert() define.Result {
 	sqlStr, args := c.factory.BuildInsert(c.tableName, c.insertFields)
 	if define.Debug {
 		log.Printf("[SQL] %s %v", sqlStr, args)
@@ -731,7 +748,7 @@ func (c *Chain) executeInsert() (define.Result, error) {
 			err = c.db.DB.QueryRow(sqlStr, args...).Scan(&id)
 		}
 		if err != nil {
-			return define.Result{}, err
+			return define.Result{Error: err}
 		}
 
 		// Try to set ID back to the entity if it exists
@@ -743,7 +760,7 @@ func (c *Chain) executeInsert() (define.Result, error) {
 			}
 		}
 
-		return define.Result{ID: id, Affected: 1}, nil
+		return define.Result{ID: id, Affected: 1}
 	}
 
 	var result sql.Result
@@ -756,7 +773,7 @@ func (c *Chain) executeInsert() (define.Result, error) {
 	}
 
 	if err != nil {
-		return define.Result{}, err
+		return define.Result{Error: err}
 	}
 
 	affected, _ := result.RowsAffected()
@@ -771,11 +788,11 @@ func (c *Chain) executeInsert() (define.Result, error) {
 		}
 	}
 
-	return define.Result{ID: lastID, Affected: affected}, nil
+	return define.Result{ID: lastID, Affected: affected}
 }
 
 // Update executes an UPDATE query
-func (c *Chain) Update(models ...interface{}) (sql.Result, error) {
+func (c *Chain) Update(models ...interface{}) define.Result {
 	// 如果没有提供模型，使用已设置的更新字段
 	if len(models) == 0 {
 		if len(c.updateFields) == 0 && len(c.insertFields) > 0 {
@@ -785,10 +802,24 @@ func (c *Chain) Update(models ...interface{}) (sql.Result, error) {
 		if define.Debug {
 			log.Printf("[SQL] %s %v\n", sql, args)
 		}
-		if c.tx != nil {
-			return c.tx.Exec(sql, args...)
+		var sqlResult interface {
+			LastInsertId() (int64, error)
+			RowsAffected() (int64, error)
 		}
-		return c.db.DB.Exec(sql, args...)
+		var err error
+		if c.tx != nil {
+			sqlResult, err = c.tx.Exec(sql, args...)
+		} else {
+			sqlResult, err = c.db.DB.Exec(sql, args...)
+		}
+		if err != nil {
+			return define.Result{Error: err}
+		}
+		affected, err := sqlResult.RowsAffected()
+		if err != nil {
+			return define.Result{Error: err}
+		}
+		return define.Result{Affected: affected}
 	}
 
 	// 如果只有一个模型，不需要事务
@@ -801,14 +832,14 @@ func (c *Chain) Update(models ...interface{}) (sql.Result, error) {
 }
 
 // updateSingleModel updates a single model without transaction
-func (c *Chain) updateSingleModel(model interface{}) (sql.Result, error) {
+func (c *Chain) updateSingleModel(model interface{}) define.Result {
 	updateFields, err := c.extractModelFields(model)
 	if err != nil {
-		return nil, err
+		return define.Result{Error: err}
 	}
 
 	if len(updateFields) == 0 {
-		return nil, fmt.Errorf("no fields to update")
+		return define.Result{Error: fmt.Errorf("no fields to update")}
 	}
 
 	sql, args := c.factory.BuildUpdate(c.tableName, updateFields, c.conds)
@@ -816,14 +847,27 @@ func (c *Chain) updateSingleModel(model interface{}) (sql.Result, error) {
 		log.Printf("[SQL] %s %v\n", sql, args)
 	}
 
-	if c.tx != nil {
-		return c.tx.Exec(sql, args...)
+	var sqlResult interface {
+		LastInsertId() (int64, error)
+		RowsAffected() (int64, error)
 	}
-	return c.db.DB.Exec(sql, args...)
+	if c.tx != nil {
+		sqlResult, err = c.tx.Exec(sql, args...)
+	} else {
+		sqlResult, err = c.db.DB.Exec(sql, args...)
+	}
+	if err != nil {
+		return define.Result{Error: err}
+	}
+	affected, err := sqlResult.RowsAffected()
+	if err != nil {
+		return define.Result{Error: err}
+	}
+	return define.Result{Affected: affected}
 }
 
 // updateMultipleModels updates multiple models within a transaction
-func (c *Chain) updateMultipleModels(models []interface{}) (sql.Result, error) {
+func (c *Chain) updateMultipleModels(models []interface{}) define.Result {
 	// 如果已经在事务中，直接使用现有事务
 	if c.tx != nil {
 		return c.executeMultipleUpdates(models)
@@ -832,7 +876,7 @@ func (c *Chain) updateMultipleModels(models []interface{}) (sql.Result, error) {
 	// 开启新事务
 	tx, err := c.db.DB.Begin()
 	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %v", err)
+		return define.Result{Error: fmt.Errorf("failed to begin transaction: %v", err)}
 	}
 
 	// 创建新的带事务的 Chain
@@ -844,36 +888,36 @@ func (c *Chain) updateMultipleModels(models []interface{}) (sql.Result, error) {
 		factory:   c.factory,
 	}
 
-	result, err := txChain.executeMultipleUpdates(models)
-	if err != nil {
+	result := txChain.executeMultipleUpdates(models)
+	if result.Error != nil {
 		// 发生错误时回滚事务
 		rollbackErr := tx.Rollback()
 		if rollbackErr != nil {
-			return nil, fmt.Errorf("update failed: %v, rollback failed: %v", err, rollbackErr)
+			return define.Result{Error: fmt.Errorf("update failed: %v, rollback failed: %v", result.Error, rollbackErr)}
 		}
-		return nil, fmt.Errorf("update failed: %v", err)
+		return define.Result{Error: fmt.Errorf("update failed: %v", result.Error)}
 	}
 
 	// 提交事务
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %v", err)
+		return define.Result{Error: fmt.Errorf("failed to commit transaction: %v", err)}
 	}
 
-	return result, nil
+	return result
 }
 
 // executeMultipleUpdates executes updates for multiple models
-func (c *Chain) executeMultipleUpdates(models []interface{}) (sql.Result, error) {
-	var lastResult sql.Result
+func (c *Chain) executeMultipleUpdates(models []interface{}) define.Result {
+	var totalAffected int64
 
 	for i, model := range models {
 		updateFields, err := c.extractModelFields(model)
 		if err != nil {
-			return nil, fmt.Errorf("failed to extract fields from model %d: %v", i+1, err)
+			return define.Result{Error: fmt.Errorf("failed to extract fields from model %d: %v", i+1, err)}
 		}
 
 		if len(updateFields) == 0 {
-			return nil, fmt.Errorf("no fields to update in model %d", i+1)
+			return define.Result{Error: fmt.Errorf("no fields to update in model %d", i+1)}
 		}
 
 		sql, args := c.factory.BuildUpdate(c.tableName, updateFields, c.conds)
@@ -883,22 +927,22 @@ func (c *Chain) executeMultipleUpdates(models []interface{}) (sql.Result, error)
 
 		result, err := c.tx.Exec(sql, args...)
 		if err != nil {
-			return nil, fmt.Errorf("failed to update model %d: %v", i+1, err)
+			return define.Result{Error: fmt.Errorf("failed to update model %d: %v", i+1, err)}
 		}
 
 		affected, err := result.RowsAffected()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get affected rows for model %d: %v", i+1, err)
+			return define.Result{Error: fmt.Errorf("failed to get affected rows for model %d: %v", i+1, err)}
 		}
 
 		if affected == 0 {
-			return nil, fmt.Errorf("no rows affected when updating model %d", i+1)
+			return define.Result{Error: fmt.Errorf("no rows affected when updating model %d", i+1)}
 		}
 
-		lastResult = result
+		totalAffected += affected
 	}
 
-	return lastResult, nil
+	return define.Result{Affected: totalAffected}
 }
 
 // extractModelFields extracts fields from a model
@@ -950,17 +994,31 @@ func (c *Chain) extractModelFields(model interface{}) (map[string]interface{}, e
 }
 
 // Delete executes a DELETE query
-func (c *Chain) Delete(models ...interface{}) (sql.Result, error) {
+func (c *Chain) Delete(models ...interface{}) define.Result {
 	// 如果没有提供模型，使用已设置的条件
 	if len(models) == 0 {
 		sql, args := c.factory.BuildDelete(c.tableName, c.conds)
 		if define.Debug {
 			log.Printf("[SQL] %s %v", sql, args)
 		}
-		if c.tx != nil {
-			return c.tx.Exec(sql, args...)
+		var sqlResult interface {
+			LastInsertId() (int64, error)
+			RowsAffected() (int64, error)
 		}
-		return c.db.DB.Exec(sql, args...)
+		var err error
+		if c.tx != nil {
+			sqlResult, err = c.tx.Exec(sql, args...)
+		} else {
+			sqlResult, err = c.db.DB.Exec(sql, args...)
+		}
+		if err != nil {
+			return define.Result{Error: err}
+		}
+		affected, err := sqlResult.RowsAffected()
+		if err != nil {
+			return define.Result{Error: err}
+		}
+		return define.Result{Affected: affected}
 	}
 
 	// 如果只有一个模型，不需要事务
@@ -973,11 +1031,11 @@ func (c *Chain) Delete(models ...interface{}) (sql.Result, error) {
 }
 
 // deleteSingleModel deletes a single model without transaction
-func (c *Chain) deleteSingleModel(model interface{}) (sql.Result, error) {
+func (c *Chain) deleteSingleModel(model interface{}) define.Result {
 	// 获取模型的主键值
 	pkValue, err := c.extractPrimaryKeyValue(model)
 	if err != nil {
-		return nil, err
+		return define.Result{Error: err}
 	}
 
 	// 使用主键作为删除条件
@@ -992,14 +1050,27 @@ func (c *Chain) deleteSingleModel(model interface{}) (sql.Result, error) {
 		log.Printf("[SQL] %s %v", sql, args)
 	}
 
-	if c.tx != nil {
-		return c.tx.Exec(sql, args...)
+	var sqlResult interface {
+		LastInsertId() (int64, error)
+		RowsAffected() (int64, error)
 	}
-	return c.db.DB.Exec(sql, args...)
+	if c.tx != nil {
+		sqlResult, err = c.tx.Exec(sql, args...)
+	} else {
+		sqlResult, err = c.db.DB.Exec(sql, args...)
+	}
+	if err != nil {
+		return define.Result{Error: err}
+	}
+	affected, err := sqlResult.RowsAffected()
+	if err != nil {
+		return define.Result{Error: err}
+	}
+	return define.Result{Affected: affected}
 }
 
 // deleteMultipleModels deletes multiple models within a transaction
-func (c *Chain) deleteMultipleModels(models []interface{}) (sql.Result, error) {
+func (c *Chain) deleteMultipleModels(models []interface{}) define.Result {
 	// 如果已经在事务中，直接使用现有事务
 	if c.tx != nil {
 		return c.executeMultipleDeletes(models)
@@ -1008,7 +1079,7 @@ func (c *Chain) deleteMultipleModels(models []interface{}) (sql.Result, error) {
 	// 开启新事务
 	tx, err := c.db.DB.Begin()
 	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %v", err)
+		return define.Result{Error: fmt.Errorf("failed to begin transaction: %v", err)}
 	}
 
 	// 创建新的带事务的 Chain
@@ -1020,69 +1091,69 @@ func (c *Chain) deleteMultipleModels(models []interface{}) (sql.Result, error) {
 		factory:   c.factory,
 	}
 
-	result, err := txChain.executeMultipleDeletes(models)
-	if err != nil {
+	result := txChain.executeMultipleDeletes(models)
+	if result.Error != nil {
 		// 发生错误时回滚事务
 		rollbackErr := tx.Rollback()
 		if rollbackErr != nil {
-			return nil, fmt.Errorf("delete failed: %v, rollback failed: %v", err, rollbackErr)
+			return define.Result{Error: fmt.Errorf("delete failed: %v, rollback failed: %v", result.Error, rollbackErr)}
 		}
-		return nil, fmt.Errorf("delete failed: %v", err)
+		return define.Result{Error: fmt.Errorf("delete failed: %v", result.Error)}
 	}
 
 	// 提交事务
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %v", err)
+		return define.Result{Error: fmt.Errorf("failed to commit transaction: %v", err)}
 	}
 
-	return result, nil
+	return result
 }
 
 // executeMultipleDeletes executes deletes for multiple models
-func (c *Chain) executeMultipleDeletes(models []interface{}) (sql.Result, error) {
-	var lastResult sql.Result
+func (c *Chain) executeMultipleDeletes(models []interface{}) define.Result {
 	var totalAffected int64
 
 	for i, model := range models {
 		// 获取模型的主键值
 		pkValue, err := c.extractPrimaryKeyValue(model)
 		if err != nil {
-			return nil, fmt.Errorf("failed to extract primary key from model %d: %v", i+1, err)
+			return define.Result{Error: fmt.Errorf("failed to extract primary key from model %d: %v", i+1, err)}
 		}
 
 		// 使用主键作为删除条件
-		c.conds = []*define.Condition{
-			{
-				Field: "id",
-				Op:    define.OpEq,
-				Value: pkValue,
-			},
-		}
+		c.conds = append(c.conds, &define.Condition{
+			Field: "id",
+			Op:    define.OpEq,
+			Value: pkValue,
+		})
 
 		sql, args := c.factory.BuildDelete(c.tableName, c.conds)
 		if define.Debug {
 			log.Printf("[SQL] %s %v", sql, args)
 		}
 
-		result, err := c.tx.Exec(sql, args...)
+		var sqlResult interface {
+			LastInsertId() (int64, error)
+			RowsAffected() (int64, error)
+		}
+		sqlResult, err = c.tx.Exec(sql, args...)
 		if err != nil {
-			return nil, fmt.Errorf("failed to delete model %d: %v", i+1, err)
+			return define.Result{Error: fmt.Errorf("failed to delete model %d: %v", i+1, err)}
 		}
 
-		affected, err := result.RowsAffected()
+		affected, err := sqlResult.RowsAffected()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get affected rows for model %d: %v", i+1, err)
+			return define.Result{Error: fmt.Errorf("failed to get affected rows for model %d: %v", i+1, err)}
 		}
 
 		if affected == 0 {
-			return nil, fmt.Errorf("no rows affected when deleting model %d", i+1)
+			return define.Result{Error: fmt.Errorf("no rows affected when deleting model %d", i+1)}
 		}
 
 		totalAffected += affected
-		lastResult = result
 	}
 
-	return lastResult, nil
+	return define.Result{Affected: totalAffected}
 }
 
 // extractPrimaryKeyValue extracts the primary key value from a model
@@ -1197,15 +1268,30 @@ func (c *Chain) RawQuery(sqlStr string, args ...interface{}) *QueryResult {
 	}
 }
 
-// RawExecute executes a raw SQL statement with args
-func (c *Chain) RawExecute(sql string, args ...interface{}) (sql.Result, error) {
+// RawExecute executes a raw SQL query
+func (c *Chain) RawExecute(sql string, args ...interface{}) define.Result {
 	if define.Debug {
-		log.Printf("[SQL] %s %v\n", sql, args)
+		log.Printf("[SQL] %s %v", sql, args)
 	}
+	var sqlResult interface {
+		LastInsertId() (int64, error)
+		RowsAffected() (int64, error)
+	}
+	var err error
 	if c.tx != nil {
-		return c.tx.Exec(sql, args...)
+		sqlResult, err = c.tx.Exec(sql, args...)
+	} else {
+		sqlResult, err = c.db.DB.Exec(sql, args...)
 	}
-	return c.db.DB.Exec(sql, args...)
+	if err != nil {
+		return define.Result{Error: err}
+	}
+	lastID, _ := sqlResult.LastInsertId()
+	affected, err := sqlResult.RowsAffected()
+	if err != nil {
+		return define.Result{Error: err}
+	}
+	return define.Result{ID: lastID, Affected: affected}
 }
 
 // QueryResult represents a query result
@@ -1724,9 +1810,16 @@ func (c *Chain) Count2(field string) (int64, error) {
 	if define.Debug {
 		log.Printf("[SQL] %s %v\n", sqlStr, args)
 	}
-	row := c.db.DB.QueryRow(sqlStr, args...)
-	err := row.Scan(&count)
+	var err error
+	if c.tx != nil {
+		err = c.tx.QueryRow(sqlStr, args...).Scan(&count)
+	} else {
+		err = c.db.DB.QueryRow(sqlStr, args...).Scan(&count)
+	}
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
 		return 0, err
 	}
 	return count, nil
@@ -1736,8 +1829,15 @@ func (c *Chain) Count2(field string) (int64, error) {
 func (c *Chain) Sum(field string) (float64, error) {
 	var sum float64
 	sqlStr, args := c.factory.BuildSelect(c.tableName, []string{fmt.Sprintf("SUM(%s) as sum_value", field)}, c.conds, "", 0, 0)
-	row := c.db.DB.QueryRow(sqlStr, args...)
-	err := row.Scan(&sum)
+	if define.Debug {
+		log.Printf("[SQL] %s %v\n", sqlStr, args)
+	}
+	var err error
+	if c.tx != nil {
+		err = c.tx.QueryRow(sqlStr, args...).Scan(&sum)
+	} else {
+		err = c.db.DB.QueryRow(sqlStr, args...).Scan(&sum)
+	}
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return 0, nil
@@ -1751,8 +1851,15 @@ func (c *Chain) Sum(field string) (float64, error) {
 func (c *Chain) Avg(field string) (float64, error) {
 	var avg float64
 	sqlStr, args := c.factory.BuildSelect(c.tableName, []string{fmt.Sprintf("AVG(%s) as avg_value", field)}, c.conds, "", 0, 0)
-	row := c.db.DB.QueryRow(sqlStr, args...)
-	err := row.Scan(&avg)
+	if define.Debug {
+		log.Printf("[SQL] %s %v\n", sqlStr, args)
+	}
+	var err error
+	if c.tx != nil {
+		err = c.tx.QueryRow(sqlStr, args...).Scan(&avg)
+	} else {
+		err = c.db.DB.QueryRow(sqlStr, args...).Scan(&avg)
+	}
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return 0, nil

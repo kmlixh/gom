@@ -34,10 +34,11 @@ type DB struct {
 
 // cloneSelfIfDifferentGoRoutine ensures thread safety by cloning DB instance if needed
 func (db *DB) cloneSelfIfDifferentGoRoutine() *DB {
-	currentID := atomic.AddInt64(&routineIDCounter, 1)
+	currentID := atomic.LoadInt64(&routineIDCounter)
 	if db.RoutineID == 0 {
-		atomic.StoreInt64(&db.RoutineID, currentID)
-		return db
+		if atomic.CompareAndSwapInt64(&db.RoutineID, 0, currentID) {
+			return db
+		}
 	}
 	if db.RoutineID != currentID {
 		newDB := &DB{
@@ -105,7 +106,7 @@ func (db *DB) GenerateStruct(tableName, outputDir, packageName string) error {
 	// 获取表信息
 	tableInfo, err := db.GetTableInfo(tableName)
 	if err != nil {
-		return fmt.Errorf("获取表信息失败: %v", err)
+		return fmt.Errorf("failed to get table info: %v", err)
 	}
 
 	return generateStructFile(tableInfo, outputDir, packageName)
@@ -115,25 +116,25 @@ func (db *DB) GenerateStruct(tableName, outputDir, packageName string) error {
 func (db *DB) GenerateStructs(opts GenerateOptions) error {
 	// 确保输出目录存在
 	if err := os.MkdirAll(opts.OutputDir, 0755); err != nil {
-		return fmt.Errorf("创建输出目录失败: %v", err)
+		return fmt.Errorf("failed to create output directory: %v", err)
 	}
 
 	// 获取匹配的表
 	tables, err := db.GetTables(opts.Pattern)
 	if err != nil {
-		return fmt.Errorf("获取表列表失败: %v", err)
+		return fmt.Errorf("failed to get table list: %v", err)
 	}
 
 	// 生成每个表的结构体
 	for _, tableName := range tables {
 		if err := db.GenerateStruct(tableName, opts.OutputDir, opts.PackageName); err != nil {
-			return fmt.Errorf("生成表 %s 的结构体失败: %v", tableName, err)
+			return fmt.Errorf("failed to generate struct for table %s: %v", tableName, err)
 		}
 	}
 
 	// 格式化生成的代码
 	if err := formatGeneratedCode(opts.OutputDir); err != nil {
-		return fmt.Errorf("格式化生成的代码失败: %v", err)
+		return fmt.Errorf("failed to format generated code: %v", err)
 	}
 
 	return nil
@@ -264,45 +265,49 @@ func goType(dbType string, isNullable bool) string {
 	return goType
 }
 
-// GetTableName 获取结构体对应的表名
+// GetTableName returns the table name for a model
 func (db *DB) GetTableName(model interface{}) (string, error) {
-	// 处理字符串类型
+	if model == nil {
+		return "", fmt.Errorf("model cannot be nil")
+	}
+
+	// 如果是字符串，直接返回
 	if tableName, ok := model.(string); ok {
 		return tableName, nil
 	}
 
-	// 获取模型类型
+	// 获取模型的类型
 	modelType := reflect.TypeOf(model)
 	if modelType.Kind() == reflect.Ptr {
 		modelType = modelType.Elem()
 	}
 
-	// 检查是否是结构体
+	// 检查是否为结构体
 	if modelType.Kind() != reflect.Struct {
-		return "", fmt.Errorf("model must be a struct or pointer to struct, got %v", modelType.Kind())
+		return "", fmt.Errorf("model must be a struct or struct pointer")
 	}
 
-	// 如果实现了 TableName 接口，使用接口方法
-	if tableNamer, ok := model.(define.ITableModel); ok {
-		if tableName := tableNamer.TableName(); tableName != "" {
-			return tableName, nil
-		}
+	// 检查是否实现了 TableName 接口
+	if tabler, ok := model.(interface{ TableName() string }); ok {
+		return tabler.TableName(), nil
 	}
 
 	// 使用结构体名称转换为表名
 	tableName := modelType.Name()
+	if strings.HasSuffix(tableName, "Query") {
+		tableName = tableName[:len(tableName)-5]
+	}
+	return toSnakeCase(tableName), nil
+}
 
-	// 处理查询结构体
-	tableName = strings.TrimSuffix(tableName, "Query")
-
-	// 转换为蛇形命名
+// toSnakeCase converts a string to snake case
+func toSnakeCase(s string) string {
 	var result []rune
-	for i, r := range tableName {
-		if i > 0 && r >= 'A' && r <= 'Z' {
+	for i, r := range s {
+		if i > 0 && unicode.IsUpper(r) {
 			result = append(result, '_')
 		}
 		result = append(result, unicode.ToLower(r))
 	}
-
-	return string(result), nil
+	return string(result)
 }

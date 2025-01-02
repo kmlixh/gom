@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,7 +26,7 @@ func (f *Factory) Connect(dsn string) (*sql.DB, error) {
 	return sql.Open("mysql", dsn)
 }
 
-// getOperator converts OpType to MySQL operator string
+// buildCondition builds a single condition clause
 func (f *Factory) getOperator(op define.OpType) string {
 	switch op {
 	case define.OpEq:
@@ -61,8 +62,11 @@ func (f *Factory) getOperator(op define.OpType) string {
 	}
 }
 
-// buildCondition builds a single condition clause
 func (f *Factory) buildCondition(cond *define.Condition) (string, []interface{}) {
+	if cond == nil {
+		return "", nil
+	}
+
 	if cond.IsSubGroup && len(cond.SubConds) > 0 {
 		var subCondStrs []string
 		var subArgs []interface{}
@@ -93,24 +97,24 @@ func (f *Factory) buildCondition(cond *define.Condition) (string, []interface{})
 
 	op := f.getOperator(cond.Op)
 	switch cond.Op {
-	case define.OpIsNull, define.OpIsNotNull:
-		return fmt.Sprintf("`%s` %s", cond.Field, op), nil
 	case define.OpIn, define.OpNotIn:
 		if values, ok := cond.Value.([]interface{}); ok {
 			placeholders := make([]string, len(values))
 			for i := range values {
 				placeholders[i] = "?"
 			}
-			return fmt.Sprintf("`%s` %s (%s)", cond.Field, op, strings.Join(placeholders, ", ")), values
+			return fmt.Sprintf("`%s` %v (%s)", cond.Field, op, strings.Join(placeholders, ",")), values
 		}
-		return fmt.Sprintf("`%s` %s (?)", cond.Field, op), []interface{}{cond.Value}
+		return "", nil
+	case define.OpIsNull, define.OpIsNotNull:
+		return fmt.Sprintf("`%s` %v", cond.Field, op), nil
 	case define.OpBetween, define.OpNotBetween:
 		if values, ok := cond.Value.([]interface{}); ok && len(values) == 2 {
-			return fmt.Sprintf("`%s` %s ? AND ?", cond.Field, op), values
+			return fmt.Sprintf("`%s` %v ? AND ?", cond.Field, op), values
 		}
 		return "", nil
 	default:
-		return fmt.Sprintf("`%s` %s ?", cond.Field, op), []interface{}{cond.Value}
+		return fmt.Sprintf("`%s` %v ?", cond.Field, op), []interface{}{cond.Value}
 	}
 }
 
@@ -155,20 +159,7 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 
 	// Add order by
 	if orderBy != "" {
-		var orderParts []string
-		for _, part := range strings.Split(orderBy, ",") {
-			part = strings.TrimSpace(part)
-			if strings.Contains(strings.ToUpper(part), "DESC") {
-				field := strings.TrimSpace(strings.TrimSuffix(strings.ToUpper(part), "DESC"))
-				orderParts = append(orderParts, fmt.Sprintf("`%s` DESC", field))
-			} else if strings.Contains(strings.ToUpper(part), "ASC") {
-				field := strings.TrimSpace(strings.TrimSuffix(strings.ToUpper(part), "ASC"))
-				orderParts = append(orderParts, fmt.Sprintf("`%s` ASC", field))
-			} else {
-				orderParts = append(orderParts, fmt.Sprintf("`%s`", part))
-			}
-		}
-		query += " ORDER BY " + strings.Join(orderParts, ", ")
+		query += " ORDER BY " + orderBy
 	}
 
 	// Add limit and offset
@@ -187,13 +178,20 @@ func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, condi
 	var args []interface{}
 	query := fmt.Sprintf("UPDATE `%s` SET ", table)
 
+	// Sort field names to ensure consistent order
+	var fieldNames []string
+	for field := range fields {
+		if field != "id" { // Skip id field
+			fieldNames = append(fieldNames, field)
+		}
+	}
+	sort.Strings(fieldNames)
+
 	// Add fields
 	var fieldStrings []string
-	for field, value := range fields {
-		if field != "id" { // Skip id field
-			fieldStrings = append(fieldStrings, fmt.Sprintf("`%s` = ?", field))
-			args = append(args, value)
-		}
+	for _, field := range fieldNames {
+		fieldStrings = append(fieldStrings, fmt.Sprintf("`%s` = ?", field))
+		args = append(args, fields[field])
 	}
 
 	if len(fieldStrings) == 0 {
@@ -207,11 +205,20 @@ func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, condi
 	if len(conditions) > 0 {
 		query += " WHERE "
 		var condStrings []string
-		for _, cond := range conditions {
-			condStrings = append(condStrings, fmt.Sprintf("`%s` %s ?", cond.Field, cond.Op))
-			args = append(args, cond.Value)
+		for i, cond := range conditions {
+			condStr, condArgs := f.buildCondition(cond)
+			if condStr != "" {
+				if cond.Join == define.JoinOr && i > 0 {
+					condStrings = append(condStrings, "OR", condStr)
+				} else if i > 0 {
+					condStrings = append(condStrings, "AND", condStr)
+				} else {
+					condStrings = append(condStrings, condStr)
+				}
+				args = append(args, condArgs...)
+			}
 		}
-		query += strings.Join(condStrings, " AND ")
+		query += strings.Join(condStrings, " ")
 	}
 
 	return query, args
@@ -219,22 +226,31 @@ func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, condi
 
 // BuildInsert builds an INSERT query for MySQL
 func (f *Factory) BuildInsert(table string, fields map[string]interface{}) (string, []interface{}) {
-	var args []interface{}
-	var fieldNames []string
-	var placeholders []string
-
-	for field, value := range fields {
-		fieldNames = append(fieldNames, fmt.Sprintf("`%s`", field))
-		placeholders = append(placeholders, "?")
-		args = append(args, value)
+	if len(fields) == 0 {
+		return "", nil
 	}
 
-	query := fmt.Sprintf(
-		"INSERT INTO `%s` (%s) VALUES (%s)",
+	// Sort field names to ensure consistent order
+	var fieldNames []string
+	for field := range fields {
+		fieldNames = append(fieldNames, field)
+	}
+	sort.Strings(fieldNames)
+
+	var args []interface{}
+	var quotedFields []string
+	var placeholders []string
+
+	for _, field := range fieldNames {
+		quotedFields = append(quotedFields, fmt.Sprintf("`%s`", field))
+		placeholders = append(placeholders, "?")
+		args = append(args, fields[field])
+	}
+
+	query := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)",
 		table,
-		strings.Join(fieldNames, ", "),
-		strings.Join(placeholders, ", "),
-	)
+		strings.Join(quotedFields, ", "),
+		strings.Join(placeholders, ", "))
 
 	return query, args
 }
@@ -276,18 +292,26 @@ func (f *Factory) BuildBatchInsert(table string, values []map[string]interface{}
 
 // BuildDelete builds a DELETE query for MySQL
 func (f *Factory) BuildDelete(table string, conditions []*define.Condition) (string, []interface{}) {
-	var args []interface{}
 	query := fmt.Sprintf("DELETE FROM `%s`", table)
+	var args []interface{}
 
-	// Add conditions
 	if len(conditions) > 0 {
 		query += " WHERE "
 		var condStrings []string
-		for _, cond := range conditions {
-			condStrings = append(condStrings, fmt.Sprintf("`%s` %s ?", cond.Field, cond.Op))
-			args = append(args, cond.Value)
+		for i, cond := range conditions {
+			condStr, condArgs := f.buildCondition(cond)
+			if condStr != "" {
+				if cond.Join == define.JoinOr && i > 0 {
+					condStrings = append(condStrings, "OR", condStr)
+				} else if i > 0 {
+					condStrings = append(condStrings, "AND", condStr)
+				} else {
+					condStrings = append(condStrings, condStr)
+				}
+				args = append(args, condArgs...)
+			}
 		}
-		query += strings.Join(condStrings, " AND ")
+		query += strings.Join(condStrings, " ")
 	}
 
 	return query, args
@@ -296,7 +320,6 @@ func (f *Factory) BuildDelete(table string, conditions []*define.Condition) (str
 // BuildCreateTable builds a CREATE TABLE query for MySQL
 func (f *Factory) BuildCreateTable(table string, modelType reflect.Type) string {
 	var columns []string
-	var indexes []string
 
 	for i := 0; i < modelType.NumField(); i++ {
 		field := modelType.Field(i)
@@ -308,20 +331,32 @@ func (f *Factory) BuildCreateTable(table string, modelType reflect.Type) string 
 		// Parse tag
 		parts := strings.Split(tag, ",")
 		columnName := parts[0]
-		var constraints []string
+		var columnConstraints []string
 		if len(parts) > 1 {
-			constraints = parts[1:]
+			columnConstraints = parts[1:]
 		}
 
 		// Start building column definition
-		columnDef := columnName
+		columnDef := fmt.Sprintf("`%s`", columnName)
 
 		// Add data type based on field type
 		switch field.Type.Kind() {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32:
 			columnDef += " INT"
 		case reflect.Int64:
-			columnDef += " BIGINT"
+			// Check if it's a primary key with auto increment
+			isPrimaryAuto := false
+			for _, constraint := range columnConstraints {
+				if constraint == "primaryAuto" || constraint == "@" {
+					isPrimaryAuto = true
+					break
+				}
+			}
+			if isPrimaryAuto {
+				columnDef += " BIGINT PRIMARY KEY AUTO_INCREMENT"
+			} else {
+				columnDef += " BIGINT"
+			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32:
 			columnDef += " INT UNSIGNED"
 		case reflect.Uint64:
@@ -335,62 +370,25 @@ func (f *Factory) BuildCreateTable(table string, modelType reflect.Type) string 
 			if size == "" {
 				size = "255"
 			}
-			columnDef += " VARCHAR(" + size + ")"
+			columnDef += fmt.Sprintf(" VARCHAR(%s)", size)
 		case reflect.Bool:
 			columnDef += " BOOLEAN"
 		case reflect.Struct:
 			if field.Type == reflect.TypeOf(time.Time{}) {
-				columnDef += " TIMESTAMP"
-			}
-		}
-
-		// Add constraints
-		for _, constraint := range constraints {
-			switch constraint {
-			case "primary", "!":
-				columnDef += " PRIMARY KEY"
-			case "primaryAuto", "@":
-				columnDef += " PRIMARY KEY AUTO_INCREMENT"
-			case "notnull":
-				columnDef += " NOT NULL"
-			case "unique":
-				indexName := fmt.Sprintf("idx_%s_%s", table, columnName)
-				indexes = append(indexes, fmt.Sprintf("UNIQUE KEY `%s` (`%s`)", indexName, columnName))
-			case "index":
-				indexName := fmt.Sprintf("idx_%s_%s", table, columnName)
-				indexes = append(indexes, fmt.Sprintf("KEY `%s` (`%s`)", indexName, columnName))
-			default:
-				if strings.HasPrefix(constraint, "default:") {
-					defaultValue := strings.TrimPrefix(constraint, "default:")
-					columnDef += " DEFAULT " + defaultValue
-				} else if strings.HasPrefix(constraint, "foreignkey:") {
-					// Format: foreignkey:table.column
-					fkInfo := strings.TrimPrefix(constraint, "foreignkey:")
-					parts := strings.Split(fkInfo, ".")
-					if len(parts) == 2 {
-						fkName := fmt.Sprintf("fk_%s_%s", table, columnName)
-						indexes = append(indexes, fmt.Sprintf("CONSTRAINT `%s` FOREIGN KEY (`%s`) REFERENCES `%s` (`%s`)",
-							fkName, columnName, parts[0], parts[1]))
-					}
+				if columnName == "created_at" {
+					columnDef += " TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
+				} else if columnName == "updated_at" {
+					columnDef += " TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+				} else {
+					columnDef += " TIMESTAMP"
 				}
 			}
-		}
-
-		// Special handling for created_at and updated_at
-		if columnName == "created_at" {
-			columnDef += " NOT NULL DEFAULT CURRENT_TIMESTAMP"
-		} else if columnName == "updated_at" {
-			columnDef += " NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
 		}
 
 		columns = append(columns, columnDef)
 	}
 
-	// Combine columns and indexes
-	allDefinitions := append(columns, indexes...)
-
-	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` (\n  %s\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
-		table, strings.Join(allDefinitions, ",\n  "))
+	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` (%s)", table, strings.Join(columns, ", "))
 }
 
 // GetTableInfo 获取表信息

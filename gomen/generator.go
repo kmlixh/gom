@@ -1,6 +1,7 @@
 package gomen
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"text/template"
 	"time"
+	"unicode"
 
 	"github.com/kmlixh/gom/v4"
 	"github.com/kmlixh/gom/v4/define"
@@ -32,50 +34,71 @@ type Options struct {
 // Generator 代码生成器
 type Generator struct {
 	options Options
-	db      *gom.DB
+	db      interface {
+		GetTables(pattern string) ([]string, error)
+		GetTableInfo(tableName string) (*define.TableInfo, error)
+		Close() error
+	}
 }
 
-// NewGenerator 创建新的代码生成器实例
+// NewGenerator 创建代码生成器实例
 func NewGenerator(options Options) (*Generator, error) {
-	// 验证必要参数
+	// 验证选项
 	if err := validateOptions(&options); err != nil {
 		return nil, err
 	}
 
-	// 连接数据库
+	// 创建数据库连接
 	if options.Driver == "mysql" {
 		mysql.RegisterFactory()
 	} else if options.Driver == "postgres" {
 		postgres.RegisterFactory()
 	}
+
 	db, err := gom.Open(options.Driver, options.URL, options.Debug)
 	if err != nil {
 		return nil, fmt.Errorf("连接数据库失败: %v", err)
 	}
 
-	return &Generator{
+	// 创建生成器实例
+	g := &Generator{
 		options: options,
 		db:      db,
-	}, nil
-}
-
-// Generate 执行代码生成
-func (g *Generator) Generate() error {
-	// 确保输出目录存在
-	if err := os.MkdirAll(g.options.OutputDir, 0755); err != nil {
-		return fmt.Errorf("创建输出目录失败: %v", err)
 	}
 
-	// 获取匹配的表
+	return g, nil
+}
+
+// Close 关闭生成器
+func (g *Generator) Close() error {
+	if g.db != nil {
+		return g.db.Close()
+	}
+	return nil
+}
+
+// Generate 生成代码
+func (g *Generator) Generate() error {
+	// 获取表列表
 	tables, err := g.db.GetTables(g.options.Pattern)
 	if err != nil {
 		return fmt.Errorf("获取表列表失败: %v", err)
 	}
 
+	// 如果没有找到表,返回
+	if len(tables) == 0 {
+		return nil
+	}
+
+	// 创建输出目录
+	if err := os.MkdirAll(g.options.OutputDir, 0755); err != nil {
+		return fmt.Errorf("创建输出目录失败: %v", err)
+	}
+
 	// 生成每个表的结构体
-	for _, tableName := range tables {
-		if err := g.generateTableStruct(tableName); err != nil {
-			return fmt.Errorf("生成表 %s 的结构体失败: %v", tableName, err)
+	for _, table := range tables {
+		if err := g.generateTableStruct(table); err != nil {
+			return fmt.Errorf("生成表 %s 的结构体失败: %v", table, err)
 		}
 	}
 
@@ -86,7 +109,40 @@ func (g *Generator) Generate() error {
 
 	// 格式化生成的代码
 	if err := formatGeneratedCode(g.options.OutputDir); err != nil {
-		return fmt.Errorf("格式化代码失败: %v", err)
+		return fmt.Errorf("格式化生成的代码失败: %v", err)
+	}
+
+	return nil
+}
+
+// validateOptions 验证生成选项
+func validateOptions(options *Options) error {
+	if options == nil {
+		return errors.New("options cannot be nil")
+	}
+
+	if options.Driver == "" {
+		return errors.New("driver cannot be empty")
+	}
+
+	if options.Driver != "mysql" && options.Driver != "postgres" {
+		return fmt.Errorf("unsupported driver: %s", options.Driver)
+	}
+
+	if options.URL == "" {
+		return errors.New("url cannot be empty")
+	}
+
+	if options.OutputDir == "" {
+		return errors.New("output directory cannot be empty")
+	}
+
+	if options.PackageName == "" {
+		return errors.New("package name cannot be empty")
+	}
+
+	if options.TagStyle == "" {
+		options.TagStyle = "gom"
 	}
 
 	return nil
@@ -209,66 +265,23 @@ func (g *Generator) generateModelRegistry(tables []string) error {
 	return nil
 }
 
-// Close 关闭数据库连接
-func (g *Generator) Close() error {
-	if g.db != nil {
-		return g.db.Close()
-	}
-	return nil
-}
-
-// validateOptions 验证生成选项
-func validateOptions(options *Options) error {
-	if options.Driver == "" {
-		return fmt.Errorf("数据库驱动类型不能为空")
-	}
-	if options.Driver != "mysql" && options.Driver != "postgres" {
-		return fmt.Errorf("不支持的数据库类型: %s", options.Driver)
-	}
-	if options.URL == "" {
-		return fmt.Errorf("数据库连接URL不能为空")
-	}
-	if options.OutputDir == "" {
-		options.OutputDir = "models"
-	}
-	if options.PackageName == "" {
-		options.PackageName = "models"
-	}
-	if options.Pattern == "" {
-		options.Pattern = "*"
-	}
-	if options.TagStyle == "" {
-		options.TagStyle = "gom"
-	}
-	return nil
-}
-
 // buildTags 构建字段标签
 func (g *Generator) buildTags(col *define.ColumnInfo) string {
 	var tags []string
 
-	// 主标签 (gom)
-	mainTag := fmt.Sprintf(`%s:"%s"`, g.options.TagStyle, col.Name)
-	if col.IsPrimaryKey {
-		mainTag += ",@"
-	}
-	if col.IsAutoIncrement {
-		mainTag += ",auto"
-	}
-	if !col.IsNullable {
-		mainTag += ",notnull"
-	}
-	tags = append(tags, mainTag)
-
-	// JSON标签 (始终生成)
-	tags = append(tags, fmt.Sprintf(`json:"%s"`, col.Name))
-
-	// DB标签 (可选)
-	if g.options.GenerateDB {
+	// 根据 TagStyle 添加主标签
+	if g.options.TagStyle == "gom" {
+		tags = append(tags, fmt.Sprintf(`gom:"%s"`, col.Name))
+	} else {
 		tags = append(tags, fmt.Sprintf(`db:"%s"`, col.Name))
 	}
 
-	return "`" + strings.Join(tags, " ") + "`"
+	// 如果需要生成 db 标签且主标签不是 db
+	if g.options.GenerateDB && g.options.TagStyle != "db" {
+		tags = append(tags, fmt.Sprintf(`db:"%s"`, col.Name))
+	}
+
+	return strings.Join(tags, " ")
 }
 
 // formatGeneratedCode 格式化生成的代码
@@ -293,7 +306,11 @@ func formatGeneratedCode(dir string) error {
 // formatGoFile 格式化单个Go文件
 func formatGoFile(filePath string) error {
 	cmd := exec.Command("go", "fmt", filePath)
-	return cmd.Run()
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("go fmt failed: %v, output: %s", err, string(output))
+	}
+	return nil
 }
 
 // 辅助函数
@@ -305,8 +322,21 @@ func toGoName(name string) string {
 	return strings.Join(parts, "")
 }
 
-func snakeCase(name string) string {
-	return strings.ToLower(name)
+func snakeCase(s string) string {
+	var result []rune
+	var lastUpper bool
+	for i, r := range s {
+		if unicode.IsUpper(r) {
+			if i > 0 && !lastUpper {
+				result = append(result, '_')
+			}
+			lastUpper = true
+		} else {
+			lastUpper = false
+		}
+		result = append(result, unicode.ToLower(r))
+	}
+	return string(result)
 }
 
 func goType(dbType string, isNullable bool) string {
@@ -409,7 +439,7 @@ import (
 // {{.StructName}} {{.TableInfo.TableComment}}
 type {{.StructName}} struct {
 	{{- range .TableInfo.Columns}}
-	{{toGoName .Name}} {{goType .Type .IsNullable}} {{buildTags .}} {{if .Comment}}// {{.Comment}}{{end}}
+	{{toGoName .Name}} {{goType .Type .IsNullable}} ` + "`" + `{{buildTags .}}` + "`" + ` {{if .Comment}}// {{.Comment}}{{end}}
 	{{- end}}
 }
 

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -14,18 +15,19 @@ import (
 // Factory implements the SQLFactory interface for PostgreSQL
 type Factory struct{}
 
-func (f *Factory) Connect(dsn string) (*sql.DB, error) {
-	return sql.Open("pgx", dsn)
-}
-
 func init() {
 	RegisterFactory()
 }
+
 func RegisterFactory() {
 	define.RegisterFactory("postgres", &Factory{})
 }
 
-// getOperator converts OpType to PostgreSQL operator string
+func (f *Factory) Connect(dsn string) (*sql.DB, error) {
+	return sql.Open("pgx", dsn)
+}
+
+// buildCondition builds a single condition clause
 func (f *Factory) getOperator(op define.OpType) string {
 	switch op {
 	case define.OpEq:
@@ -61,83 +63,108 @@ func (f *Factory) getOperator(op define.OpType) string {
 	}
 }
 
-// buildCondition builds a single condition clause
-func (f *Factory) buildCondition(cond *define.Condition, startParam int) (string, []interface{}, int) {
+func (f *Factory) buildCondition(cond *define.Condition, startParamIndex int) (string, []interface{}) {
+	if cond == nil {
+		return "", nil
+	}
+
 	if cond.IsSubGroup && len(cond.SubConds) > 0 {
 		var subCondStrs []string
 		var subArgs []interface{}
-		currentParam := startParam
+		currentParamIndex := startParamIndex
 
-		for _, subCond := range cond.SubConds {
-			subStr, subArg, newParam := f.buildCondition(subCond, currentParam)
+		for i, subCond := range cond.SubConds {
+			subStr, subArg := f.buildCondition(subCond, currentParamIndex)
 			if subStr != "" {
-				if subCond.Join == define.JoinOr && len(subCondStrs) > 0 {
+				if subCond.Join == define.JoinOr && i > 0 {
 					subCondStrs = append(subCondStrs, "OR", subStr)
-				} else if len(subCondStrs) > 0 {
+				} else if i > 0 {
 					subCondStrs = append(subCondStrs, "AND", subStr)
 				} else {
 					subCondStrs = append(subCondStrs, subStr)
 				}
 				subArgs = append(subArgs, subArg...)
-				currentParam = newParam
+				currentParamIndex += len(subArg)
 			}
 		}
 
 		if len(subCondStrs) > 0 {
-			return "(" + strings.Join(subCondStrs, " ") + ")", subArgs, currentParam
+			return "(" + strings.Join(subCondStrs, " ") + ")", subArgs
 		}
-		return "", nil, startParam
+		return "", nil
 	}
 
 	if cond.Field == "" {
-		return "", nil, startParam
+		return "", nil
 	}
 
+	quotedField := f.quoteIdentifier(cond.Field)
 	op := f.getOperator(cond.Op)
+
 	switch cond.Op {
-	case define.OpIsNull, define.OpIsNotNull:
-		return fmt.Sprintf("%s %s", cond.Field, op), nil, startParam
 	case define.OpIn, define.OpNotIn:
 		if values, ok := cond.Value.([]interface{}); ok {
 			placeholders := make([]string, len(values))
 			for i := range values {
-				placeholders[i] = fmt.Sprintf("$%d", startParam+i)
+				placeholders[i] = fmt.Sprintf("$%d", startParamIndex+i)
 			}
-			return fmt.Sprintf("%s %s (%s)", cond.Field, op, strings.Join(placeholders, ", ")), values, startParam + len(values)
+			return fmt.Sprintf("%s %v (%s)", quotedField, op, strings.Join(placeholders, ",")), values
 		}
-		return fmt.Sprintf("%s %s ($%d)", cond.Field, op, startParam), []interface{}{cond.Value}, startParam + 1
+		return "", nil
+	case define.OpIsNull, define.OpIsNotNull:
+		return fmt.Sprintf("%s %v", quotedField, op), nil
 	case define.OpBetween, define.OpNotBetween:
 		if values, ok := cond.Value.([]interface{}); ok && len(values) == 2 {
-			return fmt.Sprintf("%s %s $%d AND $%d", cond.Field, op, startParam, startParam+1), values, startParam + 2
+			return fmt.Sprintf("%s %v $%d AND $%d", quotedField, op, startParamIndex, startParamIndex+1), values
 		}
-		return "", nil, startParam
+		return "", nil
 	default:
-		return fmt.Sprintf("%s %s $%d", cond.Field, op, startParam), []interface{}{cond.Value}, startParam + 1
+		return fmt.Sprintf("%s %v $%d", quotedField, op, startParamIndex), []interface{}{cond.Value}
 	}
+}
+
+// quoteIdentifier properly quotes PostgreSQL identifiers
+func (f *Factory) quoteIdentifier(identifier string) string {
+	parts := strings.Split(identifier, ".")
+	for i, part := range parts {
+		if part != "*" {
+			parts[i] = fmt.Sprintf(`"%s"`, strings.ReplaceAll(part, `"`, `""`))
+		}
+	}
+	return strings.Join(parts, ".")
 }
 
 // BuildSelect builds a SELECT query for PostgreSQL
 func (f *Factory) BuildSelect(table string, fields []string, conditions []*define.Condition, orderBy string, limit, offset int) (string, []interface{}) {
 	var args []interface{}
-	var paramCount int = 1
 	query := "SELECT "
 
 	// Add fields
 	if len(fields) > 0 {
-		query += strings.Join(fields, ", ")
+		var quotedFields []string
+		for _, field := range fields {
+			if strings.Contains(field, "(") && strings.Contains(field, ")") {
+				// Don't quote aggregate functions
+				quotedFields = append(quotedFields, field)
+			} else {
+				quotedFields = append(quotedFields, f.quoteIdentifier(field))
+			}
+		}
+		query += strings.Join(quotedFields, ", ")
 	} else {
 		query += "*"
 	}
 
 	// Add table
-	query += " FROM " + table
+	query += fmt.Sprintf(` FROM %s`, f.quoteIdentifier(table))
 
 	// Add conditions
 	if len(conditions) > 0 {
 		query += " WHERE "
 		var condStrings []string
+		currentParamIndex := 1
 		for i, cond := range conditions {
-			condStr, condArgs, newParamCount := f.buildCondition(cond, paramCount)
+			condStr, condArgs := f.buildCondition(cond, currentParamIndex)
 			if condStr != "" {
 				if cond.Join == define.JoinOr && i > 0 {
 					condStrings = append(condStrings, "OR", condStr)
@@ -147,7 +174,7 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 					condStrings = append(condStrings, condStr)
 				}
 				args = append(args, condArgs...)
-				paramCount = newParamCount
+				currentParamIndex += len(condArgs)
 			}
 		}
 		query += strings.Join(condStrings, " ")
@@ -155,18 +182,18 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 
 	// Add order by
 	if orderBy != "" {
-		query += " ORDER BY " + orderBy
+		if strings.HasPrefix(strings.ToUpper(orderBy), "ORDER BY") {
+			query += " " + orderBy
+		} else {
+			query += " ORDER BY " + orderBy
+		}
 	}
 
 	// Add limit and offset
 	if limit > 0 {
-		query += fmt.Sprintf(" LIMIT $%d", paramCount)
-		args = append(args, limit)
-		paramCount++
+		query += fmt.Sprintf(" LIMIT %d", limit)
 		if offset > 0 {
-			query += fmt.Sprintf(" OFFSET $%d", paramCount)
-			args = append(args, offset)
-			paramCount++
+			query += fmt.Sprintf(" OFFSET %d", offset)
 		}
 	}
 
@@ -176,116 +203,163 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 // BuildUpdate builds an UPDATE query for PostgreSQL
 func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, conditions []*define.Condition) (string, []interface{}) {
 	var args []interface{}
-	var paramCount int = 1
-	query := "UPDATE " + table + " SET "
+	query := fmt.Sprintf(`UPDATE %s SET `, f.quoteIdentifier(table))
+
+	// Sort field names to ensure consistent order
+	var fieldNames []string
+	for field := range fields {
+		fieldNames = append(fieldNames, field)
+	}
+	sort.Strings(fieldNames)
 
 	// Add fields
 	var fieldStrings []string
-	for field, value := range fields {
-		fieldStrings = append(fieldStrings, fmt.Sprintf("%s = $%d", field, paramCount))
-		args = append(args, value)
-		paramCount++
+	for _, field := range fieldNames {
+		args = append(args, fields[field])
+		fieldStrings = append(fieldStrings, fmt.Sprintf(`%s = $%d`, f.quoteIdentifier(field), len(args)))
 	}
+
+	if len(fieldStrings) == 0 {
+		// If no fields to update, return empty query
+		return "", nil
+	}
+
 	query += strings.Join(fieldStrings, ", ")
 
 	// Add conditions
 	if len(conditions) > 0 {
 		query += " WHERE "
 		var condStrings []string
-		for _, cond := range conditions {
-			condStr, condArgs, newParamCount := f.buildCondition(cond, paramCount)
+		currentParamIndex := len(args) + 1
+		for i, cond := range conditions {
+			condStr, condArgs := f.buildCondition(cond, currentParamIndex)
 			if condStr != "" {
-				condStrings = append(condStrings, condStr)
+				if cond.Join == define.JoinOr && i > 0 {
+					condStrings = append(condStrings, "OR", condStr)
+				} else if i > 0 {
+					condStrings = append(condStrings, "AND", condStr)
+				} else {
+					condStrings = append(condStrings, condStr)
+				}
 				args = append(args, condArgs...)
-				paramCount = newParamCount
+				currentParamIndex += len(condArgs)
 			}
 		}
-		query += strings.Join(condStrings, " AND ")
+		query += strings.Join(condStrings, " ")
 	}
-
-	// Add RETURNING clause for PostgreSQL
-	query += " RETURNING id"
 
 	return query, args
 }
 
 // BuildInsert builds an INSERT query for PostgreSQL
 func (f *Factory) BuildInsert(table string, fields map[string]interface{}) (string, []interface{}) {
+	if len(fields) == 0 {
+		return "", nil
+	}
+
 	var args []interface{}
 	var fieldNames []string
 	var placeholders []string
-	argCount := 1
 
-	for field, value := range fields {
+	// Sort field names to ensure consistent order
+	for field := range fields {
 		fieldNames = append(fieldNames, field)
-		placeholders = append(placeholders, fmt.Sprintf("$%d", argCount))
-		args = append(args, value)
-		argCount++
+	}
+	sort.Strings(fieldNames)
+
+	// Build field list and placeholders
+	for i, field := range fieldNames {
+		args = append(args, fields[field])
+		placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
 	}
 
-	query := fmt.Sprintf(
-		"INSERT INTO %s (%s) VALUES (%s) RETURNING id",
-		table,
-		strings.Join(fieldNames, ", "),
-		strings.Join(placeholders, ", "),
-	)
+	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES (%s)`,
+		f.quoteIdentifier(table),
+		strings.Join(f.quoteIdentifiers(fieldNames), ", "),
+		strings.Join(placeholders, ", "))
 
 	return query, args
 }
 
+// quoteIdentifiers quotes multiple identifiers
+func (f *Factory) quoteIdentifiers(identifiers []string) []string {
+	quoted := make([]string, len(identifiers))
+	for i, id := range identifiers {
+		quoted[i] = f.quoteIdentifier(id)
+	}
+	return quoted
+}
+
 // BuildBatchInsert builds a batch INSERT query for PostgreSQL
-func (f *Factory) BuildBatchInsert(table string, values []map[string]interface{}) (string, []interface{}) {
-	if len(values) == 0 {
+func (f *Factory) BuildBatchInsert(table string, batchFields []map[string]interface{}) (string, []interface{}) {
+	if len(batchFields) == 0 {
 		return "", nil
 	}
 
-	// Get field names from the first row
+	// Get all unique field names
+	fieldSet := make(map[string]struct{})
+	for _, fields := range batchFields {
+		for field := range fields {
+			fieldSet[field] = struct{}{}
+		}
+	}
+
+	// Convert to sorted slice for consistent order
 	var fieldNames []string
-	for field := range values[0] {
+	for field := range fieldSet {
 		fieldNames = append(fieldNames, field)
 	}
+	sort.Strings(fieldNames)
 
 	var args []interface{}
-	var valuePlaceholders []string
-	var paramCount int
+	var valueStrings []string
 
-	// Build placeholders and collect args
-	for _, row := range values {
-		var rowPlaceholders []string
+	// Build value lists
+	for _, fields := range batchFields {
+		var valuePlaceholders []string
 		for _, field := range fieldNames {
-			paramCount++
-			rowPlaceholders = append(rowPlaceholders, fmt.Sprintf("$%d", paramCount))
-			args = append(args, row[field])
+			if value, ok := fields[field]; ok {
+				args = append(args, value)
+				valuePlaceholders = append(valuePlaceholders, fmt.Sprintf("$%d", len(args)))
+			} else {
+				valuePlaceholders = append(valuePlaceholders, "NULL")
+			}
 		}
-		valuePlaceholders = append(valuePlaceholders, "("+strings.Join(rowPlaceholders, ", ")+")")
+		valueStrings = append(valueStrings, fmt.Sprintf("(%s)", strings.Join(valuePlaceholders, ", ")))
 	}
 
-	query := fmt.Sprintf(
-		"INSERT INTO %s (%s) VALUES %s",
-		table,
-		strings.Join(fieldNames, ", "),
-		strings.Join(valuePlaceholders, ", "),
-	)
+	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES %s`,
+		f.quoteIdentifier(table),
+		strings.Join(f.quoteIdentifiers(fieldNames), ", "),
+		strings.Join(valueStrings, ", "))
 
 	return query, args
 }
 
 // BuildDelete builds a DELETE query for PostgreSQL
 func (f *Factory) BuildDelete(table string, conditions []*define.Condition) (string, []interface{}) {
+	query := fmt.Sprintf(`DELETE FROM %s`, f.quoteIdentifier(table))
 	var args []interface{}
-	var paramCount int
-	query := "DELETE FROM " + table
 
-	// Add conditions
 	if len(conditions) > 0 {
 		query += " WHERE "
 		var condStrings []string
-		for _, cond := range conditions {
-			paramCount++
-			condStrings = append(condStrings, fmt.Sprintf("%s %s $%d", cond.Field, cond.Op, paramCount))
-			args = append(args, cond.Value)
+		currentParamIndex := 1
+		for i, cond := range conditions {
+			condStr, condArgs := f.buildCondition(cond, currentParamIndex)
+			if condStr != "" {
+				if cond.Join == define.JoinOr && i > 0 {
+					condStrings = append(condStrings, "OR", condStr)
+				} else if i > 0 {
+					condStrings = append(condStrings, "AND", condStr)
+				} else {
+					condStrings = append(condStrings, condStr)
+				}
+				args = append(args, condArgs...)
+				currentParamIndex += len(condArgs)
+			}
 		}
-		query += strings.Join(condStrings, " AND ")
+		query += strings.Join(condStrings, " ")
 	}
 
 	return query, args
@@ -293,8 +367,7 @@ func (f *Factory) BuildDelete(table string, conditions []*define.Condition) (str
 
 // BuildCreateTable builds a CREATE TABLE query for PostgreSQL
 func (f *Factory) BuildCreateTable(table string, modelType reflect.Type) string {
-	var columns []string
-	var constraints []string
+	var fieldDefs []string
 
 	for i := 0; i < modelType.NumField(); i++ {
 		field := modelType.Field(i)
@@ -303,226 +376,140 @@ func (f *Factory) BuildCreateTable(table string, modelType reflect.Type) string 
 			continue
 		}
 
-		// Parse tag
 		parts := strings.Split(tag, ",")
 		columnName := parts[0]
-		var columnConstraints []string
-		if len(parts) > 1 {
-			columnConstraints = parts[1:]
-		}
+		columnConstraints := parts[1:]
 
-		// Start building column definition
-		columnDef := columnName
-
-		// Add data type based on field type
+		var columnType string
 		switch field.Type.Kind() {
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32:
-			columnDef += " INTEGER"
+		case reflect.Int, reflect.Int32:
+			columnType = "INTEGER"
+		case reflect.Int8, reflect.Int16:
+			columnType = "SMALLINT"
 		case reflect.Int64:
-			// Check if it's a primary key with auto increment
-			isPrimaryAuto := false
-			for _, constraint := range columnConstraints {
-				if constraint == "primaryAuto" || constraint == "@" {
-					isPrimaryAuto = true
-					break
-				}
-			}
-			if isPrimaryAuto {
-				columnDef += " BIGSERIAL"
+			if columnName == "id" {
+				columnType = "BIGSERIAL"
 			} else {
-				columnDef += " BIGINT"
+				columnType = "BIGINT"
 			}
-		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32:
-			columnDef += " INTEGER"
+		case reflect.Uint, reflect.Uint32:
+			columnType = "INTEGER"
+		case reflect.Uint8, reflect.Uint16:
+			columnType = "SMALLINT"
 		case reflect.Uint64:
-			columnDef += " BIGINT"
+			columnType = "BIGINT"
 		case reflect.Float32:
-			columnDef += " REAL"
+			columnType = "REAL"
 		case reflect.Float64:
-			columnDef += " DOUBLE PRECISION"
-		case reflect.String:
-			size := field.Tag.Get("size")
-			if size == "" {
-				size = "255"
-			}
-			columnDef += " VARCHAR(" + size + ")"
+			columnType = "DOUBLE PRECISION"
 		case reflect.Bool:
-			columnDef += " BOOLEAN"
+			columnType = "BOOLEAN"
+		case reflect.String:
+			columnType = "VARCHAR(255)"
 		case reflect.Struct:
 			if field.Type == reflect.TypeOf(time.Time{}) {
-				columnDef += " TIMESTAMP"
+				columnType = "TIMESTAMP"
+			}
+		case reflect.Ptr:
+			if field.Type.Elem() == reflect.TypeOf(time.Time{}) {
+				columnType = "TIMESTAMP"
 			}
 		}
 
+		columnDef := fmt.Sprintf(`"%s" %s`, columnName, columnType)
+
 		// Add constraints
+		isNull := field.Type.Kind() == reflect.Ptr // 指针类型默认可为空
 		for _, constraint := range columnConstraints {
 			switch constraint {
-			case "primary", "!":
-				columnDef += " PRIMARY KEY"
-			case "primaryAuto", "@":
-				// BIGSERIAL type already set above
-				columnDef += " PRIMARY KEY"
-			case "notnull":
+			case "@":
+				if columnName == "id" {
+					columnDef += " PRIMARY KEY"
+				}
+			case "notnull", "!":
+				isNull = false
 				columnDef += " NOT NULL"
-			case "unique":
-				constraintName := fmt.Sprintf("uq_%s_%s", table, columnName)
-				constraints = append(constraints, fmt.Sprintf("CONSTRAINT %s UNIQUE (%s)", constraintName, columnName))
-			case "index":
-				// Indexes will be created after table creation
-				constraints = append(constraints, fmt.Sprintf("CREATE INDEX idx_%s_%s ON %s (%s);",
-					table, columnName, table, columnName))
-			default:
-				if strings.HasPrefix(constraint, "default:") {
-					defaultValue := strings.TrimPrefix(constraint, "default:")
-					columnDef += " DEFAULT " + defaultValue
-				} else if strings.HasPrefix(constraint, "foreignkey:") {
-					// Format: foreignkey:table.column
-					fkInfo := strings.TrimPrefix(constraint, "foreignkey:")
-					parts := strings.Split(fkInfo, ".")
-					if len(parts) == 2 {
-						fkName := fmt.Sprintf("fk_%s_%s", table, columnName)
-						constraints = append(constraints, fmt.Sprintf("CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s (%s)",
-							fkName, columnName, parts[0], parts[1]))
-					}
+			case "null":
+				isNull = true
+			case "unique", "~":
+				columnDef += " UNIQUE"
+			case "default":
+				if field.Type == reflect.TypeOf(time.Time{}) {
+					columnDef += " DEFAULT CURRENT_TIMESTAMP"
 				}
 			}
 		}
 
-		// Special handling for created_at and updated_at
-		if columnName == "created_at" {
-			columnDef += " NOT NULL DEFAULT CURRENT_TIMESTAMP"
-		} else if columnName == "updated_at" {
-			columnDef += " NOT NULL DEFAULT CURRENT_TIMESTAMP"
+		if !isNull && !strings.Contains(columnDef, "NOT NULL") {
+			columnDef += " NOT NULL"
 		}
 
-		columns = append(columns, columnDef)
+		fieldDefs = append(fieldDefs, columnDef)
 	}
 
-	// Start building the complete SQL
-	query := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n  %s", table, strings.Join(columns, ",\n  "))
+	// 将字段定义组合成 SQL 语句
+	query := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS "%s" (`, table)
+	query += strings.Join(fieldDefs, ", ")
+	query += ")"
 
-	// Add table-level constraints
-	if len(constraints) > 0 {
-		var tableConstraints []string
-		var afterTableConstraints []string
-
-		for _, constraint := range constraints {
-			if strings.HasPrefix(constraint, "CREATE INDEX") {
-				afterTableConstraints = append(afterTableConstraints, constraint)
-			} else {
-				tableConstraints = append(tableConstraints, constraint)
-			}
-		}
-
-		if len(tableConstraints) > 0 {
-			query += ",\n  " + strings.Join(tableConstraints, ",\n  ")
-		}
-		query += "\n);\n"
-
-		// Add post-table creation statements
-		if len(afterTableConstraints) > 0 {
-			query += "\n" + strings.Join(afterTableConstraints, "\n")
-		}
-	} else {
-		query += "\n);\n"
-	}
-
-	// Add trigger for updated_at if the column exists
-	hasUpdatedAt := false
-	for i := 0; i < modelType.NumField(); i++ {
-		field := modelType.Field(i)
-		tag := field.Tag.Get("gom")
-		if strings.Split(tag, ",")[0] == "updated_at" {
-			hasUpdatedAt = true
-			break
-		}
-	}
-
-	if hasUpdatedAt {
-		query += fmt.Sprintf(`
-CREATE OR REPLACE FUNCTION update_%s_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS update_%s_updated_at ON %s;
-
-CREATE TRIGGER update_%s_updated_at
-    BEFORE UPDATE ON %s
-    FOR EACH ROW
-    EXECUTE FUNCTION update_%s_updated_at();
-`, table, table, table, table, table, table)
-	}
+	// 去除多余的空白字符
+	query = strings.ReplaceAll(query, "\n", " ")
+	query = strings.ReplaceAll(query, "\t", " ")
+	query = strings.ReplaceAll(query, "  ", " ")
 
 	return query
 }
 
 // GetTableInfo 获取表信息
 func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo, error) {
-	// 解析 schema 和表名
-	var schema, table string
-	parts := strings.Split(tableName, ".")
-	if len(parts) == 2 {
-		schema = parts[0]
-		table = parts[1]
-	} else {
-		// 如果没指定 schema，默认使用 public
-		schema = "public"
-		table = tableName
-	}
-
 	// 获取表基本信息
 	var tableInfo define.TableInfo
-	tableInfo.TableName = schema + "." + table
+	tableInfo.TableName = tableName
 
 	// 获取表注释
-	query := `SELECT obj_description(($1::text)::regclass, 'pg_class')`
+	query := `SELECT COALESCE(obj_description(c.oid), '') as table_comment
+			 FROM pg_class c
+			 WHERE c.relname = $1`
 
-	var comment sql.NullString
-	err := db.QueryRow(query, tableInfo.TableName).Scan(&comment)
-	if err != nil {
+	err := db.QueryRow(query, tableName).Scan(&tableInfo.TableComment)
+	if err != nil && err != sql.ErrNoRows {
 		return nil, fmt.Errorf("获取表注释失败: %v", err)
 	}
-	tableInfo.TableComment = comment.String
 
 	// 获取列信息
 	query = `SELECT 
 				a.attname as column_name,
 				format_type(a.atttypid, a.atttypmod) as data_type,
 				CASE 
-					WHEN a.atttypmod > 0 THEN a.atttypmod - 4
-					ELSE a.attlen
-				END as length,
+					WHEN format_type(a.atttypid, a.atttypmod) LIKE 'character varying%' 
+					THEN regexp_replace(format_type(a.atttypid, a.atttypmod), 'character varying\((\d+)\)', '\1')::integer
+					ELSE null
+				END as character_maximum_length,
 				CASE 
-					WHEN t.typtype = 'd' THEN t.typtypmod
-					ELSE NULL
-				END as precision,
-				information_schema._pg_char_max_length(information_schema._pg_truetypid(a.*, t.*), information_schema._pg_truetypmod(a.*, t.*)) as char_maxlen,
-				information_schema._pg_numeric_precision(information_schema._pg_truetypid(a.*, t.*), information_schema._pg_truetypmod(a.*, t.*)) as num_precision,
-				information_schema._pg_numeric_scale(information_schema._pg_truetypid(a.*, t.*), information_schema._pg_truetypmod(a.*, t.*)) as num_scale,
-				not a.attnotnull as is_nullable,
-				coalesce(i.indisprimary, false) as is_primary_key,
-				pg_get_serial_sequence($1::regclass::text, a.attname) IS NOT NULL as is_auto_increment,
-				pg_get_expr(ad.adbin, ad.adrelid) as column_default,
-				col_description(a.attrelid, a.attnum) as column_comment
+					WHEN format_type(a.atttypid, a.atttypmod) LIKE 'numeric%' 
+					THEN split_part(regexp_replace(format_type(a.atttypid, a.atttypmod), 'numeric\((\d+),(\d+)\)', '\1'), ',', 1)::integer
+					ELSE null
+				END as numeric_precision,
+				CASE 
+					WHEN format_type(a.atttypid, a.atttypmod) LIKE 'numeric%' 
+					THEN split_part(regexp_replace(format_type(a.atttypid, a.atttypmod), 'numeric\((\d+),(\d+)\)', '\2'), ',', 1)::integer
+					ELSE null
+				END as numeric_scale,
+				CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END as is_nullable,
+				CASE WHEN pk.contype = 'p' THEN 'PRI' ELSE '' END as column_key,
+				CASE WHEN a.attidentity = 'a' THEN 'auto_increment' ELSE '' END as extra,
+				COALESCE(col_description(a.attrelid, a.attnum), '') as column_comment
 			FROM pg_attribute a
-			LEFT JOIN pg_index i ON
-				i.indrelid = a.attrelid AND
-				a.attnum = ANY(i.indkey)
-			LEFT JOIN pg_type t ON
-				a.atttypid = t.oid
-			LEFT JOIN pg_attrdef ad ON
-				ad.adrelid = a.attrelid AND
-				ad.adnum = a.attnum
+			LEFT JOIN pg_constraint pk 
+				ON pk.conrelid = a.attrelid 
+				AND pk.contype = 'p' 
+				AND a.attnum = ANY(pk.conkey)
 			WHERE a.attrelid = $1::regclass
 			AND a.attnum > 0
 			AND NOT a.attisdropped
 			ORDER BY a.attnum`
 
-	rows, err := db.Query(query, tableInfo.TableName)
+	rows, err := db.Query(query, tableName)
 	if err != nil {
 		return nil, fmt.Errorf("获取列信息失败: %v", err)
 	}
@@ -530,63 +517,43 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 
 	for rows.Next() {
 		var col define.ColumnInfo
-		var length, charMaxLen, numPrecision, numScale sql.NullInt64
+		var maxLength sql.NullInt64
 		var precision sql.NullInt64
-		var defaultValue, comment sql.NullString
+		var scale sql.NullInt64
+		var isNullable string
+		var columnKey string
+		var extra string
 
 		err := rows.Scan(
 			&col.Name,
 			&col.Type,
-			&length,
+			&maxLength,
 			&precision,
-			&charMaxLen,
-			&numPrecision,
-			&numScale,
-			&col.IsNullable,
-			&col.IsPrimaryKey,
-			&col.IsAutoIncrement,
-			&defaultValue,
-			&comment,
+			&scale,
+			&isNullable,
+			&columnKey,
+			&extra,
+			&col.Comment,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("扫描列信息失败: %v", err)
 		}
 
-		// 设置列属性
-		if charMaxLen.Valid {
-			col.Length = charMaxLen.Int64
-		} else if length.Valid {
-			col.Length = length.Int64
-		}
+		col.IsNullable = isNullable == "YES"
+		col.IsPrimaryKey = columnKey == "PRI"
+		col.IsAutoIncrement = extra == "auto_increment"
 
-		if numPrecision.Valid {
-			col.Precision = int(numPrecision.Int64)
-		} else if precision.Valid {
+		if maxLength.Valid {
+			col.Length = maxLength.Int64
+		}
+		if precision.Valid {
 			col.Precision = int(precision.Int64)
 		}
-
-		if numScale.Valid {
-			col.Scale = int(numScale.Int64)
-		}
-
-		if defaultValue.Valid {
-			col.DefaultValue = defaultValue.String
-		}
-
-		if comment.Valid {
-			col.Comment = comment.String
-		}
-
-		// 如果是主键，添加到主键列表
-		if col.IsPrimaryKey {
-			tableInfo.PrimaryKeys = append(tableInfo.PrimaryKeys, col.Name)
+		if scale.Valid {
+			col.Scale = int(scale.Int64)
 		}
 
 		tableInfo.Columns = append(tableInfo.Columns, col)
-	}
-
-	if len(tableInfo.Columns) == 0 {
-		return nil, fmt.Errorf("表 %s 不存在", tableName)
 	}
 
 	return &tableInfo, nil
@@ -640,19 +607,22 @@ func (f *Factory) GetTables(db *sql.DB, pattern string) ([]string, error) {
 	return tables, nil
 }
 
-// BuildOrderBy builds the ORDER BY clause
+// BuildOrderBy 构建排序语句
 func (f *Factory) BuildOrderBy(orders []define.OrderBy) string {
 	if len(orders) == 0 {
 		return ""
 	}
 
-	var orderClauses []string
+	var parts []string
 	for _, order := range orders {
+		part := fmt.Sprintf(`"%s"`, order.Field)
 		if order.Type == define.OrderDesc {
-			orderClauses = append(orderClauses, `"`+order.Field+`" DESC`)
+			part += " DESC"
 		} else {
-			orderClauses = append(orderClauses, `"`+order.Field+`"`)
+			part += " ASC"
 		}
+		parts = append(parts, part)
 	}
-	return strings.Join(orderClauses, ", ")
+
+	return "ORDER BY " + strings.Join(parts, ", ")
 }

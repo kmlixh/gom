@@ -79,9 +79,6 @@ type SQLFactory interface {
 	BuildOrderBy(orders []OrderBy) string
 }
 
-// Debug flag for enabling debug mode
-var Debug bool
-
 // ITableModel defines the interface for custom table models
 type ITableModel interface {
 	// TableName returns the custom table name

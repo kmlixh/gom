@@ -1,5 +1,10 @@
 package define
 
+import (
+	"log"
+	"reflect"
+)
+
 // OpType represents the type of condition operator
 type OpType int
 
@@ -59,12 +64,16 @@ func (c *Condition) And(cond *Condition) *Condition {
 
 // Or adds a condition with OR join
 func (c *Condition) Or(cond *Condition) *Condition {
+	if cond == nil {
+		log.Printf("Warning: nil condition passed to Or() method")
+		return c
+	}
 	cond.Join = JoinOr
 	if c.SubConds == nil {
 		c.SubConds = make([]*Condition, 0)
 	}
 	c.SubConds = append(c.SubConds, cond)
-	return c
+	return cond
 }
 
 // Condition builder functions
@@ -100,30 +109,21 @@ func NotLike(field string, value interface{}) *Condition {
 	return NewCondition(field, OpNotLike, value)
 }
 
-// flattenValues flattens a list of values that may contain arrays
+// flattenValues flattens a slice of values into a slice of interface{}
 func flattenValues(values []interface{}) []interface{} {
-	var result []interface{}
+	if values == nil {
+		return nil
+	}
+	if len(values) == 0 {
+		return []interface{}{}
+	}
+	result := make([]interface{}, 0)
 	for _, v := range values {
-		switch val := v.(type) {
-		case []interface{}:
-			result = append(result, val...)
-		case []string:
-			for _, s := range val {
-				result = append(result, s)
+		if val := reflect.ValueOf(v); val.Kind() == reflect.Slice {
+			for i := 0; i < val.Len(); i++ {
+				result = append(result, val.Index(i).Interface())
 			}
-		case []int:
-			for _, i := range val {
-				result = append(result, i)
-			}
-		case []int64:
-			for _, i := range val {
-				result = append(result, i)
-			}
-		case []float64:
-			for _, f := range val {
-				result = append(result, f)
-			}
-		default:
+		} else {
 			result = append(result, v)
 		}
 	}
