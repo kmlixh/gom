@@ -24,10 +24,18 @@ func RegisterFactory() {
 }
 
 func (f *Factory) Connect(dsn string) (*sql.DB, error) {
-	return sql.Open("pgx", dsn)
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return db, nil
 }
 
-// buildCondition builds a single condition clause
+// getOperator returns the SQL operator for the given operation type
 func (f *Factory) getOperator(op define.OpType) string {
 	switch op {
 	case define.OpEq:
@@ -63,63 +71,87 @@ func (f *Factory) getOperator(op define.OpType) string {
 	}
 }
 
+// buildCondition builds a single condition clause
 func (f *Factory) buildCondition(cond *define.Condition, startParamIndex int) (string, []interface{}) {
 	if cond == nil {
 		return "", nil
 	}
 
-	if cond.IsSubGroup && len(cond.SubConds) > 0 {
-		var subCondStrs []string
-		var subArgs []interface{}
-		currentParamIndex := startParamIndex
+	var condStrs []string
+	var args []interface{}
+	currentParamIndex := startParamIndex
 
-		for i, subCond := range cond.SubConds {
+	// First build the current condition
+	if cond.Field != "" {
+		sql, arg := f.buildSimpleCondition(cond, currentParamIndex)
+		if sql != "" {
+			condStrs = append(condStrs, sql)
+			args = append(args, arg...)
+			currentParamIndex += len(arg)
+		}
+	}
+
+	// Then build sub-conditions
+	if len(cond.SubConds) > 0 {
+		for _, subCond := range cond.SubConds {
 			subStr, subArg := f.buildCondition(subCond, currentParamIndex)
 			if subStr != "" {
-				if subCond.Join == define.JoinOr && i > 0 {
-					subCondStrs = append(subCondStrs, "OR", subStr)
-				} else if i > 0 {
-					subCondStrs = append(subCondStrs, "AND", subStr)
-				} else {
-					subCondStrs = append(subCondStrs, subStr)
+				if len(condStrs) > 0 {
+					if subCond.Join == define.JoinOr {
+						condStrs = append(condStrs, "OR")
+					} else {
+						condStrs = append(condStrs, "AND")
+					}
 				}
-				subArgs = append(subArgs, subArg...)
+				if strings.Contains(subStr, " AND ") || strings.Contains(subStr, " OR ") {
+					if !strings.HasPrefix(subStr, "(") {
+						subStr = "(" + subStr + ")"
+					}
+				}
+				condStrs = append(condStrs, subStr)
+				args = append(args, subArg...)
 				currentParamIndex += len(subArg)
 			}
 		}
+	}
 
-		if len(subCondStrs) > 0 {
-			return "(" + strings.Join(subCondStrs, " ") + ")", subArgs
+	if len(condStrs) > 0 {
+		if cond.IsSubGroup {
+			return "(" + strings.Join(condStrs, " ") + ")", args
 		}
+		return strings.Join(condStrs, " "), args
+	}
+	return "", nil
+}
+
+// buildSimpleCondition builds a simple condition without sub-conditions
+func (f *Factory) buildSimpleCondition(cond *define.Condition, startParamIndex int) (string, []interface{}) {
+	if cond == nil || cond.Field == "" {
 		return "", nil
 	}
 
-	if cond.Field == "" {
-		return "", nil
-	}
-
-	quotedField := f.quoteIdentifier(cond.Field)
+	field := cond.Field
 	op := f.getOperator(cond.Op)
 
 	switch cond.Op {
 	case define.OpIn, define.OpNotIn:
-		if values, ok := cond.Value.([]interface{}); ok {
+		if values, ok := cond.Value.([]interface{}); ok && len(values) > 0 {
 			placeholders := make([]string, len(values))
 			for i := range values {
 				placeholders[i] = fmt.Sprintf("$%d", startParamIndex+i)
 			}
-			return fmt.Sprintf("%s %v (%s)", quotedField, op, strings.Join(placeholders, ",")), values
+			return fmt.Sprintf("%s %v (%s)", field, op, strings.Join(placeholders, ", ")), values
 		}
 		return "", nil
 	case define.OpIsNull, define.OpIsNotNull:
-		return fmt.Sprintf("%s %v", quotedField, op), nil
+		return fmt.Sprintf("%s %v", field, op), nil
 	case define.OpBetween, define.OpNotBetween:
 		if values, ok := cond.Value.([]interface{}); ok && len(values) == 2 {
-			return fmt.Sprintf("%s %v $%d AND $%d", quotedField, op, startParamIndex, startParamIndex+1), values
+			return fmt.Sprintf("%s %v $%d AND $%d", field, op, startParamIndex, startParamIndex+1), values
 		}
 		return "", nil
 	default:
-		return fmt.Sprintf("%s %v $%d", quotedField, op, startParamIndex), []interface{}{cond.Value}
+		return fmt.Sprintf("%s %v $%d", field, op, startParamIndex), []interface{}{cond.Value}
 	}
 }
 
@@ -146,6 +178,8 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 			if strings.Contains(field, "(") && strings.Contains(field, ")") {
 				// Don't quote aggregate functions
 				quotedFields = append(quotedFields, field)
+			} else if field == "*" {
+				quotedFields = append(quotedFields, field)
 			} else {
 				quotedFields = append(quotedFields, f.quoteIdentifier(field))
 			}
@@ -156,28 +190,34 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 	}
 
 	// Add table
-	query += fmt.Sprintf(` FROM %s`, f.quoteIdentifier(table))
+	query += fmt.Sprintf(" FROM %s", f.quoteIdentifier(table))
 
 	// Add conditions
-	if len(conditions) > 0 {
+	if len(conditions) > 0 && conditions[0] != nil {
 		query += " WHERE "
 		var condStrings []string
 		currentParamIndex := 1
 		for i, cond := range conditions {
+			if cond == nil {
+				continue
+			}
 			condStr, condArgs := f.buildCondition(cond, currentParamIndex)
 			if condStr != "" {
-				if cond.Join == define.JoinOr && i > 0 {
-					condStrings = append(condStrings, "OR", condStr)
-				} else if i > 0 {
-					condStrings = append(condStrings, "AND", condStr)
-				} else {
-					condStrings = append(condStrings, condStr)
+				if i > 0 {
+					if cond.Join == define.JoinOr {
+						condStrings = append(condStrings, "OR")
+					} else {
+						condStrings = append(condStrings, "AND")
+					}
 				}
+				condStrings = append(condStrings, condStr)
 				args = append(args, condArgs...)
 				currentParamIndex += len(condArgs)
 			}
 		}
-		query += strings.Join(condStrings, " ")
+		if len(condStrings) > 0 {
+			query += strings.Join(condStrings, " ")
+		}
 	}
 
 	// Add order by
@@ -201,22 +241,29 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 }
 
 // BuildUpdate builds an UPDATE query for PostgreSQL
-func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, conditions []*define.Condition) (string, []interface{}) {
+func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, fieldOrder []string, conditions []*define.Condition) (string, []interface{}) {
 	var args []interface{}
-	query := fmt.Sprintf(`UPDATE %s SET `, f.quoteIdentifier(table))
+	query := fmt.Sprintf("UPDATE %s SET ", f.quoteIdentifier(table))
 
-	// Sort field names to ensure consistent order
-	var fieldNames []string
-	for field := range fields {
-		fieldNames = append(fieldNames, field)
-	}
-	sort.Strings(fieldNames)
-
-	// Add fields
+	// Use fieldOrder to maintain field order
 	var fieldStrings []string
-	for _, field := range fieldNames {
-		args = append(args, fields[field])
-		fieldStrings = append(fieldStrings, fmt.Sprintf(`%s = $%d`, f.quoteIdentifier(field), len(args)))
+	usedFields := make(map[string]bool)
+
+	// First add fields in the specified order
+	for _, field := range fieldOrder {
+		if value, ok := fields[field]; ok {
+			args = append(args, value)
+			fieldStrings = append(fieldStrings, fmt.Sprintf("%s = $%d", f.quoteIdentifier(field), len(args)))
+			usedFields[field] = true
+		}
+	}
+
+	// Then add any remaining fields
+	for field, value := range fields {
+		if !usedFields[field] {
+			args = append(args, value)
+			fieldStrings = append(fieldStrings, fmt.Sprintf("%s = $%d", f.quoteIdentifier(field), len(args)))
+		}
 	}
 
 	if len(fieldStrings) == 0 {
@@ -227,55 +274,70 @@ func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, condi
 	query += strings.Join(fieldStrings, ", ")
 
 	// Add conditions
-	if len(conditions) > 0 {
+	if len(conditions) > 0 && conditions[0] != nil {
 		query += " WHERE "
 		var condStrings []string
 		currentParamIndex := len(args) + 1
 		for i, cond := range conditions {
+			if cond == nil {
+				continue
+			}
 			condStr, condArgs := f.buildCondition(cond, currentParamIndex)
 			if condStr != "" {
-				if cond.Join == define.JoinOr && i > 0 {
-					condStrings = append(condStrings, "OR", condStr)
-				} else if i > 0 {
-					condStrings = append(condStrings, "AND", condStr)
-				} else {
-					condStrings = append(condStrings, condStr)
+				if i > 0 {
+					if cond.Join == define.JoinOr {
+						condStrings = append(condStrings, "OR")
+					} else {
+						condStrings = append(condStrings, "AND")
+					}
 				}
+				condStrings = append(condStrings, condStr)
 				args = append(args, condArgs...)
 				currentParamIndex += len(condArgs)
 			}
 		}
-		query += strings.Join(condStrings, " ")
+		if len(condStrings) > 0 {
+			query += strings.Join(condStrings, " ")
+		}
 	}
 
 	return query, args
 }
 
 // BuildInsert builds an INSERT query for PostgreSQL
-func (f *Factory) BuildInsert(table string, fields map[string]interface{}) (string, []interface{}) {
+func (f *Factory) BuildInsert(table string, fields map[string]interface{}, fieldOrder []string) (string, []interface{}) {
 	if len(fields) == 0 {
 		return "", nil
 	}
 
+	// Build field list and value placeholders
 	var args []interface{}
-	var fieldNames []string
+	var quotedFields []string
 	var placeholders []string
+	usedFields := make(map[string]bool)
 
-	// Sort field names to ensure consistent order
-	for field := range fields {
-		fieldNames = append(fieldNames, field)
+	// First add fields in the specified order
+	for _, field := range fieldOrder {
+		if value, ok := fields[field]; ok {
+			quotedFields = append(quotedFields, f.quoteIdentifier(field))
+			args = append(args, value)
+			placeholders = append(placeholders, fmt.Sprintf("$%d", len(args)))
+			usedFields[field] = true
+		}
 	}
-	sort.Strings(fieldNames)
 
-	// Build field list and placeholders
-	for i, field := range fieldNames {
-		args = append(args, fields[field])
-		placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
+	// Then add any remaining fields
+	for field, value := range fields {
+		if !usedFields[field] {
+			quotedFields = append(quotedFields, f.quoteIdentifier(field))
+			args = append(args, value)
+			placeholders = append(placeholders, fmt.Sprintf("$%d", len(args)))
+		}
 	}
 
-	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES (%s)`,
+	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
 		f.quoteIdentifier(table),
-		strings.Join(f.quoteIdentifiers(fieldNames), ", "),
+		strings.Join(quotedFields, ", "),
 		strings.Join(placeholders, ", "))
 
 	return query, args
@@ -338,28 +400,35 @@ func (f *Factory) BuildBatchInsert(table string, batchFields []map[string]interf
 
 // BuildDelete builds a DELETE query for PostgreSQL
 func (f *Factory) BuildDelete(table string, conditions []*define.Condition) (string, []interface{}) {
-	query := fmt.Sprintf(`DELETE FROM %s`, f.quoteIdentifier(table))
 	var args []interface{}
+	query := fmt.Sprintf("DELETE FROM %s", f.quoteIdentifier(table))
 
-	if len(conditions) > 0 {
+	// Add conditions
+	if len(conditions) > 0 && conditions[0] != nil {
 		query += " WHERE "
 		var condStrings []string
 		currentParamIndex := 1
 		for i, cond := range conditions {
+			if cond == nil {
+				continue
+			}
 			condStr, condArgs := f.buildCondition(cond, currentParamIndex)
 			if condStr != "" {
-				if cond.Join == define.JoinOr && i > 0 {
-					condStrings = append(condStrings, "OR", condStr)
-				} else if i > 0 {
-					condStrings = append(condStrings, "AND", condStr)
-				} else {
-					condStrings = append(condStrings, condStr)
+				if i > 0 {
+					if cond.Join == define.JoinOr {
+						condStrings = append(condStrings, "OR")
+					} else {
+						condStrings = append(condStrings, "AND")
+					}
 				}
+				condStrings = append(condStrings, condStr)
 				args = append(args, condArgs...)
 				currentParamIndex += len(condArgs)
 			}
 		}
-		query += strings.Join(condStrings, " ")
+		if len(condStrings) > 0 {
+			query += strings.Join(condStrings, " ")
+		}
 	}
 
 	return query, args

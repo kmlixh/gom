@@ -31,6 +31,7 @@ const (
 	OpIsNotNull                // IS NOT NULL
 	OpBetween                  // BETWEEN
 	OpNotBetween               // NOT BETWEEN
+	OpCustom                   // Custom operator for special cases
 )
 
 // Condition represents a where condition
@@ -73,7 +74,7 @@ func (c *Condition) Or(cond *Condition) *Condition {
 		c.SubConds = make([]*Condition, 0)
 	}
 	c.SubConds = append(c.SubConds, cond)
-	return cond
+	return c
 }
 
 // Condition builder functions

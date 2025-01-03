@@ -3,8 +3,8 @@ package postgres
 import (
 	"testing"
 
+	"github.com/kmlixh/gom/v4/define"
 	"github.com/stretchr/testify/assert"
-	"github.com/yaoapp/gom/define"
 )
 
 func TestBuildCondition(t *testing.T) {
@@ -170,7 +170,7 @@ func TestBuildSelect(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sql, args := factory.BuildSelect(tt.table, tt.fields, tt.cond)
+			sql, args := factory.BuildSelect(tt.table, tt.fields, []*define.Condition{tt.cond}, "", 0, 0)
 			assert.Equal(t, tt.wantSQL, sql)
 			assert.Equal(t, tt.wantArgs, args)
 		})
@@ -181,44 +181,49 @@ func TestBuildUpdate(t *testing.T) {
 	factory := &Factory{}
 
 	tests := []struct {
-		name     string
-		table    string
-		data     map[string]interface{}
-		cond     *define.Condition
-		wantSQL  string
-		wantArgs []interface{}
+		name       string
+		table      string
+		fields     map[string]interface{}
+		fieldOrder []string
+		conditions []*define.Condition
+		wantSQL    string
+		wantArgs   []interface{}
 	}{
 		{
 			name:  "Simple Update",
 			table: "users",
-			data: map[string]interface{}{
+			fields: map[string]interface{}{
 				"name":  "John Doe",
 				"email": "john@example.com",
 			},
-			cond:     define.Eq("id", 1),
-			wantSQL:  `UPDATE "users" SET "name" = $1, "email" = $2 WHERE id = $3`,
-			wantArgs: []interface{}{"John Doe", "john@example.com", 1},
+			fieldOrder: []string{"name", "email"},
+			conditions: []*define.Condition{define.Eq("id", 1)},
+			wantSQL:    `UPDATE "users" SET "name" = $1, "email" = $2 WHERE id = $3`,
+			wantArgs:   []interface{}{"John Doe", "john@example.com", 1},
 		},
 		{
 			name:  "Update Multiple Fields",
 			table: "products",
-			data: map[string]interface{}{
+			fields: map[string]interface{}{
 				"price":      99.99,
 				"stock":      100,
 				"updated_at": "2023-01-01",
 			},
-			cond:     define.Gt("id", 10),
-			wantSQL:  `UPDATE "products" SET "price" = $1, "stock" = $2, "updated_at" = $3 WHERE id > $4`,
-			wantArgs: []interface{}{99.99, 100, "2023-01-01", 10},
+			fieldOrder: []string{"price", "stock", "updated_at"},
+			conditions: []*define.Condition{define.Gt("id", 10)},
+			wantSQL:    `UPDATE "products" SET "price" = $1, "stock" = $2, "updated_at" = $3 WHERE id > $4`,
+			wantArgs:   []interface{}{99.99, 100, "2023-01-01", 10},
 		},
 		{
 			name:  "Update With Complex Condition",
 			table: "orders",
-			data: map[string]interface{}{
+			fields: map[string]interface{}{
 				"status": "completed",
 			},
-			cond: define.Eq("status", "pending").
-				And(define.Gt("total", 1000)),
+			fieldOrder: []string{"status"},
+			conditions: []*define.Condition{
+				define.Eq("status", "pending").And(define.Gt("total", 1000)),
+			},
 			wantSQL:  `UPDATE "orders" SET "status" = $1 WHERE status = $2 AND total > $3`,
 			wantArgs: []interface{}{"completed", "pending", 1000},
 		},
@@ -226,7 +231,7 @@ func TestBuildUpdate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sql, args := factory.BuildUpdate(tt.table, tt.data, tt.cond)
+			sql, args := factory.BuildUpdate(tt.table, tt.fields, tt.fieldOrder, tt.conditions)
 			assert.Equal(t, tt.wantSQL, sql)
 			assert.Equal(t, tt.wantArgs, args)
 		})
@@ -237,39 +242,42 @@ func TestBuildInsert(t *testing.T) {
 	factory := &Factory{}
 
 	tests := []struct {
-		name     string
-		table    string
-		data     map[string]interface{}
-		wantSQL  string
-		wantArgs []interface{}
+		name       string
+		table      string
+		fields     map[string]interface{}
+		fieldOrder []string
+		wantSQL    string
+		wantArgs   []interface{}
 	}{
 		{
 			name:  "Simple Insert",
 			table: "users",
-			data: map[string]interface{}{
+			fields: map[string]interface{}{
 				"name":  "John Doe",
 				"email": "john@example.com",
 			},
-			wantSQL:  `INSERT INTO "users" ("name", "email") VALUES ($1, $2)`,
-			wantArgs: []interface{}{"John Doe", "john@example.com"},
+			fieldOrder: []string{"name", "email"},
+			wantSQL:    `INSERT INTO "users" ("name", "email") VALUES ($1, $2)`,
+			wantArgs:   []interface{}{"John Doe", "john@example.com"},
 		},
 		{
 			name:  "Insert Multiple Fields",
 			table: "products",
-			data: map[string]interface{}{
+			fields: map[string]interface{}{
 				"name":       "Product 1",
 				"price":      99.99,
 				"stock":      100,
 				"created_at": "2023-01-01",
 			},
-			wantSQL:  `INSERT INTO "products" ("name", "price", "stock", "created_at") VALUES ($1, $2, $3, $4)`,
-			wantArgs: []interface{}{"Product 1", 99.99, 100, "2023-01-01"},
+			fieldOrder: []string{"name", "price", "stock", "created_at"},
+			wantSQL:    `INSERT INTO "products" ("name", "price", "stock", "created_at") VALUES ($1, $2, $3, $4)`,
+			wantArgs:   []interface{}{"Product 1", 99.99, 100, "2023-01-01"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sql, args := factory.BuildInsert(tt.table, tt.data)
+			sql, args := factory.BuildInsert(tt.table, tt.fields, tt.fieldOrder)
 			assert.Equal(t, tt.wantSQL, sql)
 			assert.Equal(t, tt.wantArgs, args)
 		})
@@ -314,7 +322,7 @@ func TestBuildDelete(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sql, args := factory.BuildDelete(tt.table, tt.cond)
+			sql, args := factory.BuildDelete(tt.table, []*define.Condition{tt.cond})
 			assert.Equal(t, tt.wantSQL, sql)
 			assert.Equal(t, tt.wantArgs, args)
 		})

@@ -59,8 +59,10 @@ func main() {
 	result = chain.Table("users").
 		Where2(define.Eq("active", true).
 			And(define.NotIn("role", restrictedRoles, moreRestricted))).
-		Set("role", "user").
-		Set("updated_at", time.Now()).
+		Values(map[string]interface{}{
+			"role":       "user",
+			"updated_at": time.Now(),
+		}).
 		Save()
 	if result.Error != nil {
 		log.Fatal(result.Error)
@@ -80,7 +82,9 @@ func main() {
 	err = chain.Transaction(func(tx *gom.Chain) error {
 		// Update admin user
 		adminUser := define.Eq("role", "admin").And(define.Eq("active", true))
-		result := tx.Table("users").Where2(adminUser).Set("active", false).Save()
+		result := tx.Table("users").Where2(adminUser).Values(map[string]interface{}{
+			"active": false,
+		}).Save()
 		if result.Error != nil {
 			return result.Error
 		}
@@ -95,7 +99,9 @@ func main() {
 		}
 
 		// Update all inactive users at once
-		result = tx.Table("users").Eq("active", false).Set("updated_at", time.Now()).Save()
+		result = tx.Table("users").Eq("active", false).Values(map[string]interface{}{
+			"updated_at": time.Now(),
+		}).Save()
 		if result.Error != nil {
 			return result.Error
 		}
@@ -134,7 +140,10 @@ func main() {
 	}
 
 	// Update multiple records
-	result = chain.Table("users").Eq("username", "john_doe").Update()
+	result = chain.Table("users").Eq("username", "john_doe").Values(map[string]interface{}{
+		"password":   "new_password",
+		"updated_at": time.Now(),
+	}).Save()
 	if result.Error != nil {
 		log.Fatal(result.Error)
 	}

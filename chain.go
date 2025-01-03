@@ -1,7 +1,9 @@
 package gom
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"reflect"
@@ -25,6 +27,10 @@ type Chain struct {
 	// Transaction isolation level
 	isolationLevel sql.IsolationLevel
 
+	// Transaction state tracking
+	inTransaction bool
+	txError       error
+
 	// Model for potential ID callback
 	model interface{}
 
@@ -38,12 +44,10 @@ type Chain struct {
 	limitCount   int
 	offsetCount  int
 
-	// Update specific fields
-	updateFields map[string]interface{}
-
-	// Insert specific fields
-	insertFields map[string]interface{}
-	batchValues  []map[string]interface{}
+	// Fields for update and insert operations
+	fieldMap    map[string]interface{}
+	fieldOrder  []string
+	batchValues []map[string]interface{}
 }
 
 // Table sets the table name for the chain
@@ -337,16 +341,22 @@ func (c *Chain) OrNotBetween(field string, start, end interface{}) *Chain {
 
 // Set sets update fields
 func (c *Chain) Set(field string, value interface{}) *Chain {
-	if c.updateFields == nil {
-		c.updateFields = make(map[string]interface{})
+	if c.fieldMap == nil {
+		c.fieldMap = make(map[string]interface{})
 	}
-	c.updateFields[field] = value
+	c.fieldMap[field] = value
+	c.fieldOrder = append(c.fieldOrder, field)
 	return c
 }
 
 // Values sets insert fields
 func (c *Chain) Values(fields map[string]interface{}) *Chain {
-	c.insertFields = fields
+	c.fieldMap = fields
+	// Reset field order
+	c.fieldOrder = make([]string, 0, len(fields))
+	for field := range fields {
+		c.fieldOrder = append(c.fieldOrder, field)
+	}
 	return c
 }
 
@@ -419,10 +429,10 @@ func (c *Chain) From(model interface{}) *Chain {
 			if field.Name == "ID" {
 				c.Where(columnName, define.OpEq, value.Interface())
 			} else {
-				if c.insertFields == nil {
-					c.insertFields = make(map[string]interface{})
+				if c.fieldMap == nil {
+					c.fieldMap = make(map[string]interface{})
 				}
-				c.insertFields[columnName] = value.Interface()
+				c.fieldMap[columnName] = value.Interface()
 			}
 		}
 	}
@@ -441,7 +451,7 @@ func (c *Chain) List(dest ...interface{}) *QueryResult {
 
 // list is the internal implementation of List
 func (c *Chain) list() *QueryResult {
-	orderByExpr := c.factory.BuildOrderBy(c.orderByExprs)
+	orderByExpr := c.buildOrderBy()
 	sqlStr, args := c.factory.BuildSelect(c.tableName, c.fieldList, c.conds, orderByExpr, c.limitCount, c.offsetCount)
 	if define.Debug {
 		log.Printf("[SQL] %s %v\n", sqlStr, args)
@@ -505,7 +515,13 @@ func (c *Chain) list() *QueryResult {
 func (c *Chain) First(dest ...interface{}) *QueryResult {
 	c.Limit(1)
 	result := c.list()
-	if len(dest) > 0 && result.err == nil {
+	if result.err != nil {
+		return result
+	}
+	if len(result.Data) == 0 {
+		return &QueryResult{err: sql.ErrNoRows}
+	}
+	if len(dest) > 0 {
 		result.err = result.Into(dest[0])
 	}
 	return result
@@ -543,237 +559,64 @@ func (c *Chain) One(dest ...interface{}) *QueryResult {
 
 // Save executes an INSERT or UPDATE query
 func (c *Chain) Save(models ...interface{}) define.Result {
-	// 如果没有提供模型，使用已设置的字段
+	// 如果没有提供模型，使用已设置的更新字段
 	if len(models) == 0 {
-		return c.saveWithFields()
-	}
-
-	// 如果只有一个模型，不需要事务
-	if len(models) == 1 {
-		return c.saveSingleModel(models[0])
-	}
-
-	// 多个模型需要使用事务
-	return c.saveMultipleModels(models)
-}
-
-// saveWithFields saves using the existing fields
-func (c *Chain) saveWithFields() define.Result {
-	if len(c.conds) > 0 {
-		// If there are conditions, do an update
-		if c.updateFields == nil {
-			c.updateFields = make(map[string]interface{})
-		}
-		sqlStr, args := c.factory.BuildUpdate(c.tableName, c.updateFields, c.conds)
-		if sqlStr == "" {
+		if len(c.fieldMap) == 0 {
 			return define.Result{Error: fmt.Errorf("no fields to update")}
 		}
-		if define.Debug {
-			log.Printf("[SQL] %s %v", sqlStr, args)
-		}
-		if c.tx != nil {
-			result, err := c.tx.Exec(sqlStr, args...)
-			if err != nil {
-				return define.Result{Error: err}
-			}
-			affected, _ := result.RowsAffected()
-			return define.Result{Affected: affected}
-		}
-		result, err := c.db.DB.Exec(sqlStr, args...)
-		if err != nil {
-			return define.Result{Error: err}
-		}
-		affected, _ := result.RowsAffected()
-		return define.Result{Affected: affected}
-	}
-
-	// Otherwise, do an insert
-	if len(c.batchValues) > 0 {
-		sqlStr, args := c.factory.BuildBatchInsert(c.tableName, c.batchValues)
-		if define.Debug {
-			log.Printf("[SQL] %s %v", sqlStr, args)
-		}
-		if c.tx != nil {
-			result, err := c.tx.Exec(sqlStr, args...)
-			if err != nil {
-				return define.Result{Error: err}
-			}
-			affected, _ := result.RowsAffected()
-			lastID, _ := result.LastInsertId()
-			return define.Result{ID: lastID, Affected: affected}
-		}
-		result, err := c.db.DB.Exec(sqlStr, args...)
-		if err != nil {
-			return define.Result{Error: err}
-		}
-		affected, _ := result.RowsAffected()
-		lastID, _ := result.LastInsertId()
-		return define.Result{ID: lastID, Affected: affected}
-	}
-
-	return c.executeInsert()
-}
-
-// saveSingleModel saves a single model without transaction
-func (c *Chain) saveSingleModel(model interface{}) define.Result {
-	c.model = model
-	fields, err := c.extractModelFields(model)
-	if err != nil {
-		return define.Result{Error: err}
-	}
-
-	if len(fields) == 0 {
-		return define.Result{Error: fmt.Errorf("no fields to save")}
-	}
-
-	if len(c.conds) > 0 {
-		// Update
-		c.updateFields = fields
-		sqlStr, args := c.factory.BuildUpdate(c.tableName, fields, c.conds)
-		if define.Debug {
-			log.Printf("[SQL] %s %v", sqlStr, args)
-		}
-		if c.tx != nil {
-			result, err := c.tx.Exec(sqlStr, args...)
-			if err != nil {
-				return define.Result{Error: err}
-			}
-			affected, _ := result.RowsAffected()
-			return define.Result{Affected: affected}
-		}
-		result, err := c.db.DB.Exec(sqlStr, args...)
-		if err != nil {
-			return define.Result{Error: err}
-		}
-		affected, _ := result.RowsAffected()
-		return define.Result{Affected: affected}
-	}
-
-	// Insert
-	c.insertFields = fields
-	return c.executeInsert()
-}
-
-// saveMultipleModels saves multiple models within a transaction
-func (c *Chain) saveMultipleModels(models []interface{}) define.Result {
-	// 如果已经在事务中，直接使用现有事务
-	if c.tx != nil {
-		return c.executeMultipleSaves(models)
-	}
-
-	// 开启新事务
-	tx, err := c.db.DB.Begin()
-	if err != nil {
-		return define.Result{Error: fmt.Errorf("failed to begin transaction: %v", err)}
-	}
-
-	// 创建新的带事务的 Chain
-	txChain := &Chain{
-		db:        c.db,
-		tx:        tx,
-		tableName: c.tableName,
-		conds:     c.conds,
-		factory:   c.factory,
-	}
-
-	result := txChain.executeMultipleSaves(models)
-	if result.Error != nil {
-		// 发生错误时回滚事务
-		rollbackErr := tx.Rollback()
-		if rollbackErr != nil {
-			return define.Result{Error: fmt.Errorf("save failed: %v, rollback failed: %v", result.Error, rollbackErr)}
-		}
-		return define.Result{Error: fmt.Errorf("save failed: %v", result.Error)}
-	}
-
-	// 提交事务
-	if err := tx.Commit(); err != nil {
-		return define.Result{Error: fmt.Errorf("failed to commit transaction: %v", err)}
-	}
-
-	return result
-}
-
-// executeMultipleSaves executes saves for multiple models
-func (c *Chain) executeMultipleSaves(models []interface{}) define.Result {
-	var totalAffected int64
-	var lastID int64
-
-	for i, model := range models {
-		c.model = model
-		fields, err := c.extractModelFields(model)
-		if err != nil {
-			return define.Result{Error: fmt.Errorf("failed to extract fields from model %d: %v", i+1, err)}
-		}
-
-		if len(fields) == 0 {
-			return define.Result{Error: fmt.Errorf("no fields to save in model %d", i+1)}
-		}
-
-		var result define.Result
 		if len(c.conds) > 0 {
 			// Update
-			sqlStr, args := c.factory.BuildUpdate(c.tableName, fields, c.conds)
-			if define.Debug {
-				log.Printf("[SQL] %s %v", sqlStr, args)
-			}
-			sqlResult, err := c.tx.Exec(sqlStr, args...)
-			if err != nil {
-				return define.Result{Error: fmt.Errorf("failed to update model %d: %v", i+1, err)}
-			}
-			affected, _ := sqlResult.RowsAffected()
-			result = define.Result{Affected: affected}
+			return c.executeUpdate()
 		} else {
 			// Insert
-			c.insertFields = fields
-			result = c.executeInsert()
-			if result.Error != nil {
-				return define.Result{Error: fmt.Errorf("failed to insert model %d: %v", i+1, result.Error)}
-			}
-			lastID = result.ID
+			return c.executeInsert()
 		}
-
-		totalAffected += result.Affected
 	}
 
-	return define.Result{ID: lastID, Affected: totalAffected}
+	// 处理提供的模型
+	for _, model := range models {
+		if model == nil {
+			continue
+		}
+
+		fields, err := c.extractModelFields(model)
+		if err != nil {
+			return define.Result{Error: err}
+		}
+
+		c.fieldMap = fields
+		c.fieldOrder = make([]string, 0, len(fields))
+		for field := range fields {
+			c.fieldOrder = append(c.fieldOrder, field)
+		}
+
+		if len(c.conds) > 0 {
+			// Update
+			result := c.executeUpdate()
+			if result.Error != nil {
+				return result
+			}
+		} else {
+			// Insert
+			result := c.executeInsert()
+			if result.Error != nil {
+				return result
+			}
+		}
+	}
+
+	return define.Result{}
 }
 
 // executeInsert executes an INSERT query
 func (c *Chain) executeInsert() define.Result {
-	sqlStr, args := c.factory.BuildInsert(c.tableName, c.insertFields)
+	sqlStr, args := c.factory.BuildInsert(c.tableName, c.fieldMap, c.fieldOrder)
 	if define.Debug {
 		log.Printf("[SQL] %s %v", sqlStr, args)
 	}
 
-	// For PostgreSQL, we need to scan the returned ID
-	if strings.Contains(sqlStr, "RETURNING") {
-		var id int64
-		var err error
-		if c.tx != nil {
-			err = c.tx.QueryRow(sqlStr, args...).Scan(&id)
-		} else {
-			err = c.db.DB.QueryRow(sqlStr, args...).Scan(&id)
-		}
-		if err != nil {
-			return define.Result{Error: err}
-		}
-
-		// Try to set ID back to the entity if it exists
-		if c.model != nil {
-			if modelValue := reflect.ValueOf(c.model); modelValue.Kind() == reflect.Ptr {
-				if idField := modelValue.Elem().FieldByName("ID"); idField.IsValid() && idField.CanSet() {
-					idField.SetInt(id)
-				}
-			}
-		}
-
-		return define.Result{ID: id, Affected: 1}
-	}
-
 	var result sql.Result
 	var err error
-
 	if c.tx != nil {
 		result, err = c.tx.Exec(sqlStr, args...)
 	} else {
@@ -784,221 +627,65 @@ func (c *Chain) executeInsert() define.Result {
 		return define.Result{Error: err}
 	}
 
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		return define.Result{Error: err}
+	}
+
 	affected, _ := result.RowsAffected()
-	lastID, _ := result.LastInsertId()
-
-	// Try to set ID back to the entity if it exists
-	if c.model != nil {
-		if modelValue := reflect.ValueOf(c.model); modelValue.Kind() == reflect.Ptr {
-			if idField := modelValue.Elem().FieldByName("ID"); idField.IsValid() && idField.CanSet() {
-				idField.SetInt(lastID)
-			}
-		}
+	return define.Result{
+		ID:       lastID,
+		Affected: affected,
 	}
-
-	return define.Result{ID: lastID, Affected: affected}
 }
 
-// Update executes an UPDATE query
-func (c *Chain) Update(models ...interface{}) define.Result {
-	// 如果没有提供模型，使用已设置的更新字段
-	if len(models) == 0 {
-		if len(c.updateFields) == 0 && len(c.insertFields) > 0 {
-			c.updateFields = c.insertFields
-		}
-		sql, args := c.factory.BuildUpdate(c.tableName, c.updateFields, c.conds)
-		if define.Debug {
-			log.Printf("[SQL] %s %v\n", sql, args)
-		}
-		var sqlResult interface {
-			LastInsertId() (int64, error)
-			RowsAffected() (int64, error)
-		}
-		var err error
-		if c.tx != nil {
-			sqlResult, err = c.tx.Exec(sql, args...)
-		} else {
-			sqlResult, err = c.db.DB.Exec(sql, args...)
-		}
-		if err != nil {
-			return define.Result{Error: err}
-		}
-		affected, err := sqlResult.RowsAffected()
-		if err != nil {
-			return define.Result{Error: err}
-		}
-		return define.Result{Affected: affected}
-	}
-
-	// 如果只有一个模型，不需要事务
-	if len(models) == 1 {
-		return c.updateSingleModel(models[0])
-	}
-
-	// 多个模型需要使用事务
-	return c.updateMultipleModels(models)
-}
-
-// updateSingleModel updates a single model without transaction
-func (c *Chain) updateSingleModel(model interface{}) define.Result {
-	updateFields, err := c.extractModelFields(model)
-	if err != nil {
-		return define.Result{Error: err}
-	}
-
-	if len(updateFields) == 0 {
-		return define.Result{Error: fmt.Errorf("no fields to update")}
-	}
-
-	sql, args := c.factory.BuildUpdate(c.tableName, updateFields, c.conds)
+// executeUpdate executes an UPDATE query
+func (c *Chain) executeUpdate() define.Result {
+	sqlStr, args := c.factory.BuildUpdate(c.tableName, c.fieldMap, c.fieldOrder, c.conds)
 	if define.Debug {
-		log.Printf("[SQL] %s %v\n", sql, args)
+		log.Printf("[SQL] %s %v", sqlStr, args)
 	}
 
-	var sqlResult interface {
-		LastInsertId() (int64, error)
-		RowsAffected() (int64, error)
-	}
+	var result sql.Result
+	var err error
 	if c.tx != nil {
-		sqlResult, err = c.tx.Exec(sql, args...)
+		result, err = c.tx.Exec(sqlStr, args...)
 	} else {
-		sqlResult, err = c.db.DB.Exec(sql, args...)
+		result, err = c.db.DB.Exec(sqlStr, args...)
 	}
+
 	if err != nil {
 		return define.Result{Error: err}
 	}
-	affected, err := sqlResult.RowsAffected()
-	if err != nil {
-		return define.Result{Error: err}
+
+	lastID, _ := result.LastInsertId()
+	affected, _ := result.RowsAffected()
+
+	return define.Result{
+		ID:       lastID,
+		Affected: affected,
 	}
-	return define.Result{Affected: affected}
 }
 
-// updateMultipleModels updates multiple models within a transaction
-func (c *Chain) updateMultipleModels(models []interface{}) define.Result {
-	// 如果已经在事务中，直接使用现有事务
-	if c.tx != nil {
-		return c.executeMultipleUpdates(models)
+// Update updates records with the given fields
+func (c *Chain) Update(fields map[string]interface{}) define.Result {
+	if len(c.conds) > 0 {
+		// Update
+		c.fieldMap = fields
+		c.fieldOrder = make([]string, 0, len(fields))
+		for field := range fields {
+			c.fieldOrder = append(c.fieldOrder, field)
+		}
+		return c.executeUpdate()
 	}
 
-	// 开启新事务
-	tx, err := c.db.DB.Begin()
-	if err != nil {
-		return define.Result{Error: fmt.Errorf("failed to begin transaction: %v", err)}
+	// Insert
+	c.fieldMap = fields
+	c.fieldOrder = make([]string, 0, len(fields))
+	for field := range fields {
+		c.fieldOrder = append(c.fieldOrder, field)
 	}
-
-	// 创建新的带事务的 Chain
-	txChain := &Chain{
-		db:        c.db,
-		tx:        tx,
-		tableName: c.tableName,
-		conds:     c.conds,
-		factory:   c.factory,
-	}
-
-	result := txChain.executeMultipleUpdates(models)
-	if result.Error != nil {
-		// 发生错误时回滚事务
-		rollbackErr := tx.Rollback()
-		if rollbackErr != nil {
-			return define.Result{Error: fmt.Errorf("update failed: %v, rollback failed: %v", result.Error, rollbackErr)}
-		}
-		return define.Result{Error: fmt.Errorf("update failed: %v", result.Error)}
-	}
-
-	// 提交事务
-	if err := tx.Commit(); err != nil {
-		return define.Result{Error: fmt.Errorf("failed to commit transaction: %v", err)}
-	}
-
-	return result
-}
-
-// executeMultipleUpdates executes updates for multiple models
-func (c *Chain) executeMultipleUpdates(models []interface{}) define.Result {
-	var totalAffected int64
-
-	for i, model := range models {
-		updateFields, err := c.extractModelFields(model)
-		if err != nil {
-			return define.Result{Error: fmt.Errorf("failed to extract fields from model %d: %v", i+1, err)}
-		}
-
-		if len(updateFields) == 0 {
-			return define.Result{Error: fmt.Errorf("no fields to update in model %d", i+1)}
-		}
-
-		sql, args := c.factory.BuildUpdate(c.tableName, updateFields, c.conds)
-		if define.Debug {
-			log.Printf("[SQL] %s %v\n", sql, args)
-		}
-
-		result, err := c.tx.Exec(sql, args...)
-		if err != nil {
-			return define.Result{Error: fmt.Errorf("failed to update model %d: %v", i+1, err)}
-		}
-
-		affected, err := result.RowsAffected()
-		if err != nil {
-			return define.Result{Error: fmt.Errorf("failed to get affected rows for model %d: %v", i+1, err)}
-		}
-
-		if affected == 0 {
-			return define.Result{Error: fmt.Errorf("no rows affected when updating model %d", i+1)}
-		}
-
-		totalAffected += affected
-	}
-
-	return define.Result{Affected: totalAffected}
-}
-
-// extractModelFields extracts fields from a model
-func (c *Chain) extractModelFields(model interface{}) (map[string]interface{}, error) {
-	modelType := reflect.TypeOf(model)
-	if modelType.Kind() == reflect.Ptr {
-		modelType = modelType.Elem()
-	}
-	modelValue := reflect.ValueOf(model)
-	if modelValue.Kind() == reflect.Ptr {
-		modelValue = modelValue.Elem()
-	}
-
-	if modelType.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("model must be a struct or pointer to struct, got %v", modelType.Kind())
-	}
-
-	updateFields := make(map[string]interface{})
-
-	for i := 0; i < modelType.NumField(); i++ {
-		field := modelType.Field(i)
-		value := modelValue.Field(i)
-
-		tag := field.Tag.Get("gom")
-		if tag == "" || tag == "-" {
-			continue
-		}
-
-		parts := strings.Split(tag, ",")
-		columnName := parts[0]
-
-		isPrimary := false
-		for _, opt := range parts[1:] {
-			if opt == "@" {
-				isPrimary = true
-				break
-			}
-		}
-		if isPrimary {
-			continue
-		}
-
-		if !value.IsZero() {
-			updateFields[columnName] = value.Interface()
-		}
-	}
-
-	return updateFields, nil
+	return c.executeInsert()
 }
 
 // Delete executes a DELETE query
@@ -1331,12 +1018,20 @@ func (qr *QueryResult) Into(dest interface{}) error {
 	}
 	destValue := reflect.ValueOf(dest)
 	if destValue.Kind() != reflect.Ptr {
-		return fmt.Errorf("dest must be a pointer")
+		return &DBError{
+			Op:      "Into",
+			Err:     errors.New("dest must be a pointer"),
+			Details: fmt.Sprintf("got %v", destValue.Kind()),
+		}
 	}
 
 	sliceValue := destValue.Elem()
 	if sliceValue.Kind() != reflect.Slice {
-		return fmt.Errorf("dest must be a pointer to slice")
+		return &DBError{
+			Op:      "Into",
+			Err:     errors.New("dest must be a pointer to slice"),
+			Details: fmt.Sprintf("got pointer to %v", sliceValue.Kind()),
+		}
 	}
 
 	// Get the type of slice elements
@@ -1347,11 +1042,12 @@ func (qr *QueryResult) Into(dest interface{}) error {
 	}
 
 	if elemType.Kind() != reflect.Struct {
-		return fmt.Errorf("slice elements must be structs")
+		return &DBError{
+			Op:      "Into",
+			Err:     errors.New("slice elements must be structs"),
+			Details: fmt.Sprintf("got %v", elemType.Kind()),
+		}
 	}
-
-	// Create a new slice with the correct capacity
-	newSlice := reflect.MakeSlice(sliceValue.Type(), 0, len(qr.Data))
 
 	// Create a map of column names to struct fields
 	fieldMap := make(map[string]reflect.StructField)
@@ -1367,8 +1063,11 @@ func (qr *QueryResult) Into(dest interface{}) error {
 		fieldMap[columnName] = field
 	}
 
+	// Create a new slice with the correct capacity
+	newSlice := reflect.MakeSlice(sliceValue.Type(), 0, len(qr.Data))
+
 	// Iterate through each map and create struct instances
-	for _, item := range qr.Data {
+	for rowIndex, item := range qr.Data {
 		// Create a new struct instance
 		structPtr := reflect.New(elemType)
 		structVal := structPtr.Elem()
@@ -1384,7 +1083,11 @@ func (qr *QueryResult) Into(dest interface{}) error {
 			// Set the field value
 			fieldVal := structVal.FieldByName(field.Name)
 			if err := setFieldValue(fieldVal, value); err != nil {
-				return fmt.Errorf("failed to set field %s: %v", field.Name, err)
+				return &DBError{
+					Op:      "Into",
+					Err:     err,
+					Details: fmt.Sprintf("failed to set field %s in row %d", field.Name, rowIndex+1),
+				}
 			}
 		}
 
@@ -1428,15 +1131,29 @@ func setFieldValue(field reflect.Value, value interface{}) error {
 		case []uint8:
 			i, err := strconv.ParseInt(string(v), 10, 64)
 			if err != nil {
-				return err
+				return &DBError{
+					Op:      "setFieldValue",
+					Err:     err,
+					Details: fmt.Sprintf("failed to convert %v to int64", value),
+				}
 			}
 			field.SetInt(i)
 		case string:
 			i, err := strconv.ParseInt(v, 10, 64)
 			if err != nil {
-				return err
+				return &DBError{
+					Op:      "setFieldValue",
+					Err:     err,
+					Details: fmt.Sprintf("failed to convert string %s to int64", v),
+				}
 			}
 			field.SetInt(i)
+		default:
+			return &DBError{
+				Op:      "setFieldValue",
+				Err:     fmt.Errorf("unsupported type conversion"),
+				Details: fmt.Sprintf("cannot convert %T to int64", value),
+			}
 		}
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		switch v := value.(type) {
@@ -1449,15 +1166,29 @@ func setFieldValue(field reflect.Value, value interface{}) error {
 		case []uint8:
 			i, err := strconv.ParseUint(string(v), 10, 64)
 			if err != nil {
-				return err
+				return &DBError{
+					Op:      "setFieldValue",
+					Err:     err,
+					Details: fmt.Sprintf("failed to convert %v to uint64", value),
+				}
 			}
 			field.SetUint(i)
 		case string:
 			i, err := strconv.ParseUint(v, 10, 64)
 			if err != nil {
-				return err
+				return &DBError{
+					Op:      "setFieldValue",
+					Err:     err,
+					Details: fmt.Sprintf("failed to convert string %s to uint64", v),
+				}
 			}
 			field.SetUint(i)
+		default:
+			return &DBError{
+				Op:      "setFieldValue",
+				Err:     fmt.Errorf("unsupported type conversion"),
+				Details: fmt.Sprintf("cannot convert %T to uint64", value),
+			}
 		}
 	case reflect.Float32, reflect.Float64:
 		switch v := value.(type) {
@@ -1468,15 +1199,29 @@ func setFieldValue(field reflect.Value, value interface{}) error {
 		case []uint8:
 			f, err := strconv.ParseFloat(string(v), 64)
 			if err != nil {
-				return err
+				return &DBError{
+					Op:      "setFieldValue",
+					Err:     err,
+					Details: fmt.Sprintf("failed to convert %v to float64", value),
+				}
 			}
 			field.SetFloat(f)
 		case string:
 			f, err := strconv.ParseFloat(v, 64)
 			if err != nil {
-				return err
+				return &DBError{
+					Op:      "setFieldValue",
+					Err:     err,
+					Details: fmt.Sprintf("failed to convert string %s to float64", v),
+				}
 			}
 			field.SetFloat(f)
+		default:
+			return &DBError{
+				Op:      "setFieldValue",
+				Err:     fmt.Errorf("unsupported type conversion"),
+				Details: fmt.Sprintf("cannot convert %T to float64", value),
+			}
 		}
 	case reflect.String:
 		switch v := value.(type) {
@@ -1484,6 +1229,12 @@ func setFieldValue(field reflect.Value, value interface{}) error {
 			field.SetString(v)
 		case []uint8:
 			field.SetString(string(v))
+		default:
+			return &DBError{
+				Op:      "setFieldValue",
+				Err:     fmt.Errorf("unsupported type conversion"),
+				Details: fmt.Sprintf("cannot convert %T to string", value),
+			}
 		}
 	case reflect.Bool:
 		switch v := value.(type) {
@@ -1492,15 +1243,29 @@ func setFieldValue(field reflect.Value, value interface{}) error {
 		case []uint8:
 			b, err := strconv.ParseBool(string(v))
 			if err != nil {
-				return err
+				return &DBError{
+					Op:      "setFieldValue",
+					Err:     err,
+					Details: fmt.Sprintf("failed to convert %v to bool", value),
+				}
 			}
 			field.SetBool(b)
 		case string:
 			b, err := strconv.ParseBool(v)
 			if err != nil {
-				return err
+				return &DBError{
+					Op:      "setFieldValue",
+					Err:     err,
+					Details: fmt.Sprintf("failed to convert string %s to bool", v),
+				}
 			}
 			field.SetBool(b)
+		default:
+			return &DBError{
+				Op:      "setFieldValue",
+				Err:     fmt.Errorf("unsupported type conversion"),
+				Details: fmt.Sprintf("cannot convert %T to bool", value),
+			}
 		}
 	case reflect.Struct:
 		if field.Type() == reflect.TypeOf(time.Time{}) {
@@ -1510,16 +1275,36 @@ func setFieldValue(field reflect.Value, value interface{}) error {
 			case []uint8:
 				t, err := time.Parse("2006-01-02 15:04:05", string(v))
 				if err != nil {
-					return err
+					return &DBError{
+						Op:      "setFieldValue",
+						Err:     err,
+						Details: fmt.Sprintf("failed to parse time string %s", string(v)),
+					}
 				}
 				field.Set(reflect.ValueOf(t))
 			case string:
 				t, err := time.Parse("2006-01-02 15:04:05", v)
 				if err != nil {
-					return err
+					return &DBError{
+						Op:      "setFieldValue",
+						Err:     err,
+						Details: fmt.Sprintf("failed to parse time string %s", v),
+					}
 				}
 				field.Set(reflect.ValueOf(t))
+			default:
+				return &DBError{
+					Op:      "setFieldValue",
+					Err:     fmt.Errorf("unsupported type conversion"),
+					Details: fmt.Sprintf("cannot convert %T to time.Time", value),
+				}
 			}
+		}
+	default:
+		return &DBError{
+			Op:      "setFieldValue",
+			Err:     fmt.Errorf("unsupported field type"),
+			Details: fmt.Sprintf("field type %v is not supported", field.Kind()),
 		}
 	}
 	return nil
@@ -1610,12 +1395,22 @@ func (c *Chain) CreateTable(model interface{}) error {
 // Begin starts a new transaction
 func (c *Chain) Begin() (*Chain, error) {
 	if c.tx != nil {
-		return nil, fmt.Errorf("transaction already started")
+		return nil, &DBError{
+			Op:      "Begin",
+			Err:     errors.New("transaction already started"),
+			Details: "nested transaction not supported",
+		}
 	}
 
-	tx, err := c.db.DB.Begin()
+	tx, err := c.db.DB.BeginTx(context.Background(), &sql.TxOptions{
+		Isolation: c.isolationLevel,
+	})
 	if err != nil {
-		return nil, err
+		return nil, &DBError{
+			Op:      "Begin",
+			Err:     err,
+			Details: "failed to begin transaction",
+		}
 	}
 
 	newChain := &Chain{
@@ -1627,6 +1422,7 @@ func (c *Chain) Begin() (*Chain, error) {
 		conds:         make([]*define.Condition, len(c.conds)),
 		fieldList:     make([]string, len(c.fieldList)),
 		orderByExprs:  make([]define.OrderBy, len(c.orderByExprs)),
+		inTransaction: true,
 	}
 
 	copy(newChain.conds, c.conds)
@@ -1664,25 +1460,65 @@ func (c *Chain) Rollback() error {
 	return nil
 }
 
-// Transaction executes a function within a transaction
+// Transaction executes the given function within a transaction
 func (c *Chain) Transaction(fn func(*Chain) error) error {
-	txChain, err := c.Begin()
-	if err != nil {
-		return err
+	if c.tx != nil {
+		return &DBError{
+			Op:      "Transaction",
+			Err:     errors.New("nested transaction not supported"),
+			Details: "transaction already started",
+		}
 	}
+
+	tx, err := c.db.DB.BeginTx(context.Background(), &sql.TxOptions{
+		Isolation: c.isolationLevel,
+	})
+	if err != nil {
+		return &DBError{
+			Op:      "Transaction",
+			Err:     err,
+			Details: "failed to begin transaction",
+		}
+	}
+
+	txChain := &Chain{
+		db:            c.db,
+		factory:       c.factory,
+		tx:            tx,
+		originalChain: c,
+		inTransaction: true,
+		tableName:     c.tableName,
+		conds:         make([]*define.Condition, len(c.conds)),
+		fieldList:     make([]string, len(c.fieldList)),
+		orderByExprs:  make([]define.OrderBy, len(c.orderByExprs)),
+	}
+
+	copy(txChain.conds, c.conds)
+	copy(txChain.fieldList, c.fieldList)
+	copy(txChain.orderByExprs, c.orderByExprs)
 
 	err = fn(txChain)
 	if err != nil {
-		// Rollback on error
-		if rbErr := txChain.Rollback(); rbErr != nil {
-			return fmt.Errorf("error rolling back: %v (original error: %v)", rbErr, err)
+		rollbackErr := tx.Rollback()
+		if rollbackErr != nil {
+			return &DBError{
+				Op:      "Transaction",
+				Err:     err,
+				Details: fmt.Sprintf("rollback failed: %v (original error: %v)", rollbackErr, err),
+			}
 		}
-		return err
+		return &DBError{
+			Op:  "Transaction",
+			Err: err,
+		}
 	}
 
-	// Commit the transaction
-	if err = txChain.Commit(); err != nil {
-		return fmt.Errorf("error committing: %v", err)
+	if err := tx.Commit(); err != nil {
+		return &DBError{
+			Op:      "Transaction",
+			Err:     err,
+			Details: "commit failed",
+		}
 	}
 
 	return nil
@@ -1742,7 +1578,19 @@ func (qr *QueryResult) First() *QueryResult {
 
 // Where2 adds a condition directly
 func (c *Chain) Where2(cond *define.Condition) *Chain {
-	c.conds = append(c.conds, cond)
+	if cond != nil {
+		cond.Join = define.JoinAnd
+		c.conds = append(c.conds, cond)
+	}
+	return c
+}
+
+// Or adds a condition with OR join type
+func (c *Chain) Or(cond *define.Condition) *Chain {
+	if cond != nil {
+		cond.Join = define.JoinOr
+		c.conds = append(c.conds, cond)
+	}
 	return c
 }
 
@@ -1794,7 +1642,7 @@ func (c *Chain) Count2(field string) (int64, error) {
 
 // Sum calculates the sum of a specific field
 func (c *Chain) Sum(field string) (float64, error) {
-	var sum float64
+	var sum sql.NullFloat64
 	sqlStr, args := c.factory.BuildSelect(c.tableName, []string{fmt.Sprintf("SUM(%s) as sum_value", field)}, c.conds, "", 0, 0)
 	if define.Debug {
 		log.Printf("[SQL] %s %v\n", sqlStr, args)
@@ -1811,12 +1659,15 @@ func (c *Chain) Sum(field string) (float64, error) {
 		}
 		return 0, err
 	}
-	return sum, nil
+	if !sum.Valid {
+		return 0, nil
+	}
+	return sum.Float64, nil
 }
 
 // Avg calculates the average of a specific field
 func (c *Chain) Avg(field string) (float64, error) {
-	var avg float64
+	var avg sql.NullFloat64
 	sqlStr, args := c.factory.BuildSelect(c.tableName, []string{fmt.Sprintf("AVG(%s) as avg_value", field)}, c.conds, "", 0, 0)
 	if define.Debug {
 		log.Printf("[SQL] %s %v\n", sqlStr, args)
@@ -1833,7 +1684,10 @@ func (c *Chain) Avg(field string) (float64, error) {
 		}
 		return 0, err
 	}
-	return avg, nil
+	if !avg.Valid {
+		return 0, nil
+	}
+	return avg.Float64, nil
 }
 
 // PageInfo represents pagination information
@@ -1914,7 +1768,11 @@ func (c *Chain) PageInfo(model interface{}) (*PageInfo, error) {
 // BatchInsert performs batch insert with configurable batch size
 func (c *Chain) BatchInsert(batchSize int) (int64, error) {
 	if len(c.batchValues) == 0 {
-		return 0, fmt.Errorf("no values to insert")
+		return 0, &DBError{
+			Op:      "BatchInsert",
+			Err:     errors.New("no values to insert"),
+			Details: "batch values array is empty",
+		}
 	}
 
 	if batchSize <= 0 {
@@ -1929,30 +1787,52 @@ func (c *Chain) BatchInsert(batchSize int) (int64, error) {
 		}
 
 		// Begin transaction for each batch
-		tx, err := c.db.DB.Begin()
+		tx, err := c.db.DB.BeginTx(context.Background(), &sql.TxOptions{
+			Isolation: c.isolationLevel,
+		})
 		if err != nil {
-			return totalAffected, err
+			return totalAffected, &DBError{
+				Op:      "BatchInsert",
+				Err:     err,
+				Details: fmt.Sprintf("failed to begin transaction for batch %d", i/batchSize+1),
+			}
 		}
 
 		// Create new chain with transaction
 		batchChain := &Chain{
-			db:          c.db,
-			factory:     c.factory,
-			tx:          tx,
-			tableName:   c.tableName,
-			batchValues: c.batchValues[i:end],
+			db:            c.db,
+			factory:       c.factory,
+			tx:            tx,
+			tableName:     c.tableName,
+			batchValues:   c.batchValues[i:end],
+			inTransaction: true,
 		}
 
 		// Execute batch insert
 		result, err := batchChain.executeBatchInsert()
 		if err != nil {
-			tx.Rollback()
-			return totalAffected, err
+			rollbackErr := tx.Rollback()
+			if rollbackErr != nil {
+				return totalAffected, &DBError{
+					Op:      "BatchInsert",
+					Err:     err,
+					Details: fmt.Sprintf("batch %d failed: %v, rollback failed: %v", i/batchSize+1, err, rollbackErr),
+				}
+			}
+			return totalAffected, &DBError{
+				Op:      "BatchInsert",
+				Err:     err,
+				Details: fmt.Sprintf("batch %d failed", i/batchSize+1),
+			}
 		}
 
 		// Commit transaction
 		if err := tx.Commit(); err != nil {
-			return totalAffected, err
+			return totalAffected, &DBError{
+				Op:      "BatchInsert",
+				Err:     err,
+				Details: fmt.Sprintf("failed to commit batch %d", i/batchSize+1),
+			}
 		}
 
 		totalAffected += result
@@ -1964,48 +1844,161 @@ func (c *Chain) BatchInsert(batchSize int) (int64, error) {
 // executeBatchInsert executes the actual batch insert operation
 func (c *Chain) executeBatchInsert() (int64, error) {
 	if len(c.batchValues) == 0 {
-		return 0, fmt.Errorf("no values to insert")
-	}
-
-	// Get column names from first row
-	var columns []string
-	for column := range c.batchValues[0] {
-		columns = append(columns, column)
-	}
-
-	// Build value placeholders
-	valuePlaceholders := make([]string, len(c.batchValues))
-	values := make([]interface{}, 0, len(c.batchValues)*len(columns))
-
-	for i, row := range c.batchValues {
-		placeholders := make([]string, len(columns))
-		for j, column := range columns {
-			placeholders[j] = "?"
-			values = append(values, row[column])
+		return 0, &DBError{
+			Op:      "executeBatchInsert",
+			Err:     errors.New("no values to insert"),
+			Details: "batch values array is empty",
 		}
-		valuePlaceholders[i] = fmt.Sprintf("(%s)", strings.Join(placeholders, ","))
 	}
 
-	// Build SQL query
-	query := fmt.Sprintf(
-		"INSERT INTO %s (%s) VALUES %s",
-		c.tableName,
-		strings.Join(columns, ","),
-		strings.Join(valuePlaceholders, ","),
-	)
+	// Use factory to build batch insert query
+	query, args := c.factory.BuildBatchInsert(c.tableName, c.batchValues)
+
+	if define.Debug {
+		log.Printf("[SQL] %s %v", query, args)
+	}
 
 	// Execute query
 	var result sql.Result
 	var err error
 	if c.tx != nil {
-		result, err = c.tx.Exec(query, values...)
+		result, err = c.tx.Exec(query, args...)
 	} else {
-		result, err = c.db.DB.Exec(query, values...)
+		result, err = c.db.DB.Exec(query, args...)
 	}
 
 	if err != nil {
-		return 0, err
+		return 0, &DBError{
+			Op:      "executeBatchInsert",
+			Err:     err,
+			Details: "failed to execute batch insert",
+		}
 	}
 
-	return result.RowsAffected()
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, &DBError{
+			Op:      "executeBatchInsert",
+			Err:     err,
+			Details: "failed to get affected rows",
+		}
+	}
+
+	return affected, nil
+}
+
+// extractModelFields extracts fields from a model
+func (c *Chain) extractModelFields(model interface{}) (map[string]interface{}, error) {
+	modelType := reflect.TypeOf(model)
+	if modelType.Kind() == reflect.Ptr {
+		modelType = modelType.Elem()
+	}
+	modelValue := reflect.ValueOf(model)
+	if modelValue.Kind() == reflect.Ptr {
+		modelValue = modelValue.Elem()
+	}
+
+	if modelType.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("model must be a struct or pointer to struct, got %v", modelType.Kind())
+	}
+
+	fields := make(map[string]interface{})
+
+	for i := 0; i < modelType.NumField(); i++ {
+		field := modelType.Field(i)
+		value := modelValue.Field(i)
+
+		tag := field.Tag.Get("gom")
+		if tag == "" || tag == "-" {
+			continue
+		}
+
+		parts := strings.Split(tag, ",")
+		columnName := parts[0]
+
+		isPrimary := false
+		for _, opt := range parts[1:] {
+			if opt == "@" {
+				isPrimary = true
+				break
+			}
+		}
+		if isPrimary {
+			continue
+		}
+
+		if !value.IsZero() {
+			fields[columnName] = value.Interface()
+		}
+	}
+
+	return fields, nil
+}
+
+// GroupBy adds a GROUP BY clause
+func (c *Chain) GroupBy(fields ...string) *Chain {
+	if c.fieldList == nil {
+		c.fieldList = make([]string, 0)
+	}
+	groupByClause := fmt.Sprintf("GROUP BY %s", strings.Join(fields, ", "))
+	c.fieldList = append(c.fieldList, groupByClause)
+	return c
+}
+
+// Having adds a HAVING clause
+func (c *Chain) Having(condition interface{}, args ...interface{}) *Chain {
+	if c.fieldList == nil {
+		c.fieldList = make([]string, 0)
+	}
+
+	switch v := condition.(type) {
+	case string:
+		// Raw SQL condition
+		if len(args) > 0 {
+			c.conds = append(c.conds, &define.Condition{
+				Field: "HAVING " + v,
+				Op:    define.OpCustom,
+				Value: args,
+			})
+		} else {
+			c.conds = append(c.conds, &define.Condition{
+				Field: "HAVING " + v,
+				Op:    define.OpCustom,
+			})
+		}
+	case *define.Condition:
+		// Single condition
+		var op string
+		switch v.Op {
+		case define.OpEq:
+			op = "="
+		case define.OpGt:
+			op = ">"
+		case define.OpLt:
+			op = "<"
+		case define.OpNe:
+			op = "!="
+		default:
+			op = "="
+		}
+		havingClause := fmt.Sprintf("HAVING %s %s ?", v.Field, op)
+		c.conds = append(c.conds, &define.Condition{
+			Field: havingClause,
+			Op:    define.OpCustom,
+			Value: []interface{}{v.Value},
+		})
+	default:
+		// Invalid condition type
+		return c
+	}
+
+	return c
+}
+
+// buildOrderBy builds the ORDER BY clause
+func (c *Chain) buildOrderBy() string {
+	if len(c.orderByExprs) == 0 {
+		return ""
+	}
+	return c.factory.BuildOrderBy(c.orderByExprs)
 }

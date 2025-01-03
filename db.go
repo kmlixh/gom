@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"text/template"
 	"time"
@@ -15,6 +16,20 @@ import (
 
 	"github.com/kmlixh/gom/v4/define"
 )
+
+// DBError represents a database operation error
+type DBError struct {
+	Op      string
+	Err     error
+	Details string
+}
+
+func (e *DBError) Error() string {
+	if e.Details != "" {
+		return fmt.Sprintf("%s: %v (%s)", e.Op, e.Err, e.Details)
+	}
+	return fmt.Sprintf("%s: %v", e.Op, e.Err)
+}
 
 // GenerateOptions 代码生成选项
 type GenerateOptions struct {
@@ -27,6 +42,7 @@ var routineIDCounter int64
 
 // DB represents the database connection
 type DB struct {
+	sync.RWMutex
 	DB        *sql.DB
 	Factory   define.SQLFactory
 	RoutineID int64

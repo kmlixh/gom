@@ -44,7 +44,7 @@ type ColumnInfo struct {
 	Comment         string // 注释
 }
 
-// SQLFactory defines the interface for SQL generation
+// SQLFactory defines the interface for SQL query builders
 type SQLFactory interface {
 	// Connect creates a new database connection
 	Connect(dsn string) (*sql.DB, error)
@@ -53,10 +53,10 @@ type SQLFactory interface {
 	BuildSelect(table string, fields []string, conditions []*Condition, orderBy string, limit, offset int) (string, []interface{})
 
 	// BuildUpdate builds an UPDATE query
-	BuildUpdate(table string, fields map[string]interface{}, conditions []*Condition) (string, []interface{})
+	BuildUpdate(table string, fields map[string]interface{}, fieldOrder []string, conditions []*Condition) (string, []interface{})
 
 	// BuildInsert builds an INSERT query
-	BuildInsert(table string, fields map[string]interface{}) (string, []interface{})
+	BuildInsert(table string, fields map[string]interface{}, fieldOrder []string) (string, []interface{})
 
 	// BuildBatchInsert builds a batch INSERT query
 	BuildBatchInsert(table string, values []map[string]interface{}) (string, []interface{})
