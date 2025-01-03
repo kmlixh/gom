@@ -1,7 +1,6 @@
 package gom
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -139,7 +138,16 @@ func (c *Chain) NotLike(field string, value interface{}) *Chain {
 
 // In adds an IN condition
 func (c *Chain) In(field string, value interface{}) *Chain {
-	c.conds = append(c.conds, define.In(field, value))
+	values := make([]interface{}, 0)
+	v := reflect.ValueOf(value)
+	if v.Kind() == reflect.Slice {
+		for i := 0; i < v.Len(); i++ {
+			values = append(values, v.Index(i).Interface())
+		}
+	} else {
+		values = append(values, value)
+	}
+	c.conds = append(c.conds, define.In(field, values...))
 	return c
 }
 
@@ -1599,122 +1607,81 @@ func (c *Chain) CreateTable(model interface{}) error {
 	return err
 }
 
-// Begin starts a new transaction with optional isolation level
-func (c *Chain) Begin() error {
+// Begin starts a new transaction
+func (c *Chain) Begin() (*Chain, error) {
 	if c.tx != nil {
-		return fmt.Errorf("transaction already in progress")
+		return nil, fmt.Errorf("transaction already started")
 	}
 
-	var tx *sql.Tx
-	var err error
-
-	if c.isolationLevel != 0 {
-		tx, err = c.db.DB.BeginTx(context.Background(), &sql.TxOptions{
-			Isolation: c.isolationLevel,
-		})
-	} else {
-		tx, err = c.db.DB.Begin()
-	}
-
+	tx, err := c.db.DB.Begin()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// Create a backup of current chain
-	originalChain := &Chain{
-		db:             c.db,
-		factory:        c.factory,
-		tableName:      c.tableName,
-		conds:          c.conds,
-		fieldList:      c.fieldList,
-		orderByExprs:   c.orderByExprs,
-		limitCount:     c.limitCount,
-		offsetCount:    c.offsetCount,
-		updateFields:   c.updateFields,
-		insertFields:   c.insertFields,
-		batchValues:    c.batchValues,
-		isolationLevel: c.isolationLevel,
+	newChain := &Chain{
+		db:            c.db,
+		factory:       c.factory,
+		tx:            tx,
+		originalChain: c,
+		tableName:     c.tableName,
+		conds:         make([]*define.Condition, len(c.conds)),
+		fieldList:     make([]string, len(c.fieldList)),
+		orderByExprs:  make([]define.OrderBy, len(c.orderByExprs)),
 	}
 
-	// Update current chain with transaction
-	c.originalChain = originalChain
-	c.tx = tx
+	copy(newChain.conds, c.conds)
+	copy(newChain.fieldList, c.fieldList)
+	copy(newChain.orderByExprs, c.orderByExprs)
 
-	return nil
+	return newChain, nil
 }
 
 // Commit commits the transaction
 func (c *Chain) Commit() error {
 	if c.tx == nil {
-		return fmt.Errorf("no transaction in progress")
+		return fmt.Errorf("no transaction to commit")
 	}
-
 	err := c.tx.Commit()
 	if err != nil {
 		return err
 	}
-
-	c.cleanup()
+	c.tx = nil
+	c.originalChain = nil
 	return nil
 }
 
 // Rollback rolls back the transaction
 func (c *Chain) Rollback() error {
 	if c.tx == nil {
-		return fmt.Errorf("no transaction in progress")
+		return fmt.Errorf("no transaction to rollback")
 	}
-
 	err := c.tx.Rollback()
 	if err != nil {
 		return err
 	}
-
-	c.cleanup()
-	return nil
-}
-
-// cleanup restores the chain to its original state
-func (c *Chain) cleanup() {
-	if c.originalChain == nil {
-		return
-	}
-
-	// Restore original values
-	c.db = c.originalChain.db
-	c.factory = c.originalChain.factory
-	c.tableName = c.originalChain.tableName
-	c.conds = c.originalChain.conds
-	c.fieldList = c.originalChain.fieldList
-	c.orderByExprs = c.originalChain.orderByExprs
-	c.limitCount = c.originalChain.limitCount
-	c.offsetCount = c.originalChain.offsetCount
-	c.updateFields = c.originalChain.updateFields
-	c.insertFields = c.originalChain.insertFields
-	c.batchValues = c.originalChain.batchValues
-
-	// Clear transaction and original chain
 	c.tx = nil
 	c.originalChain = nil
+	return nil
 }
 
 // Transaction executes a function within a transaction
 func (c *Chain) Transaction(fn func(*Chain) error) error {
-	err := c.Begin()
+	txChain, err := c.Begin()
 	if err != nil {
 		return err
 	}
 
-	err = fn(c)
+	err = fn(txChain)
 	if err != nil {
 		// Rollback on error
-		if rbErr := c.Rollback(); rbErr != nil {
+		if rbErr := txChain.Rollback(); rbErr != nil {
 			return fmt.Errorf("error rolling back: %v (original error: %v)", rbErr, err)
 		}
 		return err
 	}
 
 	// Commit the transaction
-	if err = c.Commit(); err != nil {
+	if err = txChain.Commit(); err != nil {
 		return fmt.Errorf("error committing: %v", err)
 	}
 
@@ -1942,4 +1909,103 @@ func (c *Chain) PageInfo(model interface{}) (*PageInfo, error) {
 	}
 
 	return pageInfo, nil
+}
+
+// BatchInsert performs batch insert with configurable batch size
+func (c *Chain) BatchInsert(batchSize int) (int64, error) {
+	if len(c.batchValues) == 0 {
+		return 0, fmt.Errorf("no values to insert")
+	}
+
+	if batchSize <= 0 {
+		batchSize = 1000 // default batch size
+	}
+
+	var totalAffected int64
+	for i := 0; i < len(c.batchValues); i += batchSize {
+		end := i + batchSize
+		if end > len(c.batchValues) {
+			end = len(c.batchValues)
+		}
+
+		// Begin transaction for each batch
+		tx, err := c.db.DB.Begin()
+		if err != nil {
+			return totalAffected, err
+		}
+
+		// Create new chain with transaction
+		batchChain := &Chain{
+			db:          c.db,
+			factory:     c.factory,
+			tx:          tx,
+			tableName:   c.tableName,
+			batchValues: c.batchValues[i:end],
+		}
+
+		// Execute batch insert
+		result, err := batchChain.executeBatchInsert()
+		if err != nil {
+			tx.Rollback()
+			return totalAffected, err
+		}
+
+		// Commit transaction
+		if err := tx.Commit(); err != nil {
+			return totalAffected, err
+		}
+
+		totalAffected += result
+	}
+
+	return totalAffected, nil
+}
+
+// executeBatchInsert executes the actual batch insert operation
+func (c *Chain) executeBatchInsert() (int64, error) {
+	if len(c.batchValues) == 0 {
+		return 0, fmt.Errorf("no values to insert")
+	}
+
+	// Get column names from first row
+	var columns []string
+	for column := range c.batchValues[0] {
+		columns = append(columns, column)
+	}
+
+	// Build value placeholders
+	valuePlaceholders := make([]string, len(c.batchValues))
+	values := make([]interface{}, 0, len(c.batchValues)*len(columns))
+
+	for i, row := range c.batchValues {
+		placeholders := make([]string, len(columns))
+		for j, column := range columns {
+			placeholders[j] = "?"
+			values = append(values, row[column])
+		}
+		valuePlaceholders[i] = fmt.Sprintf("(%s)", strings.Join(placeholders, ","))
+	}
+
+	// Build SQL query
+	query := fmt.Sprintf(
+		"INSERT INTO %s (%s) VALUES %s",
+		c.tableName,
+		strings.Join(columns, ","),
+		strings.Join(valuePlaceholders, ","),
+	)
+
+	// Execute query
+	var result sql.Result
+	var err error
+	if c.tx != nil {
+		result, err = c.tx.Exec(query, values...)
+	} else {
+		result, err = c.db.DB.Exec(query, values...)
+	}
+
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
 }

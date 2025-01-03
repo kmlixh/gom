@@ -1,249 +1,191 @@
 package gom
 
 import (
+	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/yaoapp/gom/define"
 )
 
-func TestChainBasics(t *testing.T) {
-	chain := NewChain()
+var (
+	ErrTest = errors.New("test error")
+	testDSN = "user:password@tcp(localhost:3306)/test?charset=utf8mb4&parseTime=True"
+)
 
-	// Test Table
-	chain.Table("users")
-	assert.Equal(t, "users", chain.table)
-
-	// Test Fields
-	chain.Fields("id", "name", "email")
-	assert.Equal(t, []string{"id", "name", "email"}, chain.fields)
-
-	// Test Where with simple condition
-	chain.Where(define.Eq("id", 1))
-	assert.NotNil(t, chain.conditions)
-	assert.Len(t, chain.conditions, 1)
-	assert.Equal(t, "id", chain.conditions[0].Field)
-	assert.Equal(t, define.OpEq, chain.conditions[0].Op)
-	assert.Equal(t, 1, chain.conditions[0].Value)
-
-	// Test OrderBy
-	chain.OrderBy("id", define.OrderDesc)
-	assert.NotNil(t, chain.orders)
-	assert.Len(t, chain.orders, 1)
-	assert.Equal(t, "id", chain.orders[0].Field)
-	assert.Equal(t, define.OrderDesc, chain.orders[0].Type)
-
-	// Test Limit and Offset
-	chain.Limit(10).Offset(5)
-	assert.Equal(t, uint(10), chain.limit)
-	assert.Equal(t, uint(5), chain.offset)
+// TestModel 测试用的模型结构
+type TestModel struct {
+	ID        int64     `gom:"id,@"`
+	Name      string    `gom:"name"`
+	Age       int       `gom:"age"`
+	CreatedAt time.Time `gom:"created_at"`
 }
 
-func TestChainConditions(t *testing.T) {
-	chain := NewChain()
-
-	// Test multiple Where conditions
-	chain.Where(define.Gt("age", 18)).
-		Where(define.Like("email", "%@example.com")).
-		Where(define.In("status", "active", "pending"))
-
-	assert.Len(t, chain.conditions, 3)
-
-	// Verify first condition
-	assert.Equal(t, "age", chain.conditions[0].Field)
-	assert.Equal(t, define.OpGt, chain.conditions[0].Op)
-	assert.Equal(t, 18, chain.conditions[0].Value)
-
-	// Verify second condition
-	assert.Equal(t, "email", chain.conditions[1].Field)
-	assert.Equal(t, define.OpLike, chain.conditions[1].Op)
-	assert.Equal(t, "%@example.com", chain.conditions[1].Value)
-
-	// Verify third condition
-	assert.Equal(t, "status", chain.conditions[2].Field)
-	assert.Equal(t, define.OpIn, chain.conditions[2].Op)
-	assert.Equal(t, []interface{}{"active", "pending"}, chain.conditions[2].Value)
+func (m *TestModel) TableName() string {
+	return "test_models"
 }
 
-func TestChainOrdering(t *testing.T) {
-	chain := NewChain()
-
-	// Test multiple OrderBy calls
-	chain.OrderBy("created_at", define.OrderDesc).
-		OrderBy("name", define.OrderAsc).
-		OrderBy("id", define.OrderDesc)
-
-	assert.Len(t, chain.orders, 3)
-
-	// Verify first order
-	assert.Equal(t, "created_at", chain.orders[0].Field)
-	assert.Equal(t, define.OrderDesc, chain.orders[0].Type)
-
-	// Verify second order
-	assert.Equal(t, "name", chain.orders[1].Field)
-	assert.Equal(t, define.OrderAsc, chain.orders[1].Type)
-
-	// Verify third order
-	assert.Equal(t, "id", chain.orders[2].Field)
-	assert.Equal(t, define.OrderDesc, chain.orders[2].Type)
+// setupTestDB 设置测试数据库连接
+func setupTestDB(t *testing.T) *DB {
+	db, err := Open("mysql", testDSN, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return db
 }
 
-func TestChainReset(t *testing.T) {
-	chain := NewChain()
+// TestTransaction 测试事务处理
+func TestTransaction(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
 
-	// Set various chain properties
-	chain.Table("users").
-		Fields("id", "name").
-		Where(define.Eq("active", true)).
-		OrderBy("id", define.OrderDesc).
-		Limit(10).
-		Offset(5)
-
-	// Verify properties are set
-	assert.Equal(t, "users", chain.table)
-	assert.Equal(t, []string{"id", "name"}, chain.fields)
-	assert.Len(t, chain.conditions, 1)
-	assert.Len(t, chain.orders, 1)
-	assert.Equal(t, uint(10), chain.limit)
-	assert.Equal(t, uint(5), chain.offset)
-
-	// Reset chain
-	chain.Reset()
-
-	// Verify all properties are reset
-	assert.Empty(t, chain.table)
-	assert.Empty(t, chain.fields)
-	assert.Empty(t, chain.conditions)
-	assert.Empty(t, chain.orders)
-	assert.Zero(t, chain.limit)
-	assert.Zero(t, chain.offset)
-}
-
-func TestChainClone(t *testing.T) {
-	original := NewChain()
-
-	// Set various chain properties
-	original.Table("users").
-		Fields("id", "name").
-		Where(define.Eq("active", true)).
-		OrderBy("id", define.OrderDesc).
-		Limit(10).
-		Offset(5)
-
-	// Clone the chain
-	cloned := original.Clone()
-
-	// Verify cloned properties match original
-	assert.Equal(t, original.table, cloned.table)
-	assert.Equal(t, original.fields, cloned.fields)
-	assert.Equal(t, len(original.conditions), len(cloned.conditions))
-	assert.Equal(t, len(original.orders), len(cloned.orders))
-	assert.Equal(t, original.limit, cloned.limit)
-	assert.Equal(t, original.offset, cloned.offset)
-
-	// Modify cloned chain
-	cloned.Table("posts").
-		Fields("title").
-		Where(define.Eq("published", true)).
-		OrderBy("created_at", define.OrderAsc).
-		Limit(20).
-		Offset(0)
-
-	// Verify original chain remains unchanged
-	assert.Equal(t, "users", original.table)
-	assert.Equal(t, []string{"id", "name"}, original.fields)
-	assert.Len(t, original.conditions, 1)
-	assert.Equal(t, "active", original.conditions[0].Field)
-	assert.Len(t, original.orders, 1)
-	assert.Equal(t, "id", original.orders[0].Field)
-	assert.Equal(t, uint(10), original.limit)
-	assert.Equal(t, uint(5), original.offset)
-
-	// Verify cloned chain has new values
-	assert.Equal(t, "posts", cloned.table)
-	assert.Equal(t, []string{"title"}, cloned.fields)
-	assert.Len(t, cloned.conditions, 1)
-	assert.Equal(t, "published", cloned.conditions[0].Field)
-	assert.Len(t, cloned.orders, 1)
-	assert.Equal(t, "created_at", cloned.orders[0].Field)
-	assert.Equal(t, uint(20), cloned.limit)
-	assert.Equal(t, uint(0), cloned.offset)
-}
-
-func TestChainValidation(t *testing.T) {
-	chain := NewChain()
-
-	// Test empty table
-	err := chain.Validate()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "table name is required")
-
-	// Test with table but no fields
-	chain.Table("users")
-	err = chain.Validate()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "at least one field is required")
-
-	// Test with invalid limit
-	chain.Fields("*").Limit(0)
-	err = chain.Validate()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "limit must be greater than 0")
-
-	// Test with valid configuration
-	chain.Limit(10)
-	err = chain.Validate()
+	// 创建测试表
+	err := db.Chain().CreateTable(&TestModel{})
 	assert.NoError(t, err)
+
+	// 测试成功的事务
+	err = db.Chain().Transaction(func(tx *Chain) error {
+		model := &TestModel{
+			Name:      "Test1",
+			Age:       25,
+			CreatedAt: time.Now(),
+		}
+		_, err := tx.Table("test_models").Values(map[string]interface{}{
+			"name":       model.Name,
+			"age":        model.Age,
+			"created_at": model.CreatedAt,
+		}).Save()
+		return err
+	})
+	assert.NoError(t, err)
+
+	// 测试失败的事务
+	err = db.Chain().Transaction(func(tx *Chain) error {
+		model := &TestModel{
+			Name:      "Test2",
+			Age:       30,
+			CreatedAt: time.Now(),
+		}
+		_, err := tx.Table("test_models").Values(map[string]interface{}{
+			"name":       model.Name,
+			"age":        model.Age,
+			"created_at": model.CreatedAt,
+		}).Save()
+		if err != nil {
+			return err
+		}
+		return ErrTest // 返回错误触发回滚
+	})
+	assert.Error(t, err)
 }
 
-func TestChainComplexQuery(t *testing.T) {
-	chain := NewChain()
+// TestBatchInsert 测试批量插入
+func TestBatchInsert(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
 
-	// Build a complex query
-	chain.Table("users").
-		Fields("id", "name", "email", "status").
-		Where(define.Gt("age", 18)).
-		Where(define.In("status", "active", "pending")).
-		Where(define.Like("email", "%@example.com")).
-		Where(define.IsNotNull("last_login")).
-		OrderBy("created_at", define.OrderDesc).
-		OrderBy("name", define.OrderAsc).
-		Limit(20).
-		Offset(40)
+	// 准备测试数据
+	batchValues := make([]map[string]interface{}, 0)
+	for i := 0; i < 100; i++ {
+		batchValues = append(batchValues, map[string]interface{}{
+			"name":       fmt.Sprintf("User%d", i),
+			"age":        20 + i%10,
+			"created_at": time.Now(),
+		})
+	}
 
-	// Verify table and fields
-	assert.Equal(t, "users", chain.table)
-	assert.Equal(t, []string{"id", "name", "email", "status"}, chain.fields)
-
-	// Verify conditions
-	assert.Len(t, chain.conditions, 4)
-	assert.Equal(t, "age", chain.conditions[0].Field)
-	assert.Equal(t, define.OpGt, chain.conditions[0].Op)
-	assert.Equal(t, 18, chain.conditions[0].Value)
-
-	assert.Equal(t, "status", chain.conditions[1].Field)
-	assert.Equal(t, define.OpIn, chain.conditions[1].Op)
-	assert.Equal(t, []interface{}{"active", "pending"}, chain.conditions[1].Value)
-
-	assert.Equal(t, "email", chain.conditions[2].Field)
-	assert.Equal(t, define.OpLike, chain.conditions[2].Op)
-	assert.Equal(t, "%@example.com", chain.conditions[2].Value)
-
-	assert.Equal(t, "last_login", chain.conditions[3].Field)
-	assert.Equal(t, define.OpIsNotNull, chain.conditions[3].Op)
-
-	// Verify ordering
-	assert.Len(t, chain.orders, 2)
-	assert.Equal(t, "created_at", chain.orders[0].Field)
-	assert.Equal(t, define.OrderDesc, chain.orders[0].Type)
-	assert.Equal(t, "name", chain.orders[1].Field)
-	assert.Equal(t, define.OrderAsc, chain.orders[1].Type)
-
-	// Verify limit and offset
-	assert.Equal(t, uint(20), chain.limit)
-	assert.Equal(t, uint(40), chain.offset)
-
-	// Validate the chain
-	err := chain.Validate()
+	// 执行批量插入
+	affected, err := db.Chain().Table("test_models").BatchValues(batchValues).BatchInsert(10)
 	assert.NoError(t, err)
+	assert.Equal(t, int64(100), affected)
+
+	// 验证插入结果
+	count, err := db.Chain().Table("test_models").Count()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(100), count)
+}
+
+// TestCRUD 测试基本的CRUD操作
+func TestCRUD(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	// 测试插入
+	model := &TestModel{
+		Name:      "CRUD Test",
+		Age:       25,
+		CreatedAt: time.Now(),
+	}
+	result, err := db.Chain().Table("test_models").Values(map[string]interface{}{
+		"name":       model.Name,
+		"age":        model.Age,
+		"created_at": model.CreatedAt,
+	}).Save()
+	assert.NoError(t, err)
+	assert.True(t, result.ID > 0)
+
+	// 测试查询
+	var found TestModel
+	err = db.Chain().Table("test_models").Eq("id", result.ID).First(&found)
+	assert.NoError(t, err)
+	assert.Equal(t, model.Name, found.Name)
+
+	// 测试更新
+	updateResult, err := db.Chain().Table("test_models").
+		Eq("id", result.ID).
+		Set("name", "Updated Name").
+		Set("age", 26).
+		Update()
+	assert.NoError(t, err)
+	affected, _ := updateResult.RowsAffected()
+	assert.Equal(t, int64(1), affected)
+
+	// 测试删除
+	deleteResult, err := db.Chain().Table("test_models").Eq("id", result.ID).Delete()
+	assert.NoError(t, err)
+	affected, _ = deleteResult.RowsAffected()
+	assert.Equal(t, int64(1), affected)
+}
+
+// TestConditions 测试条件查询
+func TestConditions(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	// 准备测试数据
+	names := []string{"Alice", "Bob", "Charlie"}
+	for _, name := range names {
+		_, err := db.Chain().Table("test_models").Values(map[string]interface{}{
+			"name":       name,
+			"age":        25,
+			"created_at": time.Now(),
+		}).Save()
+		assert.NoError(t, err)
+	}
+
+	// 测试 Like 查询
+	var results []TestModel
+	err := db.Chain().Table("test_models").
+		Like("name", "A%").
+		Into(&results)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(results))
+	assert.Equal(t, "Alice", results[0].Name)
+
+	// 测试 In 查询
+	results = nil
+	err = db.Chain().Table("test_models").
+		In("name", []string{"Alice", "Bob"}).
+		Into(&results)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(results))
+
+	// 测试 Between 查询
+	results = nil
+	err = db.Chain().Table("test_models").
+		Between("age", 20, 30).
+		Into(&results)
+	assert.NoError(t, err)
+	assert.Equal(t, 3, len(results))
 }
