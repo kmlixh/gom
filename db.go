@@ -46,6 +46,7 @@ type DB struct {
 	DB        *sql.DB
 	Factory   define.SQLFactory
 	RoutineID int64
+	options   define.DBOptions
 }
 
 // cloneSelfIfDifferentGoRoutine ensures thread safety by cloning DB instance if needed
@@ -81,30 +82,81 @@ func (db *DB) Close() error {
 	return db.DB.Close()
 }
 
-// Open creates a new DB connection with debug option
-func Open(driverName, dsn string, debug bool) (*DB, error) {
+// optimizeConnectionPool configures the database connection pool
+func (db *DB) optimizeConnectionPool(opts define.DBOptions) {
+	db.DB.SetMaxOpenConns(opts.MaxOpenConns)
+	db.DB.SetMaxIdleConns(opts.MaxIdleConns)
+	db.DB.SetConnMaxLifetime(opts.ConnMaxLifetime)
+	db.DB.SetConnMaxIdleTime(opts.ConnMaxIdleTime)
+	db.options = opts
+}
+
+// Open creates a new DB connection with options
+func Open(driverName, dsn string, opts *define.DBOptions) (*DB, error) {
+	// Use default options if none provided
+	if opts == nil {
+		defaultOpts := define.DefaultDBOptions()
+		opts = &defaultOpts
+	}
+
+	// Validate options
+	if err := opts.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid options: %v", err)
+	}
+
 	factory, er := define.GetFactory(driverName)
 	if er != nil {
 		return nil, fmt.Errorf("no SQL factory registered for driver: %s", driverName)
 	}
-	db, err := factory.Connect(dsn)
+
+	sqlDB, err := factory.Connect(dsn)
 	if err != nil {
 		return nil, err
 	}
-	define.Debug = debug
-	return &DB{
-		DB:      db,
+
+	db := &DB{
+		DB:      sqlDB,
 		Factory: factory,
-	}, nil
+		options: *opts,
+	}
+
+	// Configure connection pool
+	db.optimizeConnectionPool(*opts)
+
+	// Set debug mode
+	define.Debug = opts.Debug
+
+	return db, nil
 }
 
-// MustOpen creates a new DB connection and panics on error
-func MustOpen(driverName, dsn string) *DB {
-	db, err := Open(driverName, dsn, false)
+// OpenWithDefaults creates a new DB connection with default options
+func OpenWithDefaults(driverName, dsn string) (*DB, error) {
+	return Open(driverName, dsn, nil)
+}
+
+// MustOpen creates a new DB connection with options and panics on error
+func MustOpen(driverName, dsn string, opts *define.DBOptions) *DB {
+	db, err := Open(driverName, dsn, opts)
 	if err != nil {
 		panic(err)
 	}
 	return db
+}
+
+// GetOptions returns the current database options
+func (db *DB) GetOptions() define.DBOptions {
+	return db.options
+}
+
+// UpdateOptions updates the database connection pool settings
+func (db *DB) UpdateOptions(opts define.DBOptions) error {
+	if err := opts.Validate(); err != nil {
+		return fmt.Errorf("invalid options: %v", err)
+	}
+
+	db.optimizeConnectionPool(opts)
+	define.Debug = opts.Debug
+	return nil
 }
 
 // GetTableInfo 获取表信息

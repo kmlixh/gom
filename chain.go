@@ -433,6 +433,20 @@ func (c *Chain) From(model interface{}) *Chain {
 					c.fieldMap = make(map[string]interface{})
 				}
 				c.fieldMap[columnName] = value.Interface()
+				if !contains(c.fieldOrder, columnName) {
+					c.fieldOrder = append(c.fieldOrder, columnName)
+				}
+			}
+		} else if !strings.HasSuffix(modelType.Name(), "Query") {
+			// For non-query models, include zero-value fields in INSERT operations
+			if field.Name != "ID" {
+				if c.fieldMap == nil {
+					c.fieldMap = make(map[string]interface{})
+				}
+				c.fieldMap[columnName] = value.Interface()
+				if !contains(c.fieldOrder, columnName) {
+					c.fieldOrder = append(c.fieldOrder, columnName)
+				}
 			}
 		}
 	}
@@ -474,6 +488,21 @@ func (c *Chain) list() *QueryResult {
 		return &QueryResult{err: err}
 	}
 
+	// 获取列类型信息
+	columnTypes, err := rows.ColumnTypes()
+	if err != nil {
+		return &QueryResult{err: err}
+	}
+
+	// 打印列类型信息
+	if define.Debug {
+		log.Printf("Column Types:")
+		for _, ct := range columnTypes {
+			log.Printf("  %s: DatabaseTypeName=%s, ScanType=%v",
+				ct.Name(), ct.DatabaseTypeName(), ct.ScanType())
+		}
+	}
+
 	var result []map[string]interface{}
 	for rows.Next() {
 		values := make([]interface{}, len(columns))
@@ -489,6 +518,135 @@ func (c *Chain) list() *QueryResult {
 		row := make(map[string]interface{})
 		for i, col := range columns {
 			val := *(values[i].(*interface{}))
+
+			// 打印实际值的类型
+			if define.Debug {
+				log.Printf("Column %s: value type=%T, value=%v", col, val, val)
+			}
+
+			// 根据列类型进行转换
+			if val != nil {
+				colType := columnTypes[i]
+				dbTypeName := strings.ToUpper(colType.DatabaseTypeName())
+				scanType := colType.ScanType()
+
+				switch {
+				case strings.Contains(dbTypeName, "CHAR") ||
+					strings.Contains(dbTypeName, "TEXT") ||
+					strings.Contains(dbTypeName, "VARCHAR") ||
+					strings.Contains(dbTypeName, "JSON"):
+					if byteVal, ok := val.([]uint8); ok {
+						val = string(byteVal)
+					}
+				case strings.Contains(dbTypeName, "TINYINT") ||
+					strings.Contains(dbTypeName, "BOOL"):
+					// 转换为 bool
+					switch v := val.(type) {
+					case []uint8:
+						if string(v) == "1" || strings.ToLower(string(v)) == "true" {
+							val = true
+						} else {
+							val = false
+						}
+					case int64:
+						val = v != 0
+					case int32:
+						val = v != 0
+					case int:
+						val = v != 0
+					case int8:
+						val = v != 0
+					case bool:
+						val = v
+					}
+					// 如果是 sql.NullInt64 或 sql.NullBool，需要特殊处理
+					if scanType != nil {
+						switch scanType.String() {
+						case "sql.NullInt64":
+							if v, ok := val.(int64); ok {
+								val = v != 0
+							}
+						case "sql.NullBool":
+							if v, ok := val.(bool); ok {
+								val = v
+							}
+						}
+					}
+				case strings.Contains(dbTypeName, "INT") ||
+					strings.Contains(dbTypeName, "BIGINT"):
+					// 转换为 int64
+					switch v := val.(type) {
+					case []uint8:
+						val, _ = strconv.ParseInt(string(v), 10, 64)
+					case int32:
+						val = int64(v)
+					case int:
+						val = int64(v)
+					}
+				case strings.Contains(dbTypeName, "FLOAT") ||
+					strings.Contains(dbTypeName, "DOUBLE") ||
+					strings.Contains(dbTypeName, "DECIMAL"):
+					// 转换为 float64
+					switch v := val.(type) {
+					case []uint8:
+						val, _ = strconv.ParseFloat(string(v), 64)
+					case float32:
+						val = float64(v)
+					}
+				case strings.Contains(dbTypeName, "DATE"):
+					// 转换为 time.Time，只保留日期部分
+					switch v := val.(type) {
+					case []uint8:
+						dateStr := string(v)
+						if t, err := time.ParseInLocation("2006-01-02", dateStr, time.Local); err == nil {
+							val = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
+						}
+					case string:
+						if t, err := time.ParseInLocation("2006-01-02", v, time.Local); err == nil {
+							val = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
+						}
+					case time.Time:
+						// 对于 MySQL 的 DATE 类型，需要特殊处理时区
+						t := v.In(time.Local)
+						// 由于 MySQL 的 DATE 类型不包含时区信息，我们需要确保使用本地时区
+						year, month, day := t.Date()
+						val = time.Date(year, month, day, 0, 0, 0, 0, time.Local)
+					}
+				case strings.Contains(dbTypeName, "TIMESTAMP") ||
+					strings.Contains(dbTypeName, "DATETIME"):
+					// 转换为 time.Time
+					switch v := val.(type) {
+					case []uint8:
+						timeStr := string(v)
+						formats := []string{
+							"2006-01-02 15:04:05",
+							"2006-01-02T15:04:05Z",
+							time.RFC3339,
+						}
+						for _, format := range formats {
+							if t, err := time.ParseInLocation(format, timeStr, time.Local); err == nil {
+								val = t
+								break
+							}
+						}
+					case string:
+						formats := []string{
+							"2006-01-02 15:04:05",
+							"2006-01-02T15:04:05Z",
+							time.RFC3339,
+						}
+						for _, format := range formats {
+							if t, err := time.ParseInLocation(format, v, time.Local); err == nil {
+								val = t
+								break
+							}
+						}
+					case time.Time:
+						val = v.In(time.Local)
+					}
+				}
+			}
+
 			// Convert column name to snake_case if it's in CamelCase
 			if strings.ToLower(col) != col {
 				var result []rune
@@ -937,6 +1095,12 @@ func (c *Chain) RawQuery(sqlStr string, args ...interface{}) *QueryResult {
 		return &QueryResult{err: err}
 	}
 
+	// Get column types
+	columnTypes, err := rows.ColumnTypes()
+	if err != nil {
+		return &QueryResult{err: err}
+	}
+
 	var result []map[string]interface{}
 	for rows.Next() {
 		values := make([]interface{}, len(columns))
@@ -952,9 +1116,114 @@ func (c *Chain) RawQuery(sqlStr string, args ...interface{}) *QueryResult {
 		row := make(map[string]interface{})
 		for i, col := range columns {
 			val := *(values[i].(*interface{}))
-			row[col] = val
+
+			// Handle type conversions based on column type
+			if val != nil {
+				colType := columnTypes[i]
+				dbTypeName := strings.ToUpper(colType.DatabaseTypeName())
+
+				switch {
+				case strings.Contains(dbTypeName, "CHAR") ||
+					strings.Contains(dbTypeName, "TEXT") ||
+					strings.Contains(dbTypeName, "VARCHAR") ||
+					strings.Contains(dbTypeName, "JSON"):
+					if byteVal, ok := val.([]uint8); ok {
+						val = string(byteVal)
+					}
+				case strings.Contains(dbTypeName, "TINYINT") ||
+					strings.Contains(dbTypeName, "BOOL"):
+					switch v := val.(type) {
+					case []uint8:
+						if string(v) == "1" || strings.ToLower(string(v)) == "true" {
+							val = true
+						} else {
+							val = false
+						}
+					case int64:
+						val = v != 0
+					case int32:
+						val = v != 0
+					case int:
+						val = v != 0
+					case int8:
+						val = v != 0
+					case bool:
+						val = v
+					}
+				case strings.Contains(dbTypeName, "INT") ||
+					strings.Contains(dbTypeName, "BIGINT"):
+					switch v := val.(type) {
+					case []uint8:
+						val, _ = strconv.ParseInt(string(v), 10, 64)
+					case int32:
+						val = int64(v)
+					case int:
+						val = int64(v)
+					}
+				case strings.Contains(dbTypeName, "FLOAT") ||
+					strings.Contains(dbTypeName, "DOUBLE") ||
+					strings.Contains(dbTypeName, "DECIMAL"):
+					switch v := val.(type) {
+					case []uint8:
+						val, _ = strconv.ParseFloat(string(v), 64)
+					case float32:
+						val = float64(v)
+					}
+				case strings.Contains(dbTypeName, "DATE") ||
+					strings.Contains(dbTypeName, "TIME"):
+					switch v := val.(type) {
+					case []uint8:
+						formats := []string{
+							"2006-01-02 15:04:05",
+							"2006-01-02T15:04:05Z",
+							time.RFC3339,
+						}
+						for _, format := range formats {
+							if t, err := time.ParseInLocation(format, string(v), time.Local); err == nil {
+								val = t
+								break
+							}
+						}
+					case time.Time:
+						val = v.In(time.Local)
+					}
+				}
+			}
+
+			// Handle column aliases in JOIN queries
+			colName := col
+			if strings.Contains(colName, " AS ") {
+				parts := strings.Split(colName, " AS ")
+				colName = strings.TrimSpace(parts[len(parts)-1])
+			} else if strings.Contains(colName, ".") {
+				parts := strings.Split(colName, ".")
+				colName = strings.TrimSpace(parts[len(parts)-1])
+			}
+
+			// Convert column name to snake_case if it's in CamelCase
+			if strings.ToLower(colName) != colName {
+				var result []rune
+				for i, r := range colName {
+					if i > 0 && r >= 'A' && r <= 'Z' {
+						result = append(result, '_')
+					}
+					result = append(result, unicode.ToLower(r))
+				}
+				colName = string(result)
+			}
+
+			// Log column information for debugging
+			if define.Debug {
+				log.Printf("Column %s: value type=%T, value=%v", colName, val, val)
+			}
+
+			row[colName] = val
 		}
 		result = append(result, row)
+	}
+
+	if err = rows.Err(); err != nil {
+		return &QueryResult{err: err}
 	}
 
 	return &QueryResult{
@@ -991,8 +1260,8 @@ func (c *Chain) RawExecute(sql string, args ...interface{}) define.Result {
 
 // QueryResult represents a query result
 type QueryResult struct {
-	Data    []map[string]interface{} `json:"data"`
-	Columns []string                 `json:"columns"`
+	Data    []map[string]any `json:"data"`
+	Columns []string         `json:"columns"`
 	err     error
 }
 
@@ -1016,6 +1285,7 @@ func (qr *QueryResult) Into(dest interface{}) error {
 	if qr.err != nil {
 		return qr.err
 	}
+
 	destValue := reflect.ValueOf(dest)
 	if destValue.Kind() != reflect.Ptr {
 		return &DBError{
@@ -1049,7 +1319,7 @@ func (qr *QueryResult) Into(dest interface{}) error {
 		}
 	}
 
-	// Create a map of column names to struct fields
+	// Create a map of field names to struct fields
 	fieldMap := make(map[string]reflect.StructField)
 	for i := 0; i < elemType.NumField(); i++ {
 		field := elemType.Field(i)
@@ -1059,43 +1329,115 @@ func (qr *QueryResult) Into(dest interface{}) error {
 		}
 		// Parse tag to get column name
 		parts := strings.Split(tag, ",")
-		columnName := parts[0]
+		columnName := strings.ToLower(parts[0])
 		fieldMap[columnName] = field
+
+		// Also map the field name itself in lowercase
+		fieldMap[strings.ToLower(field.Name)] = field
 	}
 
 	// Create a new slice with the correct capacity
 	newSlice := reflect.MakeSlice(sliceValue.Type(), 0, len(qr.Data))
 
-	// Iterate through each map and create struct instances
-	for rowIndex, item := range qr.Data {
-		// Create a new struct instance
-		structPtr := reflect.New(elemType)
-		structVal := structPtr.Elem()
+	// Iterate over each row in the result
+	for _, row := range qr.Data {
+		// Create a new struct for this row
+		newElem := reflect.New(elemType).Elem()
 
-		// Fill the struct fields
-		for key, value := range item {
-			// Find the corresponding field
-			field, ok := fieldMap[key]
+		// Set each field in the struct
+		for colName, val := range row {
+			// Convert column name to lowercase for case-insensitive matching
+			colName = strings.ToLower(colName)
+
+			// Try to find the field by column name or by field name
+			field, ok := fieldMap[colName]
 			if !ok {
-				continue
+				// If not found, try to find by removing common prefixes (e.g., "dept_" from "dept_name")
+				parts := strings.Split(colName, "_")
+				if len(parts) > 1 {
+					colName = strings.Join(parts[1:], "_")
+					field, ok = fieldMap[colName]
+				}
 			}
+			if ok {
+				fieldValue := newElem.FieldByName(field.Name)
+				if !fieldValue.CanSet() {
+					continue
+				}
 
-			// Set the field value
-			fieldVal := structVal.FieldByName(field.Name)
-			if err := setFieldValue(fieldVal, value); err != nil {
-				return &DBError{
-					Op:      "Into",
-					Err:     err,
-					Details: fmt.Sprintf("failed to set field %s in row %d", field.Name, rowIndex+1),
+				// Handle type conversions
+				if val == nil {
+					continue
+				}
+
+				// Handle type conversions based on field type
+				switch fieldValue.Kind() {
+				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+					switch v := val.(type) {
+					case int64:
+						fieldValue.SetInt(v)
+					case float64:
+						fieldValue.SetInt(int64(v))
+					case []uint8:
+						if i, err := strconv.ParseInt(string(v), 10, 64); err == nil {
+							fieldValue.SetInt(i)
+						}
+					}
+				case reflect.Float32, reflect.Float64:
+					switch v := val.(type) {
+					case float64:
+						fieldValue.SetFloat(v)
+					case []uint8:
+						if f, err := strconv.ParseFloat(string(v), 64); err == nil {
+							fieldValue.SetFloat(f)
+						}
+					}
+				case reflect.String:
+					switch v := val.(type) {
+					case string:
+						fieldValue.SetString(v)
+					case []uint8:
+						fieldValue.SetString(string(v))
+					}
+				case reflect.Bool:
+					switch v := val.(type) {
+					case bool:
+						fieldValue.SetBool(v)
+					case int64:
+						fieldValue.SetBool(v != 0)
+					case []uint8:
+						if b, err := strconv.ParseBool(string(v)); err == nil {
+							fieldValue.SetBool(b)
+						}
+					}
+				case reflect.Struct:
+					if fieldValue.Type() == reflect.TypeOf(time.Time{}) {
+						switch v := val.(type) {
+						case time.Time:
+							fieldValue.Set(reflect.ValueOf(v))
+						case []uint8:
+							formats := []string{
+								"2006-01-02 15:04:05",
+								"2006-01-02T15:04:05Z",
+								time.RFC3339,
+							}
+							for _, format := range formats {
+								if t, err := time.ParseInLocation(format, string(v), time.Local); err == nil {
+									fieldValue.Set(reflect.ValueOf(t))
+									break
+								}
+							}
+						}
+					}
 				}
 			}
 		}
 
-		// Append the struct to slice
+		// Add the new element to the slice
 		if isPtr {
-			newSlice = reflect.Append(newSlice, structPtr)
+			newSlice = reflect.Append(newSlice, newElem.Addr())
 		} else {
-			newSlice = reflect.Append(newSlice, structVal)
+			newSlice = reflect.Append(newSlice, newElem)
 		}
 	}
 
@@ -1104,123 +1446,37 @@ func (qr *QueryResult) Into(dest interface{}) error {
 	return nil
 }
 
-// setFieldValue sets the appropriate value to the struct field
+// setFieldValue handles type conversion and setting of field values
 func setFieldValue(field reflect.Value, value interface{}) error {
-	if value == nil {
-		return nil
-	}
-
-	// Handle the case where value is a pointer
-	valueVal := reflect.ValueOf(value)
-	if valueVal.Kind() == reflect.Ptr {
-		if valueVal.IsNil() {
-			return nil
-		}
-		value = valueVal.Elem().Interface()
-	}
-
 	switch field.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		switch v := value.(type) {
 		case int64:
 			field.SetInt(v)
-		case int32:
+		case float64:
 			field.SetInt(int64(v))
-		case int:
-			field.SetInt(int64(v))
-		case []uint8:
-			i, err := strconv.ParseInt(string(v), 10, 64)
-			if err != nil {
-				return &DBError{
-					Op:      "setFieldValue",
-					Err:     err,
-					Details: fmt.Sprintf("failed to convert %v to int64", value),
-				}
-			}
-			field.SetInt(i)
 		case string:
-			i, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return &DBError{
-					Op:      "setFieldValue",
-					Err:     err,
-					Details: fmt.Sprintf("failed to convert string %s to int64", v),
-				}
+			if i, err := strconv.ParseInt(v, 10, 64); err == nil {
+				field.SetInt(i)
 			}
-			field.SetInt(i)
-		default:
-			return &DBError{
-				Op:      "setFieldValue",
-				Err:     fmt.Errorf("unsupported type conversion"),
-				Details: fmt.Sprintf("cannot convert %T to int64", value),
-			}
-		}
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		switch v := value.(type) {
-		case uint64:
-			field.SetUint(v)
-		case uint32:
-			field.SetUint(uint64(v))
-		case uint:
-			field.SetUint(uint64(v))
 		case []uint8:
-			i, err := strconv.ParseUint(string(v), 10, 64)
-			if err != nil {
-				return &DBError{
-					Op:      "setFieldValue",
-					Err:     err,
-					Details: fmt.Sprintf("failed to convert %v to uint64", value),
-				}
-			}
-			field.SetUint(i)
-		case string:
-			i, err := strconv.ParseUint(v, 10, 64)
-			if err != nil {
-				return &DBError{
-					Op:      "setFieldValue",
-					Err:     err,
-					Details: fmt.Sprintf("failed to convert string %s to uint64", v),
-				}
-			}
-			field.SetUint(i)
-		default:
-			return &DBError{
-				Op:      "setFieldValue",
-				Err:     fmt.Errorf("unsupported type conversion"),
-				Details: fmt.Sprintf("cannot convert %T to uint64", value),
+			if i, err := strconv.ParseInt(string(v), 10, 64); err == nil {
+				field.SetInt(i)
 			}
 		}
 	case reflect.Float32, reflect.Float64:
 		switch v := value.(type) {
 		case float64:
 			field.SetFloat(v)
-		case float32:
+		case int64:
 			field.SetFloat(float64(v))
-		case []uint8:
-			f, err := strconv.ParseFloat(string(v), 64)
-			if err != nil {
-				return &DBError{
-					Op:      "setFieldValue",
-					Err:     err,
-					Details: fmt.Sprintf("failed to convert %v to float64", value),
-				}
-			}
-			field.SetFloat(f)
 		case string:
-			f, err := strconv.ParseFloat(v, 64)
-			if err != nil {
-				return &DBError{
-					Op:      "setFieldValue",
-					Err:     err,
-					Details: fmt.Sprintf("failed to convert string %s to float64", v),
-				}
+			if f, err := strconv.ParseFloat(v, 64); err == nil {
+				field.SetFloat(f)
 			}
-			field.SetFloat(f)
-		default:
-			return &DBError{
-				Op:      "setFieldValue",
-				Err:     fmt.Errorf("unsupported type conversion"),
-				Details: fmt.Sprintf("cannot convert %T to float64", value),
+		case []uint8:
+			if f, err := strconv.ParseFloat(string(v), 64); err == nil {
+				field.SetFloat(f)
 			}
 		}
 	case reflect.String:
@@ -1230,42 +1486,19 @@ func setFieldValue(field reflect.Value, value interface{}) error {
 		case []uint8:
 			field.SetString(string(v))
 		default:
-			return &DBError{
-				Op:      "setFieldValue",
-				Err:     fmt.Errorf("unsupported type conversion"),
-				Details: fmt.Sprintf("cannot convert %T to string", value),
-			}
+			field.SetString(fmt.Sprint(v))
 		}
 	case reflect.Bool:
 		switch v := value.(type) {
 		case bool:
 			field.SetBool(v)
-		case []uint8:
-			b, err := strconv.ParseBool(string(v))
-			if err != nil {
-				return &DBError{
-					Op:      "setFieldValue",
-					Err:     err,
-					Details: fmt.Sprintf("failed to convert %v to bool", value),
-				}
-			}
-			field.SetBool(b)
+		case int64:
+			field.SetBool(v != 0)
+		case int:
+			field.SetBool(v != 0)
 		case string:
-			b, err := strconv.ParseBool(v)
-			if err != nil {
-				return &DBError{
-					Op:      "setFieldValue",
-					Err:     err,
-					Details: fmt.Sprintf("failed to convert string %s to bool", v),
-				}
-			}
-			field.SetBool(b)
-		default:
-			return &DBError{
-				Op:      "setFieldValue",
-				Err:     fmt.Errorf("unsupported type conversion"),
-				Details: fmt.Sprintf("cannot convert %T to bool", value),
-			}
+			boolVal := strings.ToLower(v) == "true" || v == "1"
+			field.SetBool(boolVal)
 		}
 	case reflect.Struct:
 		if field.Type() == reflect.TypeOf(time.Time{}) {
@@ -1273,38 +1506,18 @@ func setFieldValue(field reflect.Value, value interface{}) error {
 			case time.Time:
 				field.Set(reflect.ValueOf(v))
 			case []uint8:
-				t, err := time.Parse("2006-01-02 15:04:05", string(v))
-				if err != nil {
-					return &DBError{
-						Op:      "setFieldValue",
-						Err:     err,
-						Details: fmt.Sprintf("failed to parse time string %s", string(v)),
-					}
+				formats := []string{
+					"2006-01-02 15:04:05",
+					"2006-01-02T15:04:05Z",
+					time.RFC3339,
 				}
-				field.Set(reflect.ValueOf(t))
-			case string:
-				t, err := time.Parse("2006-01-02 15:04:05", v)
-				if err != nil {
-					return &DBError{
-						Op:      "setFieldValue",
-						Err:     err,
-						Details: fmt.Sprintf("failed to parse time string %s", v),
+				for _, format := range formats {
+					if t, err := time.ParseInLocation(format, string(v), time.Local); err == nil {
+						field.Set(reflect.ValueOf(t))
+						break
 					}
-				}
-				field.Set(reflect.ValueOf(t))
-			default:
-				return &DBError{
-					Op:      "setFieldValue",
-					Err:     fmt.Errorf("unsupported type conversion"),
-					Details: fmt.Sprintf("cannot convert %T to time.Time", value),
 				}
 			}
-		}
-	default:
-		return &DBError{
-			Op:      "setFieldValue",
-			Err:     fmt.Errorf("unsupported field type"),
-			Details: fmt.Sprintf("field type %v is not supported", field.Kind()),
 		}
 	}
 	return nil
@@ -1765,98 +1978,97 @@ func (c *Chain) PageInfo(model interface{}) (*PageInfo, error) {
 	return pageInfo, nil
 }
 
-// BatchInsert performs batch insert with configurable batch size
+// BatchInsert performs batch insert operation with the given batch size
 func (c *Chain) BatchInsert(batchSize int) (int64, error) {
-	if len(c.batchValues) == 0 {
-		return 0, &DBError{
-			Op:      "BatchInsert",
-			Err:     errors.New("no values to insert"),
-			Details: "batch values array is empty",
-		}
-	}
-
+	// Validate batch size
 	if batchSize <= 0 {
-		batchSize = 1000 // default batch size
+		return 0, &DBError{
+			Op:  "BatchInsert",
+			Err: fmt.Errorf("invalid batch size (batch size must be greater than 0, got %d)", batchSize),
+		}
 	}
 
-	var totalAffected int64
-	for i := 0; i < len(c.batchValues); i += batchSize {
-		end := i + batchSize
-		if end > len(c.batchValues) {
-			end = len(c.batchValues)
+	// Get values to insert
+	values := c.batchValues
+	if len(values) == 0 {
+		return 0, &DBError{
+			Op:  "BatchInsert",
+			Err: errors.New("no values to insert"),
 		}
+	}
 
-		// Begin transaction for each batch
-		tx, err := c.db.DB.BeginTx(context.Background(), &sql.TxOptions{
-			Isolation: c.isolationLevel,
-		})
+	// Create context with default timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Create progress tracker
+	progress := newProgressTracker(int64(len(values)))
+
+	// Process function for each batch
+	processBatch := func(ctx context.Context, batch []map[string]interface{}) error {
+		// Start transaction for this batch
+		tx, err := c.db.Begin()
 		if err != nil {
-			return totalAffected, &DBError{
-				Op:      "BatchInsert",
-				Err:     err,
-				Details: fmt.Sprintf("failed to begin transaction for batch %d", i/batchSize+1),
-			}
+			return fmt.Errorf("failed to start transaction: %w", err)
 		}
+		defer tx.Rollback()
 
-		// Create new chain with transaction
-		batchChain := &Chain{
-			db:            c.db,
-			factory:       c.factory,
-			tx:            tx,
-			tableName:     c.tableName,
-			batchValues:   c.batchValues[i:end],
-			inTransaction: true,
-		}
+		// Create chain for transaction
+		txChain := c.clone()
+		txChain.tx = tx
 
-		// Execute batch insert
-		result, err := batchChain.executeBatchInsert()
+		// Build and execute insert query
+		affected, err := txChain.batchInsertChunk(batch)
 		if err != nil {
-			rollbackErr := tx.Rollback()
-			if rollbackErr != nil {
-				return totalAffected, &DBError{
-					Op:      "BatchInsert",
-					Err:     err,
-					Details: fmt.Sprintf("batch %d failed: %v, rollback failed: %v", i/batchSize+1, err, rollbackErr),
-				}
-			}
-			return totalAffected, &DBError{
-				Op:      "BatchInsert",
-				Err:     err,
-				Details: fmt.Sprintf("batch %d failed", i/batchSize+1),
-			}
+			return err
 		}
+
+		// Update progress
+		progress.increment(affected)
 
 		// Commit transaction
 		if err := tx.Commit(); err != nil {
-			return totalAffected, &DBError{
-				Op:      "BatchInsert",
-				Err:     err,
-				Details: fmt.Sprintf("failed to commit batch %d", i/batchSize+1),
-			}
+			return fmt.Errorf("failed to commit transaction: %w", err)
 		}
 
-		totalAffected += result
+		return nil
 	}
 
-	return totalAffected, nil
+	// Process all batches with concurrency and timeout
+	err := processBatchesWithTimeout(
+		ctx,
+		values,
+		batchSize,
+		4, // Use 4 concurrent goroutines
+		30*time.Second,
+		processBatch,
+	)
+
+	if err != nil {
+		return 0, &DBError{
+			Op:  "BatchInsert",
+			Err: err,
+		}
+	}
+
+	processed, _ := progress.getProgress()
+	return processed, nil
 }
 
-// executeBatchInsert executes the actual batch insert operation
-func (c *Chain) executeBatchInsert() (int64, error) {
-	if len(c.batchValues) == 0 {
-		return 0, &DBError{
-			Op:      "executeBatchInsert",
-			Err:     errors.New("no values to insert"),
-			Details: "batch values array is empty",
-		}
+// batchInsertChunk performs the actual insert operation for a batch of values
+func (c *Chain) batchInsertChunk(values []map[string]interface{}) (int64, error) {
+	if len(values) == 0 {
+		return 0, nil
 	}
 
-	// Use factory to build batch insert query
-	query, args := c.factory.BuildBatchInsert(c.tableName, c.batchValues)
-
-	if define.Debug {
-		log.Printf("[SQL] %s %v", query, args)
+	// Get table name
+	tableName := c.tableName
+	if tableName == "" {
+		return 0, errors.New("table name is required")
 	}
+
+	// Build insert query
+	query, args := c.factory.BuildBatchInsert(tableName, values)
 
 	// Execute query
 	var result sql.Result
@@ -1868,23 +2080,10 @@ func (c *Chain) executeBatchInsert() (int64, error) {
 	}
 
 	if err != nil {
-		return 0, &DBError{
-			Op:      "executeBatchInsert",
-			Err:     err,
-			Details: "failed to execute batch insert",
-		}
+		return 0, err
 	}
 
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return 0, &DBError{
-			Op:      "executeBatchInsert",
-			Err:     err,
-			Details: "failed to get affected rows",
-		}
-	}
-
-	return affected, nil
+	return result.RowsAffected()
 }
 
 // extractModelFields extracts fields from a model
@@ -1929,6 +2128,20 @@ func (c *Chain) extractModelFields(model interface{}) (map[string]interface{}, e
 
 		if !value.IsZero() {
 			fields[columnName] = value.Interface()
+			if !contains(c.fieldOrder, columnName) {
+				c.fieldOrder = append(c.fieldOrder, columnName)
+			}
+		} else if !strings.HasSuffix(modelType.Name(), "Query") {
+			// For non-query models, include zero-value fields in INSERT operations
+			if field.Name != "ID" {
+				if c.fieldMap == nil {
+					c.fieldMap = make(map[string]interface{})
+				}
+				c.fieldMap[columnName] = value.Interface()
+				if !contains(c.fieldOrder, columnName) {
+					c.fieldOrder = append(c.fieldOrder, columnName)
+				}
+			}
 		}
 	}
 
@@ -2001,4 +2214,30 @@ func (c *Chain) buildOrderBy() string {
 		return ""
 	}
 	return c.factory.BuildOrderBy(c.orderByExprs)
+}
+
+// contains checks if a string slice contains a value
+func contains(slice []string, value string) bool {
+	for _, v := range slice {
+		if v == value {
+			return true
+		}
+	}
+	return false
+}
+
+// clone creates a copy of the chain
+func (c *Chain) clone() *Chain {
+	return &Chain{
+		db:             c.db,
+		tx:             c.tx,
+		tableName:      c.tableName,
+		batchValues:    c.batchValues,
+		isolationLevel: c.isolationLevel,
+	}
+}
+
+// Begin starts a new transaction
+func (db *DB) Begin() (*sql.Tx, error) {
+	return db.DB.Begin()
 }

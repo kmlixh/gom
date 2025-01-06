@@ -7,167 +7,63 @@ import (
 
 	"github.com/kmlixh/gom/v4"
 	"github.com/kmlixh/gom/v4/define"
-	"github.com/kmlixh/gom/v4/example"
-	_ "github.com/kmlixh/gom/v4/factory/postgres"
 )
 
+// User represents a user in the system
+type User struct {
+	Id        int64     `gom:"id,@,auto"`
+	Name      string    `gom:"name,notnull"`
+	Email     string    `gom:"email,notnull"`
+	Age       int       `gom:"age,notnull"`
+	CreatedAt time.Time `gom:"created_at,notnull,default"`
+	UpdatedAt time.Time `gom:"updated_at,notnull,default"`
+}
+
+// TableName returns the table name for User
+func (u *User) TableName() string {
+	return "users"
+}
+
 func main() {
-	// Connect to PostgreSQL
-	db, err := gom.Open("postgres", "host=localhost port=5432 user=postgres password=password dbname=test sslmode=disable", true)
+	opts := &define.DBOptions{
+		MaxOpenConns:    10,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: time.Minute,
+		ConnMaxIdleTime: 30 * time.Second,
+		Debug:           true,
+	}
+
+	db, err := gom.Open("postgres", "host=localhost port=5432 user=postgres password=123456 dbname=test sslmode=disable", opts)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.DB.Close()
+	defer db.Close()
 
-	// Create tables
-	chain := db.Chain()
-	err = chain.CreateTable(&example.User{})
+	// Create table
+	err = db.Chain().CreateTable(&User{})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Insert a user
-	newUser := &example.User{
-		Username:  "john_doe",
-		Email:     "john@example.com",
-		Age:       25,
-		Active:    true,
-		Role:      "admin",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+	// Insert data
+	user := &User{
+		Name:  "John",
+		Email: "john@example.com",
+		Age:   25,
 	}
-
-	result := chain.Table("users").From(newUser).Save()
+	result := db.Chain().Table("users").From(user).Save()
 	if result.Error != nil {
 		log.Fatal(result.Error)
 	}
 	fmt.Printf("Inserted user with ID: %d\n", result.ID)
 
-	// Basic conditions
-	var queryUsers []example.User
-	err = chain.Table("users").
-		Eq("active", true).
-		Gt("age", 20).
-		Into(&queryUsers)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Complex conditions
-	restrictedRoles := []string{"admin", "superuser"}
-	moreRestricted := []string{"owner"}
-	result = chain.Table("users").
-		Where2(define.Eq("active", true).
-			And(define.NotIn("role", restrictedRoles, moreRestricted))).
-		Values(map[string]interface{}{
-			"role":       "user",
-			"updated_at": time.Now(),
-		}).
-		Save()
-	if result.Error != nil {
-		log.Fatal(result.Error)
-	}
-
-	// OR conditions
-	youngAges := []int{18, 19, 20}
-	result = chain.Table("users").
-		Where2(define.In("age", youngAges)).
-		OrIsNull("email").
-		Delete()
-	if result.Error != nil {
-		log.Fatal(result.Error)
-	}
-
-	// Transaction example
-	err = chain.Transaction(func(tx *gom.Chain) error {
-		// Update admin user
-		adminUser := define.Eq("role", "admin").And(define.Eq("active", true))
-		result := tx.Table("users").Where2(adminUser).Values(map[string]interface{}{
-			"active": false,
-		}).Save()
-		if result.Error != nil {
-			return result.Error
-		}
-
-		// Update inactive users
-		var inactiveUsers []example.User
-		err := tx.Table("users").
-			Eq("active", false).
-			Into(&inactiveUsers)
-		if err != nil {
-			return err
-		}
-
-		// Update all inactive users at once
-		result = tx.Table("users").Eq("active", false).Values(map[string]interface{}{
-			"updated_at": time.Now(),
-		}).Save()
-		if result.Error != nil {
-			return result.Error
-		}
-
-		return nil
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Batch operations
-	batchUsers := []interface{}{
-		&example.User{
-			Username:  "user1",
-			Email:     "user1@example.com",
-			Age:       30,
-			Active:    true,
-			Role:      "user",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		},
-		&example.User{
-			Username:  "user2",
-			Email:     "user2@example.com",
-			Age:       35,
-			Active:    true,
-			Role:      "user",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		},
-	}
-
-	result = chain.Table("users").Save(batchUsers...)
-	if result.Error != nil {
-		log.Fatal(result.Error)
-	}
-
-	// Update multiple records
-	result = chain.Table("users").Eq("username", "john_doe").Values(map[string]interface{}{
-		"password":   "new_password",
-		"updated_at": time.Now(),
-	}).Save()
-	if result.Error != nil {
-		log.Fatal(result.Error)
-	}
-
-	// Raw SQL
-	var rawUsers []example.User
-	qr := chain.RawQuery("SELECT * FROM users WHERE age > $1", 30)
+	// Query data
+	var users []User
+	qr := db.Chain().Table("users").Where2(define.Eq("age", 25)).List(&users)
 	if qr.Error() != nil {
 		log.Fatal(qr.Error())
 	}
-	err = qr.Into(&rawUsers)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Update with raw SQL
-	result = chain.RawExecute("UPDATE users SET active = $1 WHERE username = $2", false, "updated_john")
-	if result.Error != nil {
-		log.Fatal(result.Error)
-	}
-
-	// Cleanup
-	_, err = db.DB.Exec("DROP TABLE IF EXISTS users")
-	if err != nil {
-		log.Fatal(err)
+	for _, u := range users {
+		fmt.Printf("Found user: %+v\n", u)
 	}
 }

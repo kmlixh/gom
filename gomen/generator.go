@@ -55,7 +55,15 @@ func NewGenerator(options Options) (*Generator, error) {
 		postgres.RegisterFactory()
 	}
 
-	db, err := gom.Open(options.Driver, options.URL, options.Debug)
+	opts := &define.DBOptions{
+		MaxOpenConns:    10,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: time.Minute,
+		ConnMaxIdleTime: 30 * time.Second,
+		Debug:           options.Debug,
+	}
+
+	db, err := gom.Open(options.Driver, options.URL, opts)
 	if err != nil {
 		return nil, fmt.Errorf("连接数据库失败: %v", err)
 	}
@@ -486,3 +494,21 @@ func RegisterModels() []interface{} {
 	}
 }
 `
+
+// Connect connects to the database
+func (g *Generator) Connect() error {
+	opts := &define.DBOptions{
+		MaxOpenConns:    10,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: time.Minute,
+		ConnMaxIdleTime: 30 * time.Second,
+		Debug:           g.options.Debug,
+	}
+
+	db, err := gom.Open(g.options.Driver, g.options.URL, opts)
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %v", err)
+	}
+	g.db = db
+	return nil
+}
