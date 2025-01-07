@@ -49,6 +49,9 @@ type SQLFactory interface {
 	// Connect creates a new database connection
 	Connect(dsn string) (*sql.DB, error)
 
+	// GetType returns the database type (e.g., "mysql", "postgres")
+	GetType() string
+
 	// BuildSelect builds a SELECT query
 	BuildSelect(table string, fields []string, conditions []*Condition, orderBy string, limit, offset int) (string, []interface{})
 

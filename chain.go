@@ -2,10 +2,16 @@ package gom
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -14,6 +20,21 @@ import (
 
 	"github.com/kmlixh/gom/v4/define"
 )
+
+// QueryStats tracks statistics for a single query execution
+type QueryStats struct {
+	SQL          string
+	Duration     time.Duration
+	RowsAffected int64
+	StartTime    time.Time
+	Args         []interface{}
+}
+
+// txStack manages nested transactions using savepoints
+type txStack struct {
+	savepoints []string
+	level      int
+}
 
 // Chain represents the base chain structure
 type Chain struct {
@@ -48,6 +69,77 @@ type Chain struct {
 	fieldMap    map[string]interface{}
 	fieldOrder  []string
 	batchValues []map[string]interface{}
+
+	// Sensitive data handling
+	sensitiveFields map[string]SensitiveOptions
+
+	// Context for transaction
+	ctx context.Context
+
+	// Query performance tracking
+	queryStats *QueryStats
+
+	// Transaction management
+	txStack *txStack
+}
+
+// SensitiveType defines the type of sensitive data
+type SensitiveType int
+
+const (
+	// SensitiveNone indicates no sensitivity
+	SensitiveNone SensitiveType = iota
+	// SensitivePhone for phone numbers
+	SensitivePhone
+	// SensitiveEmail for email addresses
+	SensitiveEmail
+	// SensitiveIDCard for ID card numbers
+	SensitiveIDCard
+	// SensitiveBankCard for bank card numbers
+	SensitiveBankCard
+	// SensitiveAddress for addresses
+	SensitiveAddress
+	// SensitiveEncrypted for encrypted data
+	SensitiveEncrypted
+)
+
+// EncryptionAlgorithm defines the encryption algorithm to use
+type EncryptionAlgorithm string
+
+const (
+	// AES256 uses AES-256 encryption
+	AES256 EncryptionAlgorithm = "AES256"
+	// AES192 uses AES-192 encryption
+	AES192 EncryptionAlgorithm = "AES192"
+	// AES128 uses AES-128 encryption
+	AES128 EncryptionAlgorithm = "AES128"
+)
+
+// KeySource defines where encryption keys are sourced from
+type KeySource string
+
+const (
+	// KeySourceEnv sources keys from environment variables
+	KeySourceEnv KeySource = "env"
+	// KeySourceFile sources keys from files
+	KeySourceFile KeySource = "file"
+	// KeySourceVault sources keys from a key vault
+	KeySourceVault KeySource = "vault"
+)
+
+// EncryptionConfig represents configuration for data encryption
+type EncryptionConfig struct {
+	Algorithm       EncryptionAlgorithm `json:"algorithm"`
+	KeyRotation     time.Duration       `json:"key_rotation"`
+	KeySource       KeySource           `json:"key_source"`
+	KeySourceConfig map[string]string   `json:"key_source_config"`
+}
+
+// SensitiveOptions represents options for sensitive data handling
+type SensitiveOptions struct {
+	Type       SensitiveType
+	Encryption *EncryptionConfig
+	Mask       string
 }
 
 // Table sets the table name for the chain
@@ -457,6 +549,12 @@ func (c *Chain) From(model interface{}) *Chain {
 // List executes a SELECT query and returns all results
 func (c *Chain) List(dest ...interface{}) *QueryResult {
 	result := c.list()
+	if result.err == nil && len(result.Data) > 0 {
+		if err := c.processSensitiveResults(result.Data); err != nil {
+			result.err = err
+			return result
+		}
+	}
 	if len(dest) > 0 && result.err == nil {
 		result.err = result.Into(dest[0])
 	}
@@ -470,6 +568,13 @@ func (c *Chain) list() *QueryResult {
 	if define.Debug {
 		log.Printf("[SQL] %s %v\n", sqlStr, args)
 	}
+
+	c.startQueryStats(sqlStr, args)
+	defer func() {
+		if c.queryStats != nil {
+			c.endQueryStats(0) // For SELECT queries, we don't track rows affected
+		}
+	}()
 
 	var rows *sql.Rows
 	var err error
@@ -488,13 +593,13 @@ func (c *Chain) list() *QueryResult {
 		return &QueryResult{err: err}
 	}
 
-	// 获取列类型信息
+	// Get column types
 	columnTypes, err := rows.ColumnTypes()
 	if err != nil {
 		return &QueryResult{err: err}
 	}
 
-	// 打印列类型信息
+	// Print column type information
 	if define.Debug {
 		log.Printf("Column Types:")
 		for _, ct := range columnTypes {
@@ -519,12 +624,12 @@ func (c *Chain) list() *QueryResult {
 		for i, col := range columns {
 			val := *(values[i].(*interface{}))
 
-			// 打印实际值的类型
+			// Print actual value type
 			if define.Debug {
 				log.Printf("Column %s: value type=%T, value=%v", col, val, val)
 			}
 
-			// 根据列类型进行转换
+			// Handle type conversions based on column type
 			if val != nil {
 				colType := columnTypes[i]
 				dbTypeName := strings.ToUpper(colType.DatabaseTypeName())
@@ -540,7 +645,7 @@ func (c *Chain) list() *QueryResult {
 					}
 				case strings.Contains(dbTypeName, "TINYINT") ||
 					strings.Contains(dbTypeName, "BOOL"):
-					// 转换为 bool
+					// Convert to bool
 					switch v := val.(type) {
 					case []uint8:
 						if string(v) == "1" || strings.ToLower(string(v)) == "true" {
@@ -559,7 +664,7 @@ func (c *Chain) list() *QueryResult {
 					case bool:
 						val = v
 					}
-					// 如果是 sql.NullInt64 或 sql.NullBool，需要特殊处理
+					// Special handling for sql.NullInt64 or sql.NullBool
 					if scanType != nil {
 						switch scanType.String() {
 						case "sql.NullInt64":
@@ -574,7 +679,7 @@ func (c *Chain) list() *QueryResult {
 					}
 				case strings.Contains(dbTypeName, "INT") ||
 					strings.Contains(dbTypeName, "BIGINT"):
-					// 转换为 int64
+					// Convert to int64
 					switch v := val.(type) {
 					case []uint8:
 						val, _ = strconv.ParseInt(string(v), 10, 64)
@@ -586,7 +691,7 @@ func (c *Chain) list() *QueryResult {
 				case strings.Contains(dbTypeName, "FLOAT") ||
 					strings.Contains(dbTypeName, "DOUBLE") ||
 					strings.Contains(dbTypeName, "DECIMAL"):
-					// 转换为 float64
+					// Convert to float64
 					switch v := val.(type) {
 					case []uint8:
 						val, _ = strconv.ParseFloat(string(v), 64)
@@ -594,7 +699,7 @@ func (c *Chain) list() *QueryResult {
 						val = float64(v)
 					}
 				case strings.Contains(dbTypeName, "DATE"):
-					// 转换为 time.Time，只保留日期部分
+					// Convert to time.Time, keep only date part
 					switch v := val.(type) {
 					case []uint8:
 						dateStr := string(v)
@@ -606,15 +711,14 @@ func (c *Chain) list() *QueryResult {
 							val = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
 						}
 					case time.Time:
-						// 对于 MySQL 的 DATE 类型，需要特殊处理时区
+						// Special handling for MySQL DATE type timezone
 						t := v.In(time.Local)
-						// 由于 MySQL 的 DATE 类型不包含时区信息，我们需要确保使用本地时区
 						year, month, day := t.Date()
 						val = time.Date(year, month, day, 0, 0, 0, 0, time.Local)
 					}
 				case strings.Contains(dbTypeName, "TIMESTAMP") ||
 					strings.Contains(dbTypeName, "DATETIME"):
-					// 转换为 time.Time
+					// Convert to time.Time
 					switch v := val.(type) {
 					case []uint8:
 						timeStr := string(v)
@@ -647,26 +751,12 @@ func (c *Chain) list() *QueryResult {
 				}
 			}
 
-			// Convert column name to snake_case if it's in CamelCase
-			if strings.ToLower(col) != col {
-				var result []rune
-				for i, r := range col {
-					if i > 0 && r >= 'A' && r <= 'Z' {
-						result = append(result, '_')
-					}
-					result = append(result, unicode.ToLower(r))
-				}
-				col = string(result)
-			}
 			row[col] = val
 		}
 		result = append(result, row)
 	}
 
-	return &QueryResult{
-		Data:    result,
-		Columns: columns,
-	}
+	return &QueryResult{Data: result}
 }
 
 // First returns the first result
@@ -717,7 +807,14 @@ func (c *Chain) One(dest ...interface{}) *QueryResult {
 
 // Save executes an INSERT or UPDATE query
 func (c *Chain) Save(models ...interface{}) define.Result {
-	// 如果没有提供模型，使用已设置的更新字段
+	// Process sensitive data before saving
+	if c.fieldMap != nil {
+		if err := c.processSensitiveData(c.fieldMap); err != nil {
+			return define.Result{Error: err}
+		}
+	}
+
+	// Call the original Save logic
 	if len(models) == 0 {
 		if len(c.fieldMap) == 0 {
 			return define.Result{Error: fmt.Errorf("no fields to update")}
@@ -731,7 +828,7 @@ func (c *Chain) Save(models ...interface{}) define.Result {
 		}
 	}
 
-	// 处理提供的模型
+	// Process provided models
 	for _, model := range models {
 		if model == nil {
 			continue
@@ -1607,131 +1704,142 @@ func (c *Chain) CreateTable(model interface{}) error {
 
 // Begin starts a new transaction
 func (c *Chain) Begin() (*Chain, error) {
-	if c.tx != nil {
-		return nil, &DBError{
-			Op:      "Begin",
-			Err:     errors.New("transaction already started"),
-			Details: "nested transaction not supported",
-		}
+	return c.BeginChain()
+}
+
+// BeginChain starts a new transaction and returns a Chain
+func (c *Chain) BeginChain() (*Chain, error) {
+	if c.inTransaction {
+		return nil, errors.New("transaction already started")
 	}
 
-	tx, err := c.db.DB.BeginTx(context.Background(), &sql.TxOptions{
-		Isolation: c.isolationLevel,
-	})
+	tx, err := c.db.DB.Begin()
 	if err != nil {
-		return nil, &DBError{
-			Op:      "Begin",
-			Err:     err,
-			Details: "failed to begin transaction",
-		}
+		return nil, err
+	}
+
+	return &Chain{
+		db:             c.db,
+		factory:        c.factory,
+		tx:             tx,
+		originalChain:  c,
+		isolationLevel: c.isolationLevel,
+		inTransaction:  true,
+	}, nil
+}
+
+// Commit commits the current transaction
+func (c *Chain) Commit() error {
+	if !c.inTransaction || c.tx == nil {
+		return errors.New("not in transaction")
+	}
+	return c.tx.Commit()
+}
+
+// Rollback rolls back the current transaction
+func (c *Chain) Rollback() error {
+	if !c.inTransaction || c.tx == nil {
+		return errors.New("not in transaction")
+	}
+	return c.tx.Rollback()
+}
+
+// Count returns the count of records matching the current conditions
+func (c *Chain) Count() (int64, error) {
+	return c.Count2("*")
+}
+
+// Count2 returns the count of records for a specific field
+func (c *Chain) Count2(field string) (int64, error) {
+	countChain := &Chain{
+		db:        c.db,
+		factory:   c.factory,
+		tx:        c.tx,
+		tableName: c.tableName,
+		conds:     c.conds,
+		fieldList: []string{fmt.Sprintf("COUNT(%s) as count", field)},
+	}
+
+	result := countChain.list()
+	if result.err != nil {
+		return 0, result.err
+	}
+
+	if len(result.Data) == 0 {
+		return 0, nil
+	}
+
+	count, ok := result.Data[0]["count"]
+	if !ok {
+		return 0, errors.New("count field not found in result")
+	}
+
+	switch v := count.(type) {
+	case int64:
+		return v, nil
+	case int:
+		return int64(v), nil
+	default:
+		return 0, fmt.Errorf("unexpected count type: %T", v)
+	}
+}
+
+// GroupBy adds GROUP BY clause to the query
+func (c *Chain) GroupBy(fields ...string) *Chain {
+	if len(fields) > 0 {
+		groupByClause := fmt.Sprintf("GROUP BY %s", strings.Join(fields, ", "))
+		c.fieldList = append(c.fieldList, groupByClause)
+	}
+	return c
+}
+
+// Having adds HAVING clause to the query
+func (c *Chain) Having(condition interface{}, args ...interface{}) *Chain {
+	var havingStr string
+	switch v := condition.(type) {
+	case string:
+		havingStr = fmt.Sprintf("HAVING %s", v)
+	case *define.Condition:
+		havingStr = fmt.Sprintf("HAVING %v", v)
+	default:
+		return c
+	}
+
+	havingCond := define.NewCondition(havingStr, define.OpCustom, args)
+	c.conds = append(c.conds, havingCond)
+	return c
+}
+
+// Transaction starts a new transaction with default isolation level
+func (c *Chain) Transaction(fn func(*Chain) error) error {
+	if c.inTransaction {
+		return fn(c)
+	}
+
+	tx, err := c.db.DB.Begin()
+	if err != nil {
+		return err
 	}
 
 	newChain := &Chain{
-		db:            c.db,
-		factory:       c.factory,
-		tx:            tx,
-		originalChain: c,
-		tableName:     c.tableName,
-		conds:         make([]*define.Condition, len(c.conds)),
-		fieldList:     make([]string, len(c.fieldList)),
-		orderByExprs:  make([]define.OrderBy, len(c.orderByExprs)),
-		inTransaction: true,
+		db:             c.db,
+		factory:        c.factory,
+		tx:             tx,
+		originalChain:  c,
+		isolationLevel: c.isolationLevel,
+		inTransaction:  true,
 	}
 
-	copy(newChain.conds, c.conds)
-	copy(newChain.fieldList, c.fieldList)
-	copy(newChain.orderByExprs, c.orderByExprs)
-
-	return newChain, nil
-}
-
-// Commit commits the transaction
-func (c *Chain) Commit() error {
-	if c.tx == nil {
-		return fmt.Errorf("no transaction to commit")
-	}
-	err := c.tx.Commit()
+	err = fn(newChain)
 	if err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			return fmt.Errorf("error rolling back: %v (original error: %v)", rbErr, err)
+		}
 		return err
-	}
-	c.tx = nil
-	c.originalChain = nil
-	return nil
-}
-
-// Rollback rolls back the transaction
-func (c *Chain) Rollback() error {
-	if c.tx == nil {
-		return fmt.Errorf("no transaction to rollback")
-	}
-	err := c.tx.Rollback()
-	if err != nil {
-		return err
-	}
-	c.tx = nil
-	c.originalChain = nil
-	return nil
-}
-
-// Transaction executes the given function within a transaction
-func (c *Chain) Transaction(fn func(*Chain) error) error {
-	if c.tx != nil {
-		return &DBError{
-			Op:      "Transaction",
-			Err:     errors.New("nested transaction not supported"),
-			Details: "transaction already started",
-		}
-	}
-
-	tx, err := c.db.DB.BeginTx(context.Background(), &sql.TxOptions{
-		Isolation: c.isolationLevel,
-	})
-	if err != nil {
-		return &DBError{
-			Op:      "Transaction",
-			Err:     err,
-			Details: "failed to begin transaction",
-		}
-	}
-
-	txChain := &Chain{
-		db:            c.db,
-		factory:       c.factory,
-		tx:            tx,
-		originalChain: c,
-		inTransaction: true,
-		tableName:     c.tableName,
-		conds:         make([]*define.Condition, len(c.conds)),
-		fieldList:     make([]string, len(c.fieldList)),
-		orderByExprs:  make([]define.OrderBy, len(c.orderByExprs)),
-	}
-
-	copy(txChain.conds, c.conds)
-	copy(txChain.fieldList, c.fieldList)
-	copy(txChain.orderByExprs, c.orderByExprs)
-
-	err = fn(txChain)
-	if err != nil {
-		rollbackErr := tx.Rollback()
-		if rollbackErr != nil {
-			return &DBError{
-				Op:      "Transaction",
-				Err:     err,
-				Details: fmt.Sprintf("rollback failed: %v (original error: %v)", rollbackErr, err),
-			}
-		}
-		return &DBError{
-			Op:  "Transaction",
-			Err: err,
-		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return &DBError{
-			Op:      "Transaction",
-			Err:     err,
-			Details: "commit failed",
-		}
+		return err
 	}
 
 	return nil
@@ -1792,16 +1900,16 @@ func (qr *QueryResult) First() *QueryResult {
 // Where2 adds a condition directly
 func (c *Chain) Where2(cond *define.Condition) *Chain {
 	if cond != nil {
-		cond.Join = define.JoinAnd
+		cond.JoinType = define.JoinAnd
 		c.conds = append(c.conds, cond)
 	}
 	return c
 }
 
-// Or adds a condition with OR join type
-func (c *Chain) Or(cond *define.Condition) *Chain {
+// OrCond adds a condition with OR join type
+func (c *Chain) OrCond(cond *define.Condition) *Chain {
 	if cond != nil {
-		cond.Join = define.JoinOr
+		cond.JoinType = define.JoinOr
 		c.conds = append(c.conds, cond)
 	}
 	return c
@@ -1809,98 +1917,21 @@ func (c *Chain) Or(cond *define.Condition) *Chain {
 
 // NewCondition creates a new condition with AND join type
 func (c *Chain) NewCondition() *define.Condition {
-	return &define.Condition{Join: define.JoinAnd}
+	return &define.Condition{JoinType: define.JoinAnd}
 }
 
 // WhereGroup starts a new condition group with AND join type
 func (c *Chain) WhereGroup() *define.Condition {
-	cond := &define.Condition{Join: define.JoinAnd, IsSubGroup: true}
+	cond := &define.Condition{JoinType: define.JoinAnd, IsSubGroup: true}
 	c.conds = append(c.conds, cond)
 	return cond
 }
 
 // OrWhereGroup starts a new condition group with OR join type
 func (c *Chain) OrWhereGroup() *define.Condition {
-	cond := &define.Condition{Join: define.JoinOr, IsSubGroup: true}
+	cond := &define.Condition{JoinType: define.JoinOr, IsSubGroup: true}
 	c.conds = append(c.conds, cond)
 	return cond
-}
-
-// Count returns the count of records
-func (c *Chain) Count() (int64, error) {
-	return c.Count2("*")
-}
-
-// Count2 returns the count of specified field
-func (c *Chain) Count2(field string) (int64, error) {
-	var count int64
-	sqlStr, args := c.factory.BuildSelect(c.tableName, []string{fmt.Sprintf("COUNT(%s) as count", field)}, c.conds, "", 0, 0)
-	if define.Debug {
-		log.Printf("[SQL] %s %v\n", sqlStr, args)
-	}
-	var err error
-	if c.tx != nil {
-		err = c.tx.QueryRow(sqlStr, args...).Scan(&count)
-	} else {
-		err = c.db.DB.QueryRow(sqlStr, args...).Scan(&count)
-	}
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return 0, nil
-		}
-		return 0, err
-	}
-	return count, nil
-}
-
-// Sum calculates the sum of a specific field
-func (c *Chain) Sum(field string) (float64, error) {
-	var sum sql.NullFloat64
-	sqlStr, args := c.factory.BuildSelect(c.tableName, []string{fmt.Sprintf("SUM(%s) as sum_value", field)}, c.conds, "", 0, 0)
-	if define.Debug {
-		log.Printf("[SQL] %s %v\n", sqlStr, args)
-	}
-	var err error
-	if c.tx != nil {
-		err = c.tx.QueryRow(sqlStr, args...).Scan(&sum)
-	} else {
-		err = c.db.DB.QueryRow(sqlStr, args...).Scan(&sum)
-	}
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return 0, nil
-		}
-		return 0, err
-	}
-	if !sum.Valid {
-		return 0, nil
-	}
-	return sum.Float64, nil
-}
-
-// Avg calculates the average of a specific field
-func (c *Chain) Avg(field string) (float64, error) {
-	var avg sql.NullFloat64
-	sqlStr, args := c.factory.BuildSelect(c.tableName, []string{fmt.Sprintf("AVG(%s) as avg_value", field)}, c.conds, "", 0, 0)
-	if define.Debug {
-		log.Printf("[SQL] %s %v\n", sqlStr, args)
-	}
-	var err error
-	if c.tx != nil {
-		err = c.tx.QueryRow(sqlStr, args...).Scan(&avg)
-	} else {
-		err = c.db.DB.QueryRow(sqlStr, args...).Scan(&avg)
-	}
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return 0, nil
-		}
-		return 0, err
-	}
-	if !avg.Valid {
-		return 0, nil
-	}
-	return avg.Float64, nil
 }
 
 // PageInfo represents pagination information
@@ -2148,66 +2179,6 @@ func (c *Chain) extractModelFields(model interface{}) (map[string]interface{}, e
 	return fields, nil
 }
 
-// GroupBy adds a GROUP BY clause
-func (c *Chain) GroupBy(fields ...string) *Chain {
-	if c.fieldList == nil {
-		c.fieldList = make([]string, 0)
-	}
-	groupByClause := fmt.Sprintf("GROUP BY %s", strings.Join(fields, ", "))
-	c.fieldList = append(c.fieldList, groupByClause)
-	return c
-}
-
-// Having adds a HAVING clause
-func (c *Chain) Having(condition interface{}, args ...interface{}) *Chain {
-	if c.fieldList == nil {
-		c.fieldList = make([]string, 0)
-	}
-
-	switch v := condition.(type) {
-	case string:
-		// Raw SQL condition
-		if len(args) > 0 {
-			c.conds = append(c.conds, &define.Condition{
-				Field: "HAVING " + v,
-				Op:    define.OpCustom,
-				Value: args,
-			})
-		} else {
-			c.conds = append(c.conds, &define.Condition{
-				Field: "HAVING " + v,
-				Op:    define.OpCustom,
-			})
-		}
-	case *define.Condition:
-		// Single condition
-		var op string
-		switch v.Op {
-		case define.OpEq:
-			op = "="
-		case define.OpGt:
-			op = ">"
-		case define.OpLt:
-			op = "<"
-		case define.OpNe:
-			op = "!="
-		default:
-			op = "="
-		}
-		havingClause := fmt.Sprintf("HAVING %s %s ?", v.Field, op)
-		c.conds = append(c.conds, &define.Condition{
-			Field: havingClause,
-			Op:    define.OpCustom,
-			Value: []interface{}{v.Value},
-		})
-	default:
-		// Invalid condition type
-		return c
-	}
-
-	return c
-}
-
 // buildOrderBy builds the ORDER BY clause
 func (c *Chain) buildOrderBy() string {
 	if len(c.orderByExprs) == 0 {
@@ -2229,15 +2200,774 @@ func contains(slice []string, value string) bool {
 // clone creates a copy of the chain
 func (c *Chain) clone() *Chain {
 	return &Chain{
-		db:             c.db,
-		tx:             c.tx,
-		tableName:      c.tableName,
-		batchValues:    c.batchValues,
-		isolationLevel: c.isolationLevel,
+		db:              c.db,
+		factory:         c.factory,
+		tx:              c.tx,
+		tableName:       c.tableName,
+		conds:           c.conds,
+		fieldList:       c.fieldList,
+		orderByExprs:    c.orderByExprs,
+		limitCount:      c.limitCount,
+		offsetCount:     c.offsetCount,
+		fieldMap:        c.fieldMap,
+		fieldOrder:      c.fieldOrder,
+		batchValues:     c.batchValues,
+		isolationLevel:  c.isolationLevel,
+		sensitiveFields: c.sensitiveFields,
+		ctx:             c.ctx,
 	}
 }
 
 // Begin starts a new transaction
 func (db *DB) Begin() (*sql.Tx, error) {
 	return db.DB.Begin()
+}
+
+// BeginChain starts a new transaction and returns a Chain
+func (db *DB) BeginChain() (*Chain, error) {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return nil, err
+	}
+
+	return &Chain{
+		db:            db,
+		factory:       db.Factory,
+		tx:            tx,
+		inTransaction: true,
+	}, nil
+}
+
+// BatchUpdate performs batch update operation with the given batch size
+func (c *Chain) BatchUpdate(batchSize int) (int64, error) {
+	if batchSize <= 0 {
+		return 0, &DBError{
+			Op:  "BatchUpdate",
+			Err: fmt.Errorf("invalid batch size (must be greater than 0, got %d)", batchSize),
+		}
+	}
+
+	if len(c.batchValues) == 0 {
+		return 0, &DBError{
+			Op:  "BatchUpdate",
+			Err: errors.New("no values to update"),
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	progress := newProgressTracker(int64(len(c.batchValues)))
+
+	processBatch := func(ctx context.Context, batch []map[string]interface{}) error {
+		tx, err := c.db.Begin()
+		if err != nil {
+			return fmt.Errorf("failed to start transaction: %w", err)
+		}
+		defer tx.Rollback()
+
+		txChain := c.clone()
+		txChain.tx = tx
+
+		for _, item := range batch {
+			// Extract primary key for update condition
+			var pkField, pkValue = "", interface{}(nil)
+			for k, v := range item {
+				if strings.HasSuffix(strings.ToLower(k), "id") {
+					pkField = k
+					pkValue = v
+					break
+				}
+			}
+
+			if pkField == "" {
+				return fmt.Errorf("primary key field not found in update data")
+			}
+
+			// Create update chain
+			updateChain := txChain.clone()
+			updateChain.Where(pkField, define.OpEq, pkValue)
+			updateChain.fieldMap = item
+
+			result := updateChain.executeUpdate()
+			if result.Error != nil {
+				return result.Error
+			}
+
+			progress.increment(result.Affected)
+		}
+
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit transaction: %w", err)
+		}
+
+		return nil
+	}
+
+	err := processBatchesWithTimeout(
+		ctx,
+		c.batchValues,
+		batchSize,
+		4, // Use 4 concurrent goroutines
+		30*time.Second,
+		processBatch,
+	)
+
+	if err != nil {
+		return 0, &DBError{
+			Op:  "BatchUpdate",
+			Err: err,
+		}
+	}
+
+	processed, _ := progress.getProgress()
+	return processed, nil
+}
+
+// BatchDelete performs batch delete operation with the given batch size
+func (c *Chain) BatchDelete(batchSize int) (int64, error) {
+	if batchSize <= 0 {
+		return 0, &DBError{
+			Op:  "BatchDelete",
+			Err: fmt.Errorf("invalid batch size (must be greater than 0, got %d)", batchSize),
+		}
+	}
+
+	if len(c.batchValues) == 0 {
+		return 0, &DBError{
+			Op:  "BatchDelete",
+			Err: errors.New("no values to delete"),
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	progress := newProgressTracker(int64(len(c.batchValues)))
+
+	processBatch := func(ctx context.Context, batch []map[string]interface{}) error {
+		tx, err := c.db.Begin()
+		if err != nil {
+			return fmt.Errorf("failed to start transaction: %w", err)
+		}
+		defer tx.Rollback()
+
+		txChain := c.clone()
+		txChain.tx = tx
+
+		for _, item := range batch {
+			// Extract primary key for delete condition
+			var pkField, pkValue = "", interface{}(nil)
+			for k, v := range item {
+				if strings.HasSuffix(strings.ToLower(k), "id") {
+					pkField = k
+					pkValue = v
+					break
+				}
+			}
+
+			if pkField == "" {
+				return fmt.Errorf("primary key field not found in delete data")
+			}
+
+			// Create delete chain
+			deleteChain := txChain.clone()
+			deleteChain.Where(pkField, define.OpEq, pkValue)
+
+			sql, args := deleteChain.factory.BuildDelete(deleteChain.tableName, deleteChain.conds)
+			if define.Debug {
+				log.Printf("[SQL] %s %v", sql, args)
+			}
+
+			result, err := tx.Exec(sql, args...)
+			if err != nil {
+				return err
+			}
+
+			affected, err := result.RowsAffected()
+			if err != nil {
+				return err
+			}
+
+			progress.increment(affected)
+		}
+
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit transaction: %w", err)
+		}
+
+		return nil
+	}
+
+	err := processBatchesWithTimeout(
+		ctx,
+		c.batchValues,
+		batchSize,
+		4, // Use 4 concurrent goroutines
+		30*time.Second,
+		processBatch,
+	)
+
+	if err != nil {
+		return 0, &DBError{
+			Op:  "BatchDelete",
+			Err: err,
+		}
+	}
+
+	processed, _ := progress.getProgress()
+	return processed, nil
+}
+
+// TransactionOptions represents options for transaction
+type TransactionOptions struct {
+	Timeout         time.Duration
+	IsolationLevel  sql.IsolationLevel
+	PropagationMode TransactionPropagation
+	ReadOnly        bool
+}
+
+// TransactionPropagation defines transaction propagation behavior
+type TransactionPropagation int
+
+const (
+	// PropagationRequired starts a new transaction if none exists
+	PropagationRequired TransactionPropagation = iota
+	// PropagationRequiresNew always starts a new transaction
+	PropagationRequiresNew
+	// PropagationNested starts a nested transaction if possible
+	PropagationNested
+	// PropagationSupports uses existing transaction if available
+	PropagationSupports
+	// PropagationNotSupported suspends current transaction if exists
+	PropagationNotSupported
+	// PropagationNever throws exception if transaction exists
+	PropagationNever
+	// PropagationMandatory throws exception if no transaction exists
+	PropagationMandatory
+)
+
+// TransactionWithOptions starts a new transaction with options
+func (c *Chain) TransactionWithOptions(opts define.TransactionOptions, fn func(tx *Chain) error) error {
+	// Handle propagation behavior
+	switch opts.PropagationMode {
+	case define.PropagationRequired:
+		if c.inTransaction {
+			return fn(c)
+		}
+	case define.PropagationRequiresNew:
+		// Always start new transaction, but first suspend current transaction if it exists
+		if c.inTransaction {
+			// Create a new chain without transaction
+			newChain := c.clone()
+			newChain.tx = nil
+			newChain.inTransaction = false
+			return newChain.TransactionWithOptions(opts, fn)
+		}
+	case define.PropagationNever:
+		if c.inTransaction || c.tx != nil {
+			return &DBError{
+				Op:  "TransactionWithOptions",
+				Err: errors.New("transaction already exists for propagation never"),
+			}
+		}
+		return fn(c)
+	case define.PropagationNested:
+		if c.inTransaction {
+			// Create savepoint
+			savepointName := fmt.Sprintf("sp_%d", time.Now().UnixNano())
+			if err := c.Savepoint(savepointName); err != nil {
+				return err
+			}
+			defer c.ReleaseSavepoint(savepointName)
+
+			err := fn(c)
+			if err != nil {
+				if rbErr := c.RollbackTo(savepointName); rbErr != nil {
+					return fmt.Errorf("error rolling back to savepoint: %v (original error: %v)", rbErr, err)
+				}
+				return err
+			}
+			return nil
+		}
+	case define.PropagationSupports:
+		if c.inTransaction {
+			return fn(c)
+		}
+		return fn(c)
+	case define.PropagationNotSupported:
+		if c.inTransaction {
+			// Execute non-transactionally
+			newChain := c.clone()
+			newChain.tx = nil
+			newChain.inTransaction = false
+			return fn(newChain)
+		}
+		return fn(c)
+	case define.PropagationMandatory:
+		if !c.inTransaction {
+			return &DBError{
+				Op:  "TransactionWithOptions",
+				Err: errors.New("no existing transaction for propagation mandatory"),
+			}
+		}
+		return fn(c)
+	}
+
+	// Start new transaction with timeout
+	ctx := context.Background()
+	var cancel context.CancelFunc
+	if opts.Timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, opts.Timeout)
+		defer cancel()
+	}
+
+	// Begin transaction
+	tx, err := c.db.DB.BeginTx(ctx, &sql.TxOptions{
+		Isolation: sql.IsolationLevel(opts.IsolationLevel),
+		ReadOnly:  opts.ReadOnly,
+	})
+	if err != nil {
+		return &DBError{
+			Op:  "TransactionWithOptions",
+			Err: fmt.Errorf("failed to begin transaction: %w", err),
+		}
+	}
+
+	newChain := &Chain{
+		db:             c.db,
+		factory:        c.factory,
+		tx:             tx,
+		originalChain:  c,
+		isolationLevel: sql.IsolationLevel(opts.IsolationLevel),
+		inTransaction:  true,
+		ctx:            ctx,
+	}
+
+	err = fn(newChain)
+	if err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			return fmt.Errorf("error rolling back: %v (original error: %v)", rbErr, err)
+		}
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return &DBError{
+			Op:  "TransactionWithOptions",
+			Err: fmt.Errorf("failed to commit transaction: %w", err),
+		}
+	}
+
+	return nil
+}
+
+// AddSensitiveField adds a sensitive field to the chain
+func (c *Chain) AddSensitiveField(field string, options SensitiveOptions) *Chain {
+	if c.sensitiveFields == nil {
+		c.sensitiveFields = make(map[string]SensitiveOptions)
+	}
+	c.sensitiveFields[field] = options
+	return c
+}
+
+// maskValue masks a sensitive value based on its type
+func maskValue(value string, typ SensitiveType) string {
+	switch typ {
+	case SensitivePhone:
+		if len(value) > 7 {
+			return value[:3] + "****" + value[len(value)-4:]
+		}
+	case SensitiveEmail:
+		parts := strings.Split(value, "@")
+		if len(parts) == 2 {
+			username := parts[0]
+			if len(username) > 2 {
+				return username[:2] + "****" + "@" + parts[1]
+			}
+		}
+	case SensitiveIDCard:
+		if len(value) > 10 {
+			return value[:6] + "********" + value[len(value)-4:]
+		}
+	case SensitiveBankCard:
+		if len(value) > 8 {
+			return value[:4] + "********" + value[len(value)-4:]
+		}
+	case SensitiveAddress:
+		parts := strings.Split(value, " ")
+		if len(parts) > 2 {
+			return parts[0] + " ****"
+		}
+	}
+	return value
+}
+
+// processSensitiveData processes sensitive data before saving
+func (c *Chain) processSensitiveData(data map[string]interface{}) error {
+	for field, value := range data {
+		if options, ok := c.sensitiveFields[field]; ok {
+			strValue, ok := value.(string)
+			if !ok {
+				continue
+			}
+
+			switch options.Type {
+			case SensitiveEncrypted:
+				if len(options.Encryption.KeySourceConfig["key_name"]) == 0 {
+					return fmt.Errorf("encryption key not provided for field %s", field)
+				}
+				encrypted, err := encryptValue(strValue, options.Encryption)
+				if err != nil {
+					return fmt.Errorf("failed to encrypt field %s: %v", field, err)
+				}
+				data[field] = encrypted
+			default:
+				data[field] = maskValue(strValue, options.Type)
+			}
+		}
+	}
+	return nil
+}
+
+// processSensitiveResults processes sensitive data after querying
+func (c *Chain) processSensitiveResults(results []map[string]interface{}) error {
+	for _, row := range results {
+		for field, value := range row {
+			if options, ok := c.sensitiveFields[field]; ok {
+				strValue, ok := value.(string)
+				if !ok {
+					continue
+				}
+
+				if options.Type == SensitiveEncrypted {
+					if len(options.Encryption.KeySourceConfig["key_name"]) == 0 {
+						return fmt.Errorf("encryption key not provided for field %s", field)
+					}
+					decrypted, err := decryptValue(strValue, options.Encryption)
+					if err != nil {
+						return fmt.Errorf("failed to decrypt field %s: %v", field, err)
+					}
+					row[field] = decrypted
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// encryptValue encrypts a value using the specified configuration
+func encryptValue(value string, config *EncryptionConfig) (string, error) {
+	if config == nil {
+		return "", newDBError(ErrConfiguration, "encryptValue", nil, "encryption configuration is required")
+	}
+
+	key, err := getEncryptionKey(config)
+	if err != nil {
+		return "", newDBError(ErrConfiguration, "encryptValue", err, "failed to get encryption key")
+	}
+
+	var block cipher.Block
+	switch config.Algorithm {
+	case AES256:
+		if len(key) != 32 {
+			return "", newDBError(ErrConfiguration, "encryptValue", nil, "AES-256 requires a 32-byte key")
+		}
+		block, err = aes.NewCipher(key)
+	case AES192:
+		if len(key) != 24 {
+			return "", newDBError(ErrConfiguration, "encryptValue", nil, "AES-192 requires a 24-byte key")
+		}
+		block, err = aes.NewCipher(key)
+	case AES128:
+		if len(key) != 16 {
+			return "", newDBError(ErrConfiguration, "encryptValue", nil, "AES-128 requires a 16-byte key")
+		}
+		block, err = aes.NewCipher(key)
+	default:
+		return "", newDBError(ErrConfiguration, "encryptValue", nil, "unsupported encryption algorithm")
+	}
+
+	if err != nil {
+		return "", newDBError(ErrConfiguration, "encryptValue", err, "failed to create cipher")
+	}
+
+	// Create GCM mode
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", newDBError(ErrConfiguration, "encryptValue", err, "failed to create GCM")
+	}
+
+	// Create nonce
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", newDBError(ErrConfiguration, "encryptValue", err, "failed to generate nonce")
+	}
+
+	// Encrypt and combine nonce with ciphertext
+	ciphertext := gcm.Seal(nonce, nonce, []byte(value), nil)
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+// decryptValue decrypts a value using the specified configuration
+func decryptValue(encryptedValue string, config *EncryptionConfig) (string, error) {
+	if config == nil {
+		return "", newDBError(ErrConfiguration, "decryptValue", nil, "encryption configuration is required")
+	}
+
+	key, err := getEncryptionKey(config)
+	if err != nil {
+		return "", newDBError(ErrConfiguration, "decryptValue", err, "failed to get encryption key")
+	}
+
+	var block cipher.Block
+	switch config.Algorithm {
+	case AES256, AES192, AES128:
+		block, err = aes.NewCipher(key)
+	default:
+		return "", newDBError(ErrConfiguration, "decryptValue", nil, "unsupported encryption algorithm")
+	}
+
+	if err != nil {
+		return "", newDBError(ErrConfiguration, "decryptValue", err, "failed to create cipher")
+	}
+
+	// Create GCM mode
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", newDBError(ErrConfiguration, "decryptValue", err, "failed to create GCM")
+	}
+
+	// Decode base64
+	ciphertext, err := base64.StdEncoding.DecodeString(encryptedValue)
+	if err != nil {
+		return "", newDBError(ErrConfiguration, "decryptValue", err, "failed to decode base64")
+	}
+
+	// Extract nonce and decrypt
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return "", newDBError(ErrConfiguration, "decryptValue", nil, "ciphertext too short")
+	}
+
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", newDBError(ErrConfiguration, "decryptValue", err, "failed to decrypt")
+	}
+
+	return string(plaintext), nil
+}
+
+// getEncryptionKey retrieves the encryption key from the configured source
+func getEncryptionKey(config *EncryptionConfig) ([]byte, error) {
+	switch config.KeySource {
+	case KeySourceEnv:
+		keyName := config.KeySourceConfig["key_name"]
+		if keyName == "" {
+			return nil, newDBError(ErrConfiguration, "getEncryptionKey", nil, "key_name not specified for env source")
+		}
+		key := os.Getenv(keyName)
+		if key == "" {
+			return nil, newDBError(ErrConfiguration, "getEncryptionKey", nil, "encryption key not found in environment")
+		}
+		return base64.StdEncoding.DecodeString(key)
+
+	case KeySourceFile:
+		keyPath := config.KeySourceConfig["key_path"]
+		if keyPath == "" {
+			return nil, newDBError(ErrConfiguration, "getEncryptionKey", nil, "key_path not specified for file source")
+		}
+		return os.ReadFile(keyPath)
+
+	case KeySourceVault:
+		// Implementation for key vault would go here
+		return nil, newDBError(ErrConfiguration, "getEncryptionKey", nil, "vault key source not implemented")
+
+	default:
+		return nil, newDBError(ErrConfiguration, "getEncryptionKey", nil, "unsupported key source")
+	}
+}
+
+// GetLastQueryStats returns the statistics of the last executed query
+func (c *Chain) GetLastQueryStats() *QueryStats {
+	return c.queryStats
+}
+
+// startQueryStats begins tracking query execution
+func (c *Chain) startQueryStats(sql string, args []interface{}) {
+	c.queryStats = &QueryStats{
+		SQL:       sql,
+		Args:      args,
+		StartTime: time.Now(),
+	}
+}
+
+// endQueryStats finalizes the tracking of query execution
+func (c *Chain) endQueryStats(rowsAffected int64) {
+	if c.queryStats != nil {
+		c.queryStats.Duration = time.Since(c.queryStats.StartTime)
+		c.queryStats.RowsAffected = rowsAffected
+		if define.Debug {
+			log.Printf("[QueryStats] SQL: %s, Duration: %v, RowsAffected: %d",
+				c.queryStats.SQL, c.queryStats.Duration, c.queryStats.RowsAffected)
+		}
+	}
+}
+
+// BeginNested starts a new nested transaction
+func (c *Chain) BeginNested() (*Chain, error) {
+	if c.txStack == nil {
+		c.txStack = &txStack{
+			savepoints: make([]string, 0),
+			level:      0,
+		}
+	}
+
+	// If not in a transaction, start a new one
+	if !c.inTransaction {
+		chain, err := c.Begin()
+		if err != nil {
+			return nil, newDBError(ErrTransaction, "BeginNested", err, "failed to start initial transaction")
+		}
+		return chain, nil
+	}
+
+	// Create a new savepoint
+	c.txStack.level++
+	savepointName := fmt.Sprintf("sp_%d", c.txStack.level)
+	err := c.Savepoint(savepointName)
+	if err != nil {
+		c.txStack.level--
+		return nil, newDBError(ErrTransaction, "BeginNested", err, "failed to create savepoint")
+	}
+
+	c.txStack.savepoints = append(c.txStack.savepoints, savepointName)
+
+	// Create a new chain for this nested transaction
+	newChain := c.clone()
+	newChain.txStack = c.txStack
+	return newChain, nil
+}
+
+// CommitNested commits the current nested transaction
+func (c *Chain) CommitNested() error {
+	if c.txStack == nil || len(c.txStack.savepoints) == 0 {
+		return c.Commit()
+	}
+
+	// Release the current savepoint
+	savepointName := c.txStack.savepoints[len(c.txStack.savepoints)-1]
+	err := c.ReleaseSavepoint(savepointName)
+	if err != nil {
+		return newDBError(ErrTransaction, "CommitNested", err, "failed to release savepoint")
+	}
+
+	// Pop the savepoint
+	c.txStack.savepoints = c.txStack.savepoints[:len(c.txStack.savepoints)-1]
+	c.txStack.level--
+
+	// If this was the last nested transaction, commit the main transaction
+	if len(c.txStack.savepoints) == 0 {
+		return c.Commit()
+	}
+
+	return nil
+}
+
+// RollbackNested rolls back to the last savepoint
+func (c *Chain) RollbackNested() error {
+	if c.txStack == nil || len(c.txStack.savepoints) == 0 {
+		return c.Rollback()
+	}
+
+	// Rollback to the current savepoint
+	savepointName := c.txStack.savepoints[len(c.txStack.savepoints)-1]
+	err := c.RollbackTo(savepointName)
+	if err != nil {
+		return newDBError(ErrTransaction, "RollbackNested", err, "failed to rollback to savepoint")
+	}
+
+	// Pop the savepoint
+	c.txStack.savepoints = c.txStack.savepoints[:len(c.txStack.savepoints)-1]
+	c.txStack.level--
+
+	// If this was the last nested transaction, rollback the main transaction
+	if len(c.txStack.savepoints) == 0 {
+		return c.Rollback()
+	}
+
+	return nil
+}
+
+// GetTransactionLevel returns the current transaction nesting level
+func (c *Chain) GetTransactionLevel() int {
+	if c.txStack == nil {
+		return 0
+	}
+	return c.txStack.level
+}
+
+// And adds a condition with AND join
+func (c *Chain) And(field string, op define.OpType, value interface{}) *Chain {
+	cond := &define.Condition{
+		Field:    field,
+		Op:       op,
+		Value:    value,
+		JoinType: define.JoinAnd,
+	}
+	c.conds = append(c.conds, cond)
+	return c
+}
+
+// Or adds a condition with OR join
+func (c *Chain) Or(field string, op define.OpType, value interface{}) *Chain {
+	cond := &define.Condition{
+		Field:    field,
+		Op:       op,
+		Value:    value,
+		JoinType: define.JoinOr,
+	}
+	c.conds = append(c.conds, cond)
+	return c
+}
+
+// AndGroup adds a group of conditions with AND join
+func (c *Chain) AndGroup(conditions []*define.Condition) *Chain {
+	if len(conditions) == 0 {
+		return c
+	}
+	cond := &define.Condition{
+		IsSubGroup: true,
+		SubConds:   conditions,
+		JoinType:   define.JoinAnd,
+	}
+	c.conds = append(c.conds, cond)
+	return c
+}
+
+// OrGroup adds a group of conditions with OR join
+func (c *Chain) OrGroup(conditions []*define.Condition) *Chain {
+	if len(conditions) == 0 {
+		return c
+	}
+	cond := &define.Condition{
+		IsSubGroup: true,
+		SubConds:   conditions,
+		JoinType:   define.JoinOr,
+	}
+	c.conds = append(c.conds, cond)
+	return c
+}
+
+// OrWhere adds a condition with OR join
+func (c *Chain) OrWhere(field string, op define.OpType, value interface{}) *Chain {
+	cond := &define.Condition{
+		Field:    field,
+		Op:       op,
+		Value:    value,
+		JoinType: define.JoinOr,
+	}
+	c.conds = append(c.conds, cond)
+	return c
 }

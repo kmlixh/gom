@@ -5,44 +5,18 @@ import (
 	"reflect"
 )
 
-// OpType represents the type of condition operator
-type OpType int
-
-// JoinType represents how conditions are joined
-type JoinType int
-
-const (
-	JoinAnd JoinType = iota // AND connection
-	JoinOr                  // OR connection
-)
-
-const (
-	OpEq         OpType = iota // Equal
-	OpNe                       // Not Equal
-	OpGt                       // Greater Than
-	OpGe                       // Greater Than or Equal
-	OpLt                       // Less Than
-	OpLe                       // Less Than or Equal
-	OpLike                     // LIKE
-	OpNotLike                  // NOT LIKE
-	OpIn                       // IN
-	OpNotIn                    // NOT IN
-	OpIsNull                   // IS NULL
-	OpIsNotNull                // IS NOT NULL
-	OpBetween                  // BETWEEN
-	OpNotBetween               // NOT BETWEEN
-	OpCustom                   // Custom operator for special cases
-)
-
-// Condition represents a where condition
+// Condition represents a WHERE condition
 type Condition struct {
-	Field      string       // Field name
-	Op         OpType       // Operator type
-	Value      interface{}  // Value to compare against
-	Join       JoinType     // How this condition joins with others (AND/OR)
+	Field      string
+	Op         OpType
+	Value      interface{}
+	JoinType   JoinType
 	SubConds   []*Condition // Sub-conditions for nested queries
 	IsSubGroup bool         // Whether this is a sub-group of conditions
 }
+
+// Conditions represents a slice of Condition
+type Conditions []Condition
 
 // NewCondition creates a new condition
 func NewCondition(field string, op OpType, value interface{}) *Condition {
@@ -55,7 +29,7 @@ func NewCondition(field string, op OpType, value interface{}) *Condition {
 
 // And adds a condition with AND join
 func (c *Condition) And(cond *Condition) *Condition {
-	cond.Join = JoinAnd
+	cond.JoinType = JoinAnd
 	if c.SubConds == nil {
 		c.SubConds = make([]*Condition, 0)
 	}
@@ -69,7 +43,7 @@ func (c *Condition) Or(cond *Condition) *Condition {
 		log.Printf("Warning: nil condition passed to Or() method")
 		return c
 	}
-	cond.Join = JoinOr
+	cond.JoinType = JoinOr
 	if c.SubConds == nil {
 		c.SubConds = make([]*Condition, 0)
 	}

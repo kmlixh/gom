@@ -233,12 +233,13 @@ func TestFactoryGetTables(t *testing.T) {
 	assert.Contains(t, tables, "test_table2")
 
 	// Clean up
-	_, err = db.Exec(`
-		DROP TABLE IF EXISTS test_table1;
-		DROP TABLE IF EXISTS test_table2;
-	`)
+	_, err = db.Exec("DROP TABLE IF EXISTS test_table1")
 	if err != nil {
-		t.Log("Warning: Failed to clean up test tables:", err)
+		t.Log("Warning: Failed to clean up test_table1:", err)
+	}
+	_, err = db.Exec("DROP TABLE IF EXISTS test_table2")
+	if err != nil {
+		t.Log("Warning: Failed to clean up test_table2:", err)
 	}
 }
 

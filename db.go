@@ -15,20 +15,48 @@ import (
 	"unicode"
 
 	"github.com/kmlixh/gom/v4/define"
+	"github.com/kmlixh/gom/v4/factory/mysql"
+	"github.com/kmlixh/gom/v4/factory/postgres"
 )
 
-// DBError represents a database operation error
+// DBErrorType represents specific types of database errors
+type DBErrorType int
+
+const (
+	ErrConnection DBErrorType = iota
+	ErrQuery
+	ErrTransaction
+	ErrValidation
+	ErrConfiguration
+)
+
+// DBError represents a database operation error with enhanced context
 type DBError struct {
+	Type    DBErrorType
 	Op      string
 	Err     error
 	Details string
+	Query   string // Optional, for debugging (only set in debug mode)
 }
 
 func (e *DBError) Error() string {
+	if e.Query != "" && define.Debug {
+		return fmt.Sprintf("%s: %v (%s) [Query: %s]", e.Op, e.Err, e.Details, e.Query)
+	}
 	if e.Details != "" {
 		return fmt.Sprintf("%s: %v (%s)", e.Op, e.Err, e.Details)
 	}
 	return fmt.Sprintf("%s: %v", e.Op, e.Err)
+}
+
+// newDBError creates a new DBError with the given parameters
+func newDBError(errType DBErrorType, op string, err error, details string) *DBError {
+	return &DBError{
+		Type:    errType,
+		Op:      op,
+		Err:     err,
+		Details: details,
+	}
 }
 
 // GenerateOptions 代码生成选项
@@ -40,6 +68,16 @@ type GenerateOptions struct {
 
 var routineIDCounter int64
 
+// DBMetrics tracks database connection pool statistics
+type DBMetrics struct {
+	OpenConnections   int64         // Current number of open connections
+	InUseConnections  int64         // Current number of connections in use
+	IdleConnections   int64         // Current number of idle connections
+	WaitCount         int64         // Total number of connections waited for
+	WaitDuration      time.Duration // Total time waited for connections
+	MaxIdleTimeClosed int64         // Number of connections closed due to max idle time
+}
+
 // DB represents the database connection
 type DB struct {
 	sync.RWMutex
@@ -47,6 +85,7 @@ type DB struct {
 	Factory   define.SQLFactory
 	RoutineID int64
 	options   define.DBOptions
+	metrics   *DBMetrics
 }
 
 // cloneSelfIfDifferentGoRoutine ensures thread safety by cloning DB instance if needed
@@ -82,6 +121,19 @@ func (db *DB) Close() error {
 	return db.DB.Close()
 }
 
+// GetMetrics returns the current database metrics
+func (db *DB) GetMetrics() DBMetrics {
+	stats := db.DB.Stats()
+	return DBMetrics{
+		OpenConnections:   int64(stats.OpenConnections),
+		InUseConnections:  int64(stats.InUse),
+		IdleConnections:   int64(stats.Idle),
+		WaitCount:         stats.WaitCount,
+		WaitDuration:      stats.WaitDuration,
+		MaxIdleTimeClosed: stats.MaxIdleClosed,
+	}
+}
+
 // optimizeConnectionPool configures the database connection pool
 func (db *DB) optimizeConnectionPool(opts define.DBOptions) {
 	db.DB.SetMaxOpenConns(opts.MaxOpenConns)
@@ -89,6 +141,30 @@ func (db *DB) optimizeConnectionPool(opts define.DBOptions) {
 	db.DB.SetConnMaxLifetime(opts.ConnMaxLifetime)
 	db.DB.SetConnMaxIdleTime(opts.ConnMaxIdleTime)
 	db.options = opts
+
+	// Initialize metrics
+	db.metrics = &DBMetrics{}
+
+	// Start metrics collection if debug mode is enabled
+	if opts.Debug {
+		go db.collectMetrics()
+	}
+}
+
+// collectMetrics periodically updates connection pool metrics
+func (db *DB) collectMetrics() {
+	ticker := time.NewTicker(time.Second * 5)
+	for range ticker.C {
+		stats := db.DB.Stats()
+		db.metrics = &DBMetrics{
+			OpenConnections:   int64(stats.OpenConnections),
+			InUseConnections:  int64(stats.InUse),
+			IdleConnections:   int64(stats.Idle),
+			WaitCount:         stats.WaitCount,
+			WaitDuration:      stats.WaitDuration,
+			MaxIdleTimeClosed: stats.MaxIdleClosed,
+		}
+	}
 }
 
 // Open creates a new DB connection with options
@@ -164,9 +240,78 @@ func (db *DB) GetTableInfo(tableName string) (*define.TableInfo, error) {
 	return db.Factory.GetTableInfo(db.DB, tableName)
 }
 
-// GetTables 获取符合模式的所有表
+// GetTables returns a list of table names in the database
 func (db *DB) GetTables(pattern string) ([]string, error) {
-	return db.Factory.GetTables(db.DB, pattern)
+	var tables []string
+
+	// For MySQL
+	if _, ok := db.Factory.(*mysql.Factory); ok {
+		// Convert pattern to SQL LIKE pattern
+		if pattern == "*" || pattern == "" {
+			pattern = "%"
+		} else {
+			// Convert glob pattern to SQL LIKE pattern
+			pattern = strings.ReplaceAll(pattern, "*", "%")
+		}
+
+		// Use INFORMATION_SCHEMA to get table names
+		query := `
+			SELECT TABLE_NAME 
+			FROM INFORMATION_SCHEMA.TABLES 
+			WHERE TABLE_SCHEMA = DATABASE() 
+			AND TABLE_NAME LIKE ?
+		`
+		rows, err := db.DB.Query(query, pattern)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var table string
+			if err := rows.Scan(&table); err != nil {
+				return nil, err
+			}
+			tables = append(tables, table)
+		}
+		return tables, rows.Err()
+	}
+
+	// For PostgreSQL
+	if _, ok := db.Factory.(*postgres.Factory); ok {
+		// Convert pattern to SQL LIKE pattern
+		if pattern == "*" || pattern == "" {
+			pattern = "%"
+		} else {
+			// Convert glob pattern to SQL LIKE pattern
+			pattern = strings.ReplaceAll(pattern, "*", "%")
+		}
+
+		query := `
+			SELECT schemaname || '.' || tablename
+			FROM pg_catalog.pg_tables
+			WHERE tablename LIKE $1
+			AND schemaname NOT IN ('pg_catalog', 'information_schema')
+			ORDER BY schemaname, tablename
+		`
+
+		rows, err := db.DB.Query(query, pattern)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var table string
+			if err := rows.Scan(&table); err != nil {
+				return nil, err
+			}
+			tables = append(tables, table)
+		}
+		return tables, rows.Err()
+	}
+
+	return nil, fmt.Errorf("unsupported database driver")
 }
 
 // GenerateStruct 生成单个表的结构体代码
@@ -378,4 +523,9 @@ func toSnakeCase(s string) string {
 		result = append(result, unicode.ToLower(r))
 	}
 	return string(result)
+}
+
+// GetDB returns the underlying sql.DB object
+func (db *DB) GetDB() *sql.DB {
+	return db.DB
 }

@@ -11,8 +11,13 @@ import (
 	"github.com/kmlixh/gom/v4/define"
 )
 
-// Factory implements the SQLFactory interface for MySQL
+// Factory represents a MySQL query builder
 type Factory struct{}
+
+// GetType returns the database type
+func (f *Factory) GetType() string {
+	return "mysql"
+}
 
 func init() {
 	RegisterFactory()
@@ -146,7 +151,7 @@ func (f *Factory) buildCondition(cond *define.Condition) (string, []interface{})
 			}
 			subStr, subArgs := f.buildCondition(subCond)
 			if subStr != "" {
-				if subCond.Join == define.JoinOr {
+				if subCond.JoinType == define.JoinOr {
 					hasOr = true
 					subConditions = append(subConditions, "OR", subStr)
 				} else {
@@ -210,7 +215,7 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 					continue
 				}
 				if len(whereConditions) > 0 {
-					if cond.Join == define.JoinOr {
+					if cond.JoinType == define.JoinOr {
 						hasOr = true
 						whereConditions = append(whereConditions, "OR", condStr)
 					} else {
@@ -319,7 +324,7 @@ func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, field
 			condStr, condArgs := f.buildCondition(cond)
 			if condStr != "" {
 				if i > 0 {
-					if cond.Join == define.JoinOr {
+					if cond.JoinType == define.JoinOr {
 						condStrings = append(condStrings, "OR")
 					} else {
 						condStrings = append(condStrings, "AND")
@@ -421,7 +426,7 @@ func (f *Factory) BuildDelete(table string, conditions []*define.Condition) (str
 		for i, cond := range conditions {
 			condStr, condArgs := f.buildCondition(cond)
 			if condStr != "" {
-				if cond.Join == define.JoinOr && i > 0 {
+				if cond.JoinType == define.JoinOr && i > 0 {
 					condStrings = append(condStrings, "OR", condStr)
 				} else if i > 0 {
 					condStrings = append(condStrings, "AND", condStr)
@@ -647,46 +652,26 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 
 // GetTables 获取符合模式的所有表
 func (f *Factory) GetTables(db *sql.DB, pattern string) ([]string, error) {
-	var tables []string
-	var query string
-
-	if pattern == "*" {
-		// 查询所有表
-		query = `SELECT TABLE_NAME 
-				FROM INFORMATION_SCHEMA.TABLES 
-				WHERE TABLE_SCHEMA = DATABASE()
-				ORDER BY TABLE_NAME`
-	} else {
-		// 将 * 转换为 SQL LIKE 模式
-		pattern = strings.ReplaceAll(pattern, "*", "%")
-		query = `SELECT TABLE_NAME 
-				FROM INFORMATION_SCHEMA.TABLES 
-				WHERE TABLE_SCHEMA = DATABASE()
-				AND TABLE_NAME LIKE ?
-				ORDER BY TABLE_NAME`
+	if pattern == "" {
+		pattern = "%"
 	}
-
-	var rows *sql.Rows
-	var err error
-	if pattern == "*" {
-		rows, err = db.Query(query)
-	} else {
-		rows, err = db.Query(query, pattern)
-	}
+	rows, err := db.Query("SHOW TABLES")
 	if err != nil {
-		return nil, fmt.Errorf("查询表列表失败: %v", err)
+		return nil, err
 	}
 	defer rows.Close()
 
+	var tables []string
 	for rows.Next() {
 		var tableName string
 		if err := rows.Scan(&tableName); err != nil {
-			return nil, fmt.Errorf("扫描表名失败: %v", err)
+			return nil, err
 		}
-		tables = append(tables, tableName)
+		if strings.Contains(tableName, strings.ReplaceAll(pattern, "%", "")) {
+			tables = append(tables, tableName)
+		}
 	}
-
-	return tables, nil
+	return tables, rows.Err()
 }
 
 // BuildOrderBy builds the ORDER BY clause for MySQL

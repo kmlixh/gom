@@ -12,8 +12,13 @@ import (
 	"github.com/kmlixh/gom/v4/define"
 )
 
-// Factory implements the SQLFactory interface for PostgreSQL
+// Factory represents a PostgreSQL query builder
 type Factory struct{}
+
+// GetType returns the database type
+func (f *Factory) GetType() string {
+	return "postgres"
+}
 
 func init() {
 	RegisterFactory()
@@ -97,7 +102,7 @@ func (f *Factory) buildCondition(cond *define.Condition, startParamIndex int) (s
 			subStr, subArg := f.buildCondition(subCond, currentParamIndex)
 			if subStr != "" {
 				if len(condStrs) > 0 {
-					if subCond.Join == define.JoinOr {
+					if subCond.JoinType == define.JoinOr {
 						condStrs = append(condStrs, "OR")
 					} else {
 						condStrs = append(condStrs, "AND")
@@ -204,7 +209,7 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 			condStr, condArgs := f.buildCondition(cond, currentParamIndex)
 			if condStr != "" {
 				if i > 0 {
-					if cond.Join == define.JoinOr {
+					if cond.JoinType == define.JoinOr {
 						condStrings = append(condStrings, "OR")
 					} else {
 						condStrings = append(condStrings, "AND")
@@ -285,7 +290,7 @@ func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, field
 			condStr, condArgs := f.buildCondition(cond, currentParamIndex)
 			if condStr != "" {
 				if i > 0 {
-					if cond.Join == define.JoinOr {
+					if cond.JoinType == define.JoinOr {
 						condStrings = append(condStrings, "OR")
 					} else {
 						condStrings = append(condStrings, "AND")
@@ -415,7 +420,7 @@ func (f *Factory) BuildDelete(table string, conditions []*define.Condition) (str
 			condStr, condArgs := f.buildCondition(cond, currentParamIndex)
 			if condStr != "" {
 				if i > 0 {
-					if cond.Join == define.JoinOr {
+					if cond.JoinType == define.JoinOr {
 						condStrings = append(condStrings, "OR")
 					} else {
 						condStrings = append(condStrings, "AND")
