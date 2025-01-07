@@ -2,7 +2,6 @@ package gom
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -21,8 +20,7 @@ func TestBatchOperations(t *testing.T) {
 			return
 		}
 		defer db.Close()
-
-		runBatchOperationsTest(t, db)
+		runBatchOperationsTest(t, db, "batch_test_mysql")
 	})
 
 	t.Run("PostgreSQL", func(t *testing.T) {
@@ -32,36 +30,70 @@ func TestBatchOperations(t *testing.T) {
 			return
 		}
 		defer db.Close()
-
-		runBatchOperationsTest(t, db)
+		runBatchOperationsTest(t, db, "batch_test_pg")
 	})
 }
 
-func runBatchOperationsTest(t *testing.T, db *DB) {
+func runBatchOperationsTest(t *testing.T, db *DB, tableName string) {
+	// Create test table with unique name
+	type BatchTestModel struct {
+		ID        int64     `gom:"id"`
+		Name      string    `gom:"name"`
+		Age       int       `gom:"age"`
+		CreatedAt time.Time `gom:"created_at"`
+	}
+
+	// Drop table if exists
+	_ = testutils.CleanupTestDB(db.DB, tableName)
+
 	// Create test table
-	err := db.Chain().CreateTable(&TestModel{})
+	err := db.Chain().Table(tableName).CreateTable(&BatchTestModel{})
 	assert.NoError(t, err)
-	defer testutils.CleanupTestDB(db.DB, "tests")
+	defer testutils.CleanupTestDB(db.DB, tableName)
 
 	// Prepare test data
-	values := make([]map[string]interface{}, 0)
+	values := make([]map[string]interface{}, 0, 100)
 	for i := 0; i < 100; i++ {
 		values = append(values, map[string]interface{}{
-			"name":       "test",
-			"age":        i,
+			"name":       fmt.Sprintf("Test%d", i),
+			"age":        20 + i,
 			"created_at": time.Now(),
 		})
 	}
 
 	// Test batch insert
-	affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10)
-	assert.NoError(t, err)
-	assert.Equal(t, int64(100), affected)
+	t.Run("BatchInsert", func(t *testing.T) {
+		affected, err := db.Chain().Table(tableName).BatchValues(values).BatchInsert(10)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(100), affected)
+	})
 
-	// Verify inserted data
-	count, err := db.Chain().Table("tests").Count()
-	assert.NoError(t, err)
-	assert.Equal(t, int64(100), count)
+	// Test batch update
+	t.Run("BatchUpdate", func(t *testing.T) {
+		updateValues := make([]map[string]interface{}, 0)
+		for i := 0; i < 100; i++ {
+			updateValues = append(updateValues, map[string]interface{}{
+				"id":   int64(i + 1), // Assuming auto-incrementing IDs
+				"name": fmt.Sprintf("updated_%d", i),
+				"age":  i + 100,
+			})
+		}
+		affected, err := db.Chain().Table(tableName).BatchValues(updateValues).BatchUpdate(10)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(100), affected)
+
+		var count int64
+		count, err = db.Chain().Table(tableName).Where("age", define.OpGt, 99).Count()
+		assert.NoError(t, err)
+		assert.Equal(t, int64(100), count)
+	})
+
+	// Test batch delete
+	t.Run("BatchDelete", func(t *testing.T) {
+		affected, err := db.Chain().Table(tableName).Where("age", define.OpGt, 50).BatchDelete(10)
+		assert.NoError(t, err)
+		assert.True(t, affected > 0)
+	})
 }
 
 func TestBatchInsert(t *testing.T) {
@@ -71,7 +103,10 @@ func TestBatchInsert(t *testing.T) {
 			t.Skip("Skipping MySQL test due to database connection error")
 			return
 		}
-		defer cleanupTestDB(t, db)
+		defer func() {
+			_ = testutils.CleanupTestDB(db.DB, "tests")
+			db.Close()
+		}()
 		runBatchInsertTest(t, db)
 	})
 
@@ -81,7 +116,10 @@ func TestBatchInsert(t *testing.T) {
 			t.Skip("Skipping PostgreSQL test due to database connection error")
 			return
 		}
-		defer cleanupTestDB(t, db)
+		defer func() {
+			_ = testutils.CleanupTestDB(db.DB, "tests")
+			db.Close()
+		}()
 		runBatchInsertTest(t, db)
 	})
 }
@@ -117,7 +155,10 @@ func TestBatchUpdate(t *testing.T) {
 			t.Skip("Skipping MySQL test due to database connection error")
 			return
 		}
-		defer cleanupTestDB(t, db)
+		defer func() {
+			_ = testutils.CleanupTestDB(db.DB, "tests")
+			db.Close()
+		}()
 		runBatchUpdateTest(t, db)
 	})
 
@@ -127,7 +168,10 @@ func TestBatchUpdate(t *testing.T) {
 			t.Skip("Skipping PostgreSQL test due to database connection error")
 			return
 		}
-		defer cleanupTestDB(t, db)
+		defer func() {
+			_ = testutils.CleanupTestDB(db.DB, "tests")
+			db.Close()
+		}()
 		runBatchUpdateTest(t, db)
 	})
 }
@@ -151,14 +195,20 @@ func runBatchUpdateTest(t *testing.T, db *DB) {
 	assert.Equal(t, int64(100), affected)
 
 	// Test batch update
-	result := db.Chain().Table("tests").
-		Set("name", "updated").
-		Where("name", define.OpEq, "test").
-		Save()
-	assert.NoError(t, result.Error)
+	updateValues := make([]map[string]interface{}, 0)
+	for i := 0; i < 100; i++ {
+		updateValues = append(updateValues, map[string]interface{}{
+			"id":   int64(i + 1), // Assuming auto-incrementing IDs
+			"name": fmt.Sprintf("updated_%d", i),
+			"age":  i + 100,
+		})
+	}
+	affected, err = db.Chain().Table("tests").BatchValues(updateValues).BatchUpdate(10)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(100), affected)
 
-	// Verify updated data
-	count, err := db.Chain().Table("tests").Where("name", define.OpEq, "updated").Count()
+	var count int64
+	count, err = db.Chain().Table("tests").Where("age", define.OpGt, 99).Count()
 	assert.NoError(t, err)
 	assert.Equal(t, int64(100), count)
 }
@@ -170,7 +220,10 @@ func TestBatchDelete(t *testing.T) {
 			t.Skip("Skipping MySQL test due to database connection error")
 			return
 		}
-		defer cleanupTestDB(t, db)
+		defer func() {
+			_ = testutils.CleanupTestDB(db.DB, "tests")
+			db.Close()
+		}()
 		runBatchDeleteTest(t, db)
 	})
 
@@ -180,7 +233,10 @@ func TestBatchDelete(t *testing.T) {
 			t.Skip("Skipping PostgreSQL test due to database connection error")
 			return
 		}
-		defer cleanupTestDB(t, db)
+		defer func() {
+			_ = testutils.CleanupTestDB(db.DB, "tests")
+			db.Close()
+		}()
 		runBatchDeleteTest(t, db)
 	})
 }
@@ -222,7 +278,10 @@ func TestBatchTransaction(t *testing.T) {
 			t.Skip("Skipping MySQL test due to database connection error")
 			return
 		}
-		defer cleanupTestDB(t, db)
+		defer func() {
+			_ = testutils.CleanupTestDB(db.DB, "tests")
+			db.Close()
+		}()
 		runBatchTransactionTest(t, db)
 	})
 
@@ -232,7 +291,10 @@ func TestBatchTransaction(t *testing.T) {
 			t.Skip("Skipping PostgreSQL test due to database connection error")
 			return
 		}
-		defer cleanupTestDB(t, db)
+		defer func() {
+			_ = testutils.CleanupTestDB(db.DB, "tests")
+			db.Close()
+		}()
 		runBatchTransactionTest(t, db)
 	})
 }
@@ -277,7 +339,10 @@ func TestBatchError(t *testing.T) {
 			t.Skip("Skipping MySQL test due to database connection error")
 			return
 		}
-		defer cleanupTestDB(t, db)
+		defer func() {
+			_ = testutils.CleanupTestDB(db.DB, "tests")
+			db.Close()
+		}()
 		runBatchErrorTest(t, db)
 	})
 
@@ -287,7 +352,10 @@ func TestBatchError(t *testing.T) {
 			t.Skip("Skipping PostgreSQL test due to database connection error")
 			return
 		}
-		defer cleanupTestDB(t, db)
+		defer func() {
+			_ = testutils.CleanupTestDB(db.DB, "tests")
+			db.Close()
+		}()
 		runBatchErrorTest(t, db)
 	})
 }
@@ -315,43 +383,90 @@ func runBatchErrorTest(t *testing.T, db *DB) {
 }
 
 func TestBatchOperationsEdgeCases(t *testing.T) {
-	t.Run("MySQL", func(t *testing.T) {
-		db := setupTestDB(t)
-		if db == nil {
-			t.Skip("Skipping MySQL test due to database connection error")
-			return
-		}
-		defer db.Close()
+	db := setupTestDB(t)
+	if db == nil {
+		t.Skip("Skipping test due to database connection error")
+		return
+	}
+	defer cleanupTestDB(t, db)
 
-		runBatchOperationsEdgeCasesTest(t, db)
-	})
-
-	t.Run("PostgreSQL", func(t *testing.T) {
-		db := setupTestDB(t)
-		if db == nil {
-			t.Skip("Skipping PostgreSQL test due to database connection error")
-			return
-		}
-		defer db.Close()
-
-		runBatchOperationsEdgeCasesTest(t, db)
-	})
-}
-
-func runBatchOperationsEdgeCasesTest(t *testing.T, db *DB) {
-	// Create test table
+	// Create test table first
 	err := db.Chain().CreateTable(&TestModel{})
 	assert.NoError(t, err)
-	defer testutils.CleanupTestDB(db.DB, "tests")
 
-	t.Run("Empty Batch Insert", func(t *testing.T) {
-		values := make([]map[string]interface{}, 0)
-		affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10)
+	t.Run("Batch_Size_Edge_Cases", func(t *testing.T) {
+		// Test with invalid batch size
+		_, err := db.Chain().BatchInsert(0)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid batch size")
+
+		// Test with valid batch size
+		chain := db.Chain().Table("tests")
+		values := make([]map[string]interface{}, 5)
+		for i := 0; i < 5; i++ {
+			values[i] = map[string]interface{}{
+				"name": fmt.Sprintf("test_%d", i),
+				"age":  20 + i,
+			}
+		}
+		affected, err := chain.BatchValues(values).BatchInsert(2)
 		assert.NoError(t, err)
-		assert.Equal(t, int64(0), affected)
+		assert.Equal(t, int64(5), affected)
 	})
 
-	t.Run("Invalid Column Name", func(t *testing.T) {
+	t.Run("Null_Values", func(t *testing.T) {
+		values := []map[string]interface{}{
+			{
+				"name": nil,
+				"age":  25,
+			},
+		}
+		_, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot be null")
+
+		// Test with non-null values
+		values = []map[string]interface{}{
+			{
+				"name": "test_null",
+				"age":  25,
+			},
+		}
+		affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(1), affected)
+
+		// Verify the record was inserted
+		var results []TestModel
+		err = db.Chain().Table("tests").Where("name", define.OpEq, "test_null").List(&results).Error()
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(results))
+		assert.Equal(t, "test_null", results[0].Name)
+	})
+
+	t.Run("Large_Batch_Insert", func(t *testing.T) {
+		// Clear the table first
+		result := db.Chain().Table("tests").Delete()
+		assert.NoError(t, result.Error)
+
+		values := make([]map[string]interface{}, 1000)
+		for i := 0; i < 1000; i++ {
+			values[i] = map[string]interface{}{
+				"name": fmt.Sprintf("large_test_%d", i),
+				"age":  20 + i%50,
+			}
+		}
+		affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(100)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(1000), affected)
+
+		// Verify the count
+		count, err := db.Chain().Table("tests").Count()
+		assert.NoError(t, err)
+		assert.Equal(t, int64(1000), count)
+	})
+
+	t.Run("Invalid_Column_Name", func(t *testing.T) {
 		values := []map[string]interface{}{
 			{
 				"invalid_column": "test",
@@ -363,70 +478,18 @@ func runBatchOperationsEdgeCasesTest(t *testing.T, db *DB) {
 		assert.Error(t, err)
 	})
 
-	t.Run("Batch Size Edge Cases", func(t *testing.T) {
+	t.Run("Empty_Batch_Insert", func(t *testing.T) {
 		values := make([]map[string]interface{}, 0)
-		for i := 0; i < 5; i++ {
-			values = append(values, map[string]interface{}{
-				"name":       "test",
-				"age":        i,
-				"created_at": time.Now(),
-			})
-		}
-
-		// Test with batch size larger than data size
-		affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10)
-		assert.NoError(t, err)
-		assert.Equal(t, int64(5), affected)
-
-		// Test with batch size of 1
-		affected, err = db.Chain().Table("tests").BatchValues(values).BatchInsert(1)
-		assert.NoError(t, err)
-		assert.Equal(t, int64(5), affected)
-
-		// Test with zero batch size (should use default)
-		affected, err = db.Chain().Table("tests").BatchValues(values).BatchInsert(0)
-		assert.NoError(t, err)
-		assert.Equal(t, int64(5), affected)
+		_, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no values to insert")
 	})
 
-	t.Run("Null Values", func(t *testing.T) {
-		values := []map[string]interface{}{
-			{
-				"name":       nil,
-				"age":        nil,
-				"created_at": time.Now(),
-			},
-		}
-		affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10)
-		assert.NoError(t, err)
-		assert.Equal(t, int64(1), affected)
+	t.Run("Concurrent_Batch_Operations", func(t *testing.T) {
+		// Clear the table first
+		result := db.Chain().Table("tests").Delete()
+		assert.NoError(t, result.Error)
 
-		var result TestModel
-		err = db.Chain().Table("tests").Where("name", define.OpIsNull, nil).First(&result).Error()
-		assert.NoError(t, err)
-		assert.Equal(t, 0, result.Age)
-	})
-
-	t.Run("Large Batch Insert", func(t *testing.T) {
-		values := make([]map[string]interface{}, 0)
-		for i := 0; i < 1000; i++ {
-			values = append(values, map[string]interface{}{
-				"name":       "test" + strconv.Itoa(i),
-				"age":        i % 100,
-				"created_at": time.Now(),
-			})
-		}
-
-		affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(50)
-		assert.NoError(t, err)
-		assert.Equal(t, int64(1000), affected)
-
-		count, err := db.Chain().Table("tests").Count()
-		assert.NoError(t, err)
-		assert.Equal(t, int64(1000), count)
-	})
-
-	t.Run("Concurrent Batch Operations", func(t *testing.T) {
 		var wg sync.WaitGroup
 		for i := 0; i < 5; i++ {
 			wg.Add(1)
@@ -451,4 +514,9 @@ func runBatchOperationsEdgeCasesTest(t *testing.T, db *DB) {
 		assert.NoError(t, err)
 		assert.Equal(t, int64(500), count)
 	})
+}
+
+func cleanupTestDB(t *testing.T, db *DB) {
+	result := db.Chain().Table("tests").Delete()
+	assert.NoError(t, result.Error)
 }

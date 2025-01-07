@@ -1810,27 +1810,54 @@ func (c *Chain) Having(condition interface{}, args ...interface{}) *Chain {
 	return c
 }
 
-// Transaction starts a new transaction with default isolation level
-func (c *Chain) Transaction(fn func(*Chain) error) error {
-	if c.inTransaction {
-		return fn(c)
+// Transaction executes a function within a transaction
+func (c *Chain) Transaction(fn func(tx *Chain) error) error {
+	if c.IsInTransaction() {
+		// If already in a transaction, create a savepoint
+		savepointName := fmt.Sprintf("sp_%d", time.Now().UnixNano())
+		if err := c.Savepoint(savepointName); err != nil {
+			return err
+		}
+
+		// Create a new chain with the same transaction
+		txChain := &Chain{
+			db:            c.db,
+			factory:       c.factory,
+			tx:            c.tx,
+			inTransaction: true,
+		}
+
+		err := fn(txChain)
+		if err != nil {
+			// Rollback to savepoint if there's an error
+			if rbErr := c.RollbackTo(savepointName); rbErr != nil {
+				return fmt.Errorf("error rolling back to savepoint: %v (original error: %v)", rbErr, err)
+			}
+			return err
+		}
+
+		// Release savepoint if successful
+		if err := c.ReleaseSavepoint(savepointName); err != nil {
+			return err
+		}
+		return nil
 	}
 
-	tx, err := c.db.DB.Begin()
+	// Start a new transaction if not already in one
+	tx, err := c.db.Begin()
 	if err != nil {
 		return err
 	}
 
-	newChain := &Chain{
-		db:             c.db,
-		factory:        c.factory,
-		tx:             tx,
-		originalChain:  c,
-		isolationLevel: c.isolationLevel,
-		inTransaction:  true,
+	// Create a new chain with the transaction
+	txChain := &Chain{
+		db:            c.db,
+		factory:       c.factory,
+		tx:            tx,
+		inTransaction: true,
 	}
 
-	err = fn(newChain)
+	err = fn(txChain)
 	if err != nil {
 		if rbErr := tx.Rollback(); rbErr != nil {
 			return fmt.Errorf("error rolling back: %v (original error: %v)", rbErr, err)
@@ -1838,11 +1865,7 @@ func (c *Chain) Transaction(fn func(*Chain) error) error {
 		return err
 	}
 
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-
-	return nil
+	return tx.Commit()
 }
 
 // IsInTransaction returns whether the chain is currently in a transaction
@@ -2331,6 +2354,42 @@ func (c *Chain) BatchDelete(batchSize int) (int64, error) {
 			Op:  "BatchDelete",
 			Err: fmt.Errorf("invalid batch size (must be greater than 0, got %d)", batchSize),
 		}
+	}
+
+	// If batchValues is empty but we have conditions, use conditions for delete
+	if len(c.batchValues) == 0 && len(c.conds) > 0 {
+		sql, args := c.factory.BuildDelete(c.tableName, c.conds)
+		if define.Debug {
+			log.Printf("[SQL] %s %v", sql, args)
+		}
+
+		var sqlResult interface {
+			LastInsertId() (int64, error)
+			RowsAffected() (int64, error)
+		}
+		var err error
+		if c.tx != nil {
+			sqlResult, err = c.tx.Exec(sql, args...)
+		} else {
+			sqlResult, err = c.db.DB.Exec(sql, args...)
+		}
+
+		if err != nil {
+			return 0, &DBError{
+				Op:  "BatchDelete",
+				Err: err,
+			}
+		}
+
+		affected, err := sqlResult.RowsAffected()
+		if err != nil {
+			return 0, &DBError{
+				Op:  "BatchDelete",
+				Err: err,
+			}
+		}
+
+		return affected, nil
 	}
 
 	if len(c.batchValues) == 0 {

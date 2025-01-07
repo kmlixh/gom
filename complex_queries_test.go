@@ -29,7 +29,10 @@ func TestComplexQueries(t *testing.T) {
 			t.Skip("Skipping PostgreSQL test due to database connection error")
 			return
 		}
-		defer cleanupTestDB(t, db)
+		defer func() {
+			_ = testutils.CleanupTestDB(db.DB, "tests")
+			db.Close()
+		}()
 		runComplexQueriesTest(t, db)
 	})
 }
@@ -296,7 +299,10 @@ func TestAdvancedRawQueries(t *testing.T) {
 			t.Skip("Skipping PostgreSQL test due to database connection error")
 			return
 		}
-		defer cleanupTestDB(t, db)
+		defer func() {
+			_ = testutils.CleanupTestDB(db.DB, "tests")
+			db.Close()
+		}()
 		runAdvancedRawQueriesTest(t, db)
 	})
 }
@@ -381,7 +387,10 @@ func TestJoinQueries(t *testing.T) {
 			t.Skip("Skipping PostgreSQL test due to database connection error")
 			return
 		}
-		defer cleanupTestDB(t, db)
+		defer func() {
+			_ = testutils.CleanupTestDB(db.DB, "tests")
+			db.Close()
+		}()
 		runJoinQueriesTest(t, db)
 	})
 }

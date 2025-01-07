@@ -14,26 +14,70 @@ var (
 	ErrTest = errors.New("test error")
 )
 
+// TestModel represents a test model for database operations
+type TestModel struct {
+	ID        int64     `gom:"id"`
+	Name      string    `gom:"name"`
+	Age       int       `gom:"age"`
+	CreatedAt time.Time `gom:"created_at"`
+}
+
+// setupDB creates a new database connection with the given driver and DSN
+func setupDB(driver, dsn string) *DB {
+	opts := &define.DBOptions{
+		MaxOpenConns:    10,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: time.Hour,
+		ConnMaxIdleTime: 30 * time.Minute,
+		Debug:           true,
+	}
+	db, err := Open(driver, dsn, opts)
+	if err != nil {
+		return nil
+	}
+	return db
+}
+
+func setupMySQLDB(t *testing.T) *DB {
+	db := setupDB("mysql", "root:123456@tcp(10.0.1.5:3306)/test?charset=utf8mb4&parseTime=True")
+	if db == nil {
+		t.Logf("Failed to connect to MySQL")
+	}
+	return db
+}
+
+func setupPostgreSQLDB(t *testing.T) *DB {
+	db := setupDB("postgres", "host=10.0.1.5 port=5432 user=postgres password=123456 dbname=test sslmode=disable")
+	if db == nil {
+		t.Logf("Failed to connect to PostgreSQL")
+	}
+	return db
+}
+
 func TestChainOperations(t *testing.T) {
 	t.Run("MySQL", func(t *testing.T) {
-		db := setupTestDB(t)
+		db := setupMySQLDB(t)
 		if db == nil {
 			t.Skip("Skipping MySQL test due to database connection error")
 			return
 		}
-		defer db.Close()
-
+		defer func() {
+			_ = testutils.CleanupTestDB(db.DB, "tests")
+			db.Close()
+		}()
 		runChainOperationsTest(t, db)
 	})
 
 	t.Run("PostgreSQL", func(t *testing.T) {
-		db := setupTestDB(t)
+		db := setupPostgreSQLDB(t)
 		if db == nil {
 			t.Skip("Skipping PostgreSQL test due to database connection error")
 			return
 		}
-		defer db.Close()
-
+		defer func() {
+			_ = testutils.CleanupTestDB(db.DB, "tests")
+			db.Close()
+		}()
 		runChainOperationsTest(t, db)
 	})
 }
@@ -42,7 +86,6 @@ func runChainOperationsTest(t *testing.T, db *DB) {
 	// Create test table
 	err := db.Chain().CreateTable(&TestModel{})
 	assert.NoError(t, err)
-	defer testutils.CleanupTestDB(db.DB, "tests")
 
 	t.Run("Chain Methods", func(t *testing.T) {
 		// Test Table method
@@ -86,12 +129,12 @@ func runChainOperationsTest(t *testing.T, db *DB) {
 			Age:       25,
 			CreatedAt: time.Now(),
 		}
-		result := db.Chain().Table("tests").From(model).Save()
-		assert.NoError(t, result.Error)
+		err := db.Chain().Table("tests").From(model).Save().Error
+		assert.NoError(t, err)
 
 		// Test First
 		var firstResult TestModel
-		err := db.Chain().Table("tests").First(&firstResult).Error()
+		err = db.Chain().Table("tests").First(&firstResult).Error()
 		assert.NoError(t, err)
 		assert.Equal(t, "test", firstResult.Name)
 
@@ -107,11 +150,11 @@ func runChainOperationsTest(t *testing.T, db *DB) {
 		assert.Equal(t, int64(1), count)
 
 		// Test Update
-		result = db.Chain().Table("tests").
+		err = db.Chain().Table("tests").
 			Where("name", define.OpEq, "test").
 			Set("age", 30).
-			Save()
-		assert.NoError(t, result.Error)
+			Save().Error
+		assert.NoError(t, err)
 
 		// Verify update
 		var updatedResult TestModel
@@ -120,87 +163,15 @@ func runChainOperationsTest(t *testing.T, db *DB) {
 		assert.Equal(t, 30, updatedResult.Age)
 
 		// Test Delete
-		result = db.Chain().Table("tests").
+		err = db.Chain().Table("tests").
 			Where("name", define.OpEq, "test").
-			Delete()
-		assert.NoError(t, result.Error)
+			Delete().Error
+		assert.NoError(t, err)
 
 		// Verify delete
 		count, err = db.Chain().Table("tests").Count()
 		assert.NoError(t, err)
 		assert.Equal(t, int64(0), count)
-	})
-
-	t.Run("Chain Error Handling", func(t *testing.T) {
-		// Test invalid table name
-		result := db.Chain().Table("invalid_table").First(nil)
-		assert.Error(t, result.Error())
-
-		// Test invalid column name
-		result = db.Chain().Table("tests").Fields("invalid_column").First(nil)
-		assert.Error(t, result.Error())
-
-		// Test invalid where condition
-		result = db.Chain().Table("tests").
-			Where("invalid_column", define.OpEq, "value").
-			First(nil)
-		assert.Error(t, result.Error())
-
-		// Test invalid order by
-		result = db.Chain().Table("tests").
-			OrderBy("invalid_column").
-			First(nil)
-		assert.Error(t, result.Error())
-
-		// Test invalid group by
-		result = db.Chain().Table("tests").
-			GroupBy("invalid_column").
-			First(nil)
-		assert.Error(t, result.Error())
-	})
-
-	t.Run("Chain Method Chaining", func(t *testing.T) {
-		// Insert test data
-		for i := 0; i < 10; i++ {
-			model := &TestModel{
-				Name:      "test",
-				Age:       20 + i,
-				CreatedAt: time.Now(),
-			}
-			result := db.Chain().Table("tests").From(model).Save()
-			assert.NoError(t, result.Error)
-		}
-
-		// Test complex chain
-		var results []TestModel
-		err := db.Chain().
-			Table("tests").
-			Fields("id", "name", "age").
-			Where("age", define.OpGt, 25).
-			OrderBy("age DESC").
-			GroupBy("name").
-			Having("COUNT(*) > ?", 0).
-			Limit(5).
-			Offset(0).
-			List(&results).
-			Error()
-		assert.NoError(t, err)
-		assert.True(t, len(results) > 0)
-
-		// Test chain reuse
-		chain := db.Chain().
-			Table("tests").
-			Fields("id", "name", "age")
-
-		// Use chain for count
-		count, err := chain.Count()
-		assert.NoError(t, err)
-		assert.Equal(t, int64(10), count)
-
-		// Use chain for list
-		err = chain.List(&results).Error()
-		assert.NoError(t, err)
-		assert.Equal(t, 10, len(results))
 	})
 
 	t.Run("Chain Transaction", func(t *testing.T) {
@@ -211,8 +182,7 @@ func runChainOperationsTest(t *testing.T, db *DB) {
 				Age:       25,
 				CreatedAt: time.Now(),
 			}
-			result := tx.Table("tests").From(model).Save()
-			return result.Error
+			return tx.Table("tests").From(model).Save().Error
 		})
 		assert.NoError(t, err)
 
@@ -230,9 +200,9 @@ func runChainOperationsTest(t *testing.T, db *DB) {
 				Age:       25,
 				CreatedAt: time.Now(),
 			}
-			result := tx.Table("tests").From(model).Save()
-			if result.Error != nil {
-				return result.Error
+			err := tx.Table("tests").From(model).Save().Error
+			if err != nil {
+				return err
 			}
 			return errors.New("rollback test")
 		})

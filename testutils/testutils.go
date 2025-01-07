@@ -8,7 +8,7 @@ var (
 	// DefaultPgDSN default PostgreSQL test connection string
 	DefaultPgDSN = "postgres://postgres:yzy123@192.168.110.249:5432/test?sslmode=disable"
 	// DefaultMySQLDSN default MySQL test connection string
-	DefaultMySQLDSN = "root:123456@tcp(192.168.110.249:3306)/test?charset=utf8mb4&parseTime=True"
+	DefaultMySQLDSN = "root:123456@tcp(10.0.1.5:3306)/test?charset=utf8mb4&parseTime=True"
 )
 
 // TestPgDSN current PostgreSQL test connection string

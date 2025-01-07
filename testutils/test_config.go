@@ -21,10 +21,10 @@ type TestDBConfig struct {
 func DefaultMySQLConfig() TestDBConfig {
 	return TestDBConfig{
 		Driver:   "mysql",
-		Host:     getEnvOrDefault("TEST_MYSQL_HOST", "127.0.0.1"),
+		Host:     getEnvOrDefault("TEST_MYSQL_HOST", "10.0.1.5"),
 		Port:     getEnvIntOrDefault("TEST_MYSQL_PORT", 3306),
 		User:     getEnvOrDefault("TEST_MYSQL_USER", "root"),
-		Password: getEnvOrDefault("TEST_MYSQL_PASSWORD", ""),
+		Password: getEnvOrDefault("TEST_MYSQL_PASSWORD", "123456"),
 		DBName:   getEnvOrDefault("TEST_MYSQL_DB", "test"),
 	}
 }

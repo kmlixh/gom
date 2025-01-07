@@ -13,12 +13,35 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func getTestDB() *DB {
-	db := setupTestDB(nil)
-	if db == nil {
-		return nil
+func setupTestDB(t *testing.T) *DB {
+	opts := &define.DBOptions{
+		MaxOpenConns:    10,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: time.Hour,
+		ConnMaxIdleTime: 30 * time.Minute,
+		Debug:           true,
 	}
-	return db
+
+	// Try MySQL first
+	db, err := Open("mysql", "root:123456@tcp(10.0.1.5:3306)/test?charset=utf8mb4&parseTime=True", opts)
+	if err == nil {
+		return db
+	}
+
+	// If MySQL fails, try PostgreSQL
+	db, err = Open("postgres", "host=10.0.1.5 port=5432 user=postgres password=123456 dbname=test sslmode=disable", opts)
+	if err == nil {
+		return db
+	}
+
+	if t != nil {
+		t.Logf("Failed to connect to both MySQL and PostgreSQL: %v", err)
+	}
+	return nil
+}
+
+func getTestDB() *DB {
+	return setupTestDB(nil)
 }
 
 // TestTransactionSavepoints 测试事务保存点操作
@@ -28,7 +51,10 @@ func TestTransactionSavepoints(t *testing.T) {
 		t.Skip("Skipping test due to database connection error")
 		return
 	}
-	defer db.Close()
+	defer func() {
+		_ = testutils.CleanupTestDB(db.DB, "tests")
+		db.Close()
+	}()
 
 	// Create test table
 	err := db.Chain().CreateTable(&TestModel{})
@@ -98,7 +124,10 @@ func TestTransactionIsolationLevels(t *testing.T) {
 			t.Skip("Skipping MySQL test due to database connection error")
 			return
 		}
-		defer db.Close()
+		defer func() {
+			_ = testutils.CleanupTestDB(db.DB, "tests")
+			db.Close()
+		}()
 
 		runTransactionIsolationLevelsTest(t, db)
 	})
@@ -109,7 +138,10 @@ func TestTransactionIsolationLevels(t *testing.T) {
 			t.Skip("Skipping PostgreSQL test due to database connection error")
 			return
 		}
-		defer cleanupTestDB(t, db)
+		defer func() {
+			_ = testutils.CleanupTestDB(db.DB, "tests")
+			db.Close()
+		}()
 		runTransactionIsolationLevelsTest(t, db)
 	})
 }
@@ -223,7 +255,10 @@ func TestNestedTransactions(t *testing.T) {
 		t.Skip("Skipping test due to database connection error")
 		return
 	}
-	defer cleanupTestDB(t, db)
+	defer func() {
+		_ = testutils.CleanupTestDB(db.DB, "tests")
+		db.Close()
+	}()
 
 	// Create test table
 	err := db.Chain().CreateTable(&TestModel{})
@@ -432,14 +467,19 @@ func TestTransactionPropagation(t *testing.T) {
 		t.Skip("Skipping test due to database connection error")
 		return
 	}
-	defer cleanupTestDB(t, db)
+	defer func() {
+		_ = testutils.CleanupTestDB(db.DB, "tests")
+		db.Close()
+	}()
 
 	// Create test table
 	err := db.Chain().CreateTable(&TestModel{})
 	assert.NoError(t, err)
 
-	// Test transaction propagation
-	err = db.Chain().Transaction(func(tx1 *Chain) error {
+	// Test transaction propagation with savepoints
+	err = db.Chain().TransactionWithOptions(define.TransactionOptions{
+		PropagationMode: define.PropagationRequired,
+	}, func(tx1 *Chain) error {
 		// Insert in outer transaction
 		model1 := &TestModel{
 			Name:      "Test1",
@@ -451,8 +491,10 @@ func TestTransactionPropagation(t *testing.T) {
 			return result.Error
 		}
 
-		// Start nested transaction
-		err := tx1.Transaction(func(tx2 *Chain) error {
+		// Start nested transaction with savepoint
+		err := tx1.TransactionWithOptions(define.TransactionOptions{
+			PropagationMode: define.PropagationNested,
+		}, func(tx2 *Chain) error {
 			// Insert in inner transaction
 			model2 := &TestModel{
 				Name:      "Test2",
@@ -475,7 +517,7 @@ func TestTransactionPropagation(t *testing.T) {
 			return errors.New("rollback nested transaction")
 		})
 
-		// Verify nested transaction was rolled back
+		// Verify nested transaction was rolled back but outer transaction remains
 		count, err := tx1.Table("tests").Count()
 		if err != nil {
 			return err
