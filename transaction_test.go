@@ -110,7 +110,7 @@ func TestTransactionSavepoints(t *testing.T) {
 	// Verify results
 	var models []TestModel
 	qr := db.Chain().Table("tests").OrderBy("age").List(&models)
-	assert.NoError(t, qr.Error())
+	assert.NoError(t, qr.Error)
 	assert.Equal(t, 2, len(models))
 	assert.Equal(t, "First", models[0].Name)
 	assert.Equal(t, "Third", models[1].Name)

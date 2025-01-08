@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/kmlixh/gom/v4/define"
 )
@@ -547,22 +546,22 @@ func (c *Chain) From(model interface{}) *Chain {
 }
 
 // List executes a SELECT query and returns all results
-func (c *Chain) List(dest ...interface{}) *QueryResult {
+func (c *Chain) List(dest ...interface{}) *define.Result {
 	result := c.list()
-	if result.err == nil && len(result.Data) > 0 {
+	if result.Error == nil && len(result.Data) > 0 {
 		if err := c.processSensitiveResults(result.Data); err != nil {
-			result.err = err
+			result.Error = err
 			return result
 		}
 	}
-	if len(dest) > 0 && result.err == nil {
-		result.err = result.Into(dest[0])
+	if len(dest) > 0 && result.Error == nil {
+		result.Error = result.Into(dest[0])
 	}
 	return result
 }
 
 // list is the internal implementation of List
-func (c *Chain) list() *QueryResult {
+func (c *Chain) list() *define.Result {
 	orderByExpr := c.buildOrderBy()
 	sqlStr, args := c.factory.BuildSelect(c.tableName, c.fieldList, c.conds, orderByExpr, c.limitCount, c.offsetCount)
 	if define.Debug {
@@ -584,28 +583,13 @@ func (c *Chain) list() *QueryResult {
 		rows, err = c.db.DB.Query(sqlStr, args...)
 	}
 	if err != nil {
-		return &QueryResult{err: err}
+		return &define.Result{Error: err}
 	}
 	defer rows.Close()
 
 	columns, err := rows.Columns()
 	if err != nil {
-		return &QueryResult{err: err}
-	}
-
-	// Get column types
-	columnTypes, err := rows.ColumnTypes()
-	if err != nil {
-		return &QueryResult{err: err}
-	}
-
-	// Print column type information
-	if define.Debug {
-		log.Printf("Column Types:")
-		for _, ct := range columnTypes {
-			log.Printf("  %s: DatabaseTypeName=%s, ScanType=%v",
-				ct.Name(), ct.DatabaseTypeName(), ct.ScanType())
-		}
+		return &define.Result{Error: err}
 	}
 
 	var result []map[string]interface{}
@@ -617,190 +601,48 @@ func (c *Chain) list() *QueryResult {
 
 		err = rows.Scan(values...)
 		if err != nil {
-			return &QueryResult{err: err}
+			return &define.Result{Error: err}
 		}
 
 		row := make(map[string]interface{})
 		for i, col := range columns {
 			val := *(values[i].(*interface{}))
-
-			// Print actual value type
-			if define.Debug {
-				log.Printf("Column %s: value type=%T, value=%v", col, val, val)
-			}
-
-			// Handle type conversions based on column type
-			if val != nil {
-				colType := columnTypes[i]
-				dbTypeName := strings.ToUpper(colType.DatabaseTypeName())
-				scanType := colType.ScanType()
-
-				switch {
-				case strings.Contains(dbTypeName, "CHAR") ||
-					strings.Contains(dbTypeName, "TEXT") ||
-					strings.Contains(dbTypeName, "VARCHAR") ||
-					strings.Contains(dbTypeName, "JSON"):
-					if byteVal, ok := val.([]uint8); ok {
-						val = string(byteVal)
-					}
-				case strings.Contains(dbTypeName, "TINYINT") ||
-					strings.Contains(dbTypeName, "BOOL"):
-					// Convert to bool
-					switch v := val.(type) {
-					case []uint8:
-						if string(v) == "1" || strings.ToLower(string(v)) == "true" {
-							val = true
-						} else {
-							val = false
-						}
-					case int64:
-						val = v != 0
-					case int32:
-						val = v != 0
-					case int:
-						val = v != 0
-					case int8:
-						val = v != 0
-					case bool:
-						val = v
-					}
-					// Special handling for sql.NullInt64 or sql.NullBool
-					if scanType != nil {
-						switch scanType.String() {
-						case "sql.NullInt64":
-							if v, ok := val.(int64); ok {
-								val = v != 0
-							}
-						case "sql.NullBool":
-							if v, ok := val.(bool); ok {
-								val = v
-							}
-						}
-					}
-				case strings.Contains(dbTypeName, "INT") ||
-					strings.Contains(dbTypeName, "BIGINT"):
-					// Convert to int64
-					switch v := val.(type) {
-					case []uint8:
-						val, _ = strconv.ParseInt(string(v), 10, 64)
-					case int32:
-						val = int64(v)
-					case int:
-						val = int64(v)
-					}
-				case strings.Contains(dbTypeName, "FLOAT") ||
-					strings.Contains(dbTypeName, "DOUBLE") ||
-					strings.Contains(dbTypeName, "DECIMAL"):
-					// Convert to float64
-					switch v := val.(type) {
-					case []uint8:
-						val, _ = strconv.ParseFloat(string(v), 64)
-					case float32:
-						val = float64(v)
-					}
-				case strings.Contains(dbTypeName, "DATE"):
-					// Convert to time.Time, keep only date part
-					switch v := val.(type) {
-					case []uint8:
-						dateStr := string(v)
-						if t, err := time.ParseInLocation("2006-01-02", dateStr, time.Local); err == nil {
-							val = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
-						}
-					case string:
-						if t, err := time.ParseInLocation("2006-01-02", v, time.Local); err == nil {
-							val = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
-						}
-					case time.Time:
-						// Special handling for MySQL DATE type timezone
-						t := v.In(time.Local)
-						year, month, day := t.Date()
-						val = time.Date(year, month, day, 0, 0, 0, 0, time.Local)
-					}
-				case strings.Contains(dbTypeName, "TIMESTAMP") ||
-					strings.Contains(dbTypeName, "DATETIME"):
-					// Convert to time.Time
-					switch v := val.(type) {
-					case []uint8:
-						timeStr := string(v)
-						formats := []string{
-							"2006-01-02 15:04:05",
-							"2006-01-02T15:04:05Z",
-							time.RFC3339,
-						}
-						for _, format := range formats {
-							if t, err := time.ParseInLocation(format, timeStr, time.Local); err == nil {
-								val = t
-								break
-							}
-						}
-					case string:
-						formats := []string{
-							"2006-01-02 15:04:05",
-							"2006-01-02T15:04:05Z",
-							time.RFC3339,
-						}
-						for _, format := range formats {
-							if t, err := time.ParseInLocation(format, v, time.Local); err == nil {
-								val = t
-								break
-							}
-						}
-					case time.Time:
-						val = v.In(time.Local)
-					}
-				}
-			}
-
 			row[col] = val
 		}
 		result = append(result, row)
 	}
 
-	return &QueryResult{Data: result}
+	return &define.Result{
+		Data:    result,
+		Columns: columns,
+	}
 }
 
 // First returns the first result
-func (c *Chain) First(dest ...interface{}) *QueryResult {
+func (c *Chain) First(dest ...interface{}) *define.Result {
 	c.Limit(1)
 	result := c.list()
-	if result.err != nil {
+	if result.Error != nil {
 		return result
 	}
 	if len(result.Data) == 0 {
-		return &QueryResult{err: sql.ErrNoRows}
+		return &define.Result{Error: sql.ErrNoRows}
 	}
 	if len(dest) > 0 {
-		result.err = result.Into(dest[0])
+		result.Error = result.Into(dest[0])
 	}
 	return result
 }
 
 // One returns exactly one result
-func (c *Chain) One(dest ...interface{}) *QueryResult {
+func (c *Chain) One(dest ...interface{}) *define.Result {
 	result := c.list()
 	if result.Size() != 1 {
-		result.err = fmt.Errorf("expected 1 result, got %d", result.Size())
+		result.Error = fmt.Errorf("expected 1 result, got %d", result.Size())
 		return result
 	}
-	if len(dest) > 0 && result.err == nil {
-		// Create a slice of the same type as dest
-		destValue := reflect.ValueOf(dest[0])
-		if destValue.Kind() != reflect.Ptr {
-			result.err = fmt.Errorf("dest must be a pointer")
-			return result
-		}
-		elemType := destValue.Elem().Type()
-		sliceType := reflect.SliceOf(elemType)
-		slicePtr := reflect.New(sliceType)
-
-		// Convert the result into the slice
-		result.err = result.Into(slicePtr.Interface())
-		if result.err != nil {
-			return result
-		}
-
-		// Set the first element back to dest
-		destValue.Elem().Set(slicePtr.Elem().Index(0))
+	if len(dest) > 0 && result.Error == nil {
+		result.Error = result.Into(dest[0])
 	}
 	return result
 }
@@ -1163,14 +1005,14 @@ func (c *Chain) Page(pageNum, pageSize int) *Chain {
 // Into scans the result into a struct or slice of structs
 func (c *Chain) Into(dest interface{}) error {
 	result := c.List()
-	if result.err != nil {
-		return result.err
+	if result.Error != nil {
+		return result.Error
 	}
 	return result.Into(dest)
 }
 
 // RawQuery executes a raw SQL query
-func (c *Chain) RawQuery(sqlStr string, args ...interface{}) *QueryResult {
+func (c *Chain) RawQuery(sqlStr string, args ...interface{}) *define.Result {
 	if define.Debug {
 		log.Printf("[SQL] %s %v", sqlStr, args)
 	}
@@ -1183,19 +1025,13 @@ func (c *Chain) RawQuery(sqlStr string, args ...interface{}) *QueryResult {
 		rows, err = c.db.DB.Query(sqlStr, args...)
 	}
 	if err != nil {
-		return &QueryResult{err: err}
+		return &define.Result{Error: err}
 	}
 	defer rows.Close()
 
 	columns, err := rows.Columns()
 	if err != nil {
-		return &QueryResult{err: err}
-	}
-
-	// Get column types
-	columnTypes, err := rows.ColumnTypes()
-	if err != nil {
-		return &QueryResult{err: err}
+		return &define.Result{Error: err}
 	}
 
 	var result []map[string]interface{}
@@ -1207,123 +1043,22 @@ func (c *Chain) RawQuery(sqlStr string, args ...interface{}) *QueryResult {
 
 		err = rows.Scan(values...)
 		if err != nil {
-			return &QueryResult{err: err}
+			return &define.Result{Error: err}
 		}
 
 		row := make(map[string]interface{})
 		for i, col := range columns {
 			val := *(values[i].(*interface{}))
-
-			// Handle type conversions based on column type
-			if val != nil {
-				colType := columnTypes[i]
-				dbTypeName := strings.ToUpper(colType.DatabaseTypeName())
-
-				switch {
-				case strings.Contains(dbTypeName, "CHAR") ||
-					strings.Contains(dbTypeName, "TEXT") ||
-					strings.Contains(dbTypeName, "VARCHAR") ||
-					strings.Contains(dbTypeName, "JSON"):
-					if byteVal, ok := val.([]uint8); ok {
-						val = string(byteVal)
-					}
-				case strings.Contains(dbTypeName, "TINYINT") ||
-					strings.Contains(dbTypeName, "BOOL"):
-					switch v := val.(type) {
-					case []uint8:
-						if string(v) == "1" || strings.ToLower(string(v)) == "true" {
-							val = true
-						} else {
-							val = false
-						}
-					case int64:
-						val = v != 0
-					case int32:
-						val = v != 0
-					case int:
-						val = v != 0
-					case int8:
-						val = v != 0
-					case bool:
-						val = v
-					}
-				case strings.Contains(dbTypeName, "INT") ||
-					strings.Contains(dbTypeName, "BIGINT"):
-					switch v := val.(type) {
-					case []uint8:
-						val, _ = strconv.ParseInt(string(v), 10, 64)
-					case int32:
-						val = int64(v)
-					case int:
-						val = int64(v)
-					}
-				case strings.Contains(dbTypeName, "FLOAT") ||
-					strings.Contains(dbTypeName, "DOUBLE") ||
-					strings.Contains(dbTypeName, "DECIMAL"):
-					switch v := val.(type) {
-					case []uint8:
-						val, _ = strconv.ParseFloat(string(v), 64)
-					case float32:
-						val = float64(v)
-					}
-				case strings.Contains(dbTypeName, "DATE") ||
-					strings.Contains(dbTypeName, "TIME"):
-					switch v := val.(type) {
-					case []uint8:
-						formats := []string{
-							"2006-01-02 15:04:05",
-							"2006-01-02T15:04:05Z",
-							time.RFC3339,
-						}
-						for _, format := range formats {
-							if t, err := time.ParseInLocation(format, string(v), time.Local); err == nil {
-								val = t
-								break
-							}
-						}
-					case time.Time:
-						val = v.In(time.Local)
-					}
-				}
-			}
-
-			// Handle column aliases in JOIN queries
-			colName := col
-			if strings.Contains(colName, " AS ") {
-				parts := strings.Split(colName, " AS ")
-				colName = strings.TrimSpace(parts[len(parts)-1])
-			} else if strings.Contains(colName, ".") {
-				parts := strings.Split(colName, ".")
-				colName = strings.TrimSpace(parts[len(parts)-1])
-			}
-
-			// Convert column name to snake_case if it's in CamelCase
-			if strings.ToLower(colName) != colName {
-				var result []rune
-				for i, r := range colName {
-					if i > 0 && r >= 'A' && r <= 'Z' {
-						result = append(result, '_')
-					}
-					result = append(result, unicode.ToLower(r))
-				}
-				colName = string(result)
-			}
-
-			// Log column information for debugging
-			if define.Debug {
-				log.Printf("Column %s: value type=%T, value=%v", colName, val, val)
-			}
-
-			row[colName] = val
+			row[col] = val
 		}
 		result = append(result, row)
 	}
 
 	if err = rows.Err(); err != nil {
-		return &QueryResult{err: err}
+		return &define.Result{Error: err}
 	}
 
-	return &QueryResult{
+	return &define.Result{
 		Data:    result,
 		Columns: columns,
 	}
@@ -1353,194 +1088,6 @@ func (c *Chain) RawExecute(sql string, args ...interface{}) define.Result {
 		return define.Result{Error: err}
 	}
 	return define.Result{ID: lastID, Affected: affected}
-}
-
-// QueryResult represents a query result
-type QueryResult struct {
-	Data    []map[string]any `json:"data"`
-	Columns []string         `json:"columns"`
-	err     error
-}
-
-// Error returns the error if any
-func (qr *QueryResult) Error() error {
-	return qr.err
-}
-
-// Empty returns true if the result is empty
-func (qr *QueryResult) Empty() bool {
-	return len(qr.Data) == 0
-}
-
-// Size returns the number of rows in the result
-func (qr *QueryResult) Size() int {
-	return len(qr.Data)
-}
-
-// Into scans the result into a slice of structs
-func (qr *QueryResult) Into(dest interface{}) error {
-	if qr.err != nil {
-		return qr.err
-	}
-
-	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr {
-		return &DBError{
-			Op:      "Into",
-			Err:     errors.New("dest must be a pointer"),
-			Details: fmt.Sprintf("got %v", destValue.Kind()),
-		}
-	}
-
-	sliceValue := destValue.Elem()
-	if sliceValue.Kind() != reflect.Slice {
-		return &DBError{
-			Op:      "Into",
-			Err:     errors.New("dest must be a pointer to slice"),
-			Details: fmt.Sprintf("got pointer to %v", sliceValue.Kind()),
-		}
-	}
-
-	// Get the type of slice elements
-	elemType := sliceValue.Type().Elem()
-	isPtr := elemType.Kind() == reflect.Ptr
-	if isPtr {
-		elemType = elemType.Elem()
-	}
-
-	if elemType.Kind() != reflect.Struct {
-		return &DBError{
-			Op:      "Into",
-			Err:     errors.New("slice elements must be structs"),
-			Details: fmt.Sprintf("got %v", elemType.Kind()),
-		}
-	}
-
-	// Create a map of field names to struct fields
-	fieldMap := make(map[string]reflect.StructField)
-	for i := 0; i < elemType.NumField(); i++ {
-		field := elemType.Field(i)
-		tag := field.Tag.Get("gom")
-		if tag == "" || tag == "-" {
-			continue
-		}
-		// Parse tag to get column name
-		parts := strings.Split(tag, ",")
-		columnName := strings.ToLower(parts[0])
-		fieldMap[columnName] = field
-
-		// Also map the field name itself in lowercase
-		fieldMap[strings.ToLower(field.Name)] = field
-	}
-
-	// Create a new slice with the correct capacity
-	newSlice := reflect.MakeSlice(sliceValue.Type(), 0, len(qr.Data))
-
-	// Iterate over each row in the result
-	for _, row := range qr.Data {
-		// Create a new struct for this row
-		newElem := reflect.New(elemType).Elem()
-
-		// Set each field in the struct
-		for colName, val := range row {
-			// Convert column name to lowercase for case-insensitive matching
-			colName = strings.ToLower(colName)
-
-			// Try to find the field by column name or by field name
-			field, ok := fieldMap[colName]
-			if !ok {
-				// If not found, try to find by removing common prefixes (e.g., "dept_" from "dept_name")
-				parts := strings.Split(colName, "_")
-				if len(parts) > 1 {
-					colName = strings.Join(parts[1:], "_")
-					field, ok = fieldMap[colName]
-				}
-			}
-			if ok {
-				fieldValue := newElem.FieldByName(field.Name)
-				if !fieldValue.CanSet() {
-					continue
-				}
-
-				// Handle type conversions
-				if val == nil {
-					continue
-				}
-
-				// Handle type conversions based on field type
-				switch fieldValue.Kind() {
-				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-					switch v := val.(type) {
-					case int64:
-						fieldValue.SetInt(v)
-					case float64:
-						fieldValue.SetInt(int64(v))
-					case []uint8:
-						if i, err := strconv.ParseInt(string(v), 10, 64); err == nil {
-							fieldValue.SetInt(i)
-						}
-					}
-				case reflect.Float32, reflect.Float64:
-					switch v := val.(type) {
-					case float64:
-						fieldValue.SetFloat(v)
-					case []uint8:
-						if f, err := strconv.ParseFloat(string(v), 64); err == nil {
-							fieldValue.SetFloat(f)
-						}
-					}
-				case reflect.String:
-					switch v := val.(type) {
-					case string:
-						fieldValue.SetString(v)
-					case []uint8:
-						fieldValue.SetString(string(v))
-					}
-				case reflect.Bool:
-					switch v := val.(type) {
-					case bool:
-						fieldValue.SetBool(v)
-					case int64:
-						fieldValue.SetBool(v != 0)
-					case []uint8:
-						if b, err := strconv.ParseBool(string(v)); err == nil {
-							fieldValue.SetBool(b)
-						}
-					}
-				case reflect.Struct:
-					if fieldValue.Type() == reflect.TypeOf(time.Time{}) {
-						switch v := val.(type) {
-						case time.Time:
-							fieldValue.Set(reflect.ValueOf(v))
-						case []uint8:
-							formats := []string{
-								"2006-01-02 15:04:05",
-								"2006-01-02T15:04:05Z",
-								time.RFC3339,
-							}
-							for _, format := range formats {
-								if t, err := time.ParseInLocation(format, string(v), time.Local); err == nil {
-									fieldValue.Set(reflect.ValueOf(t))
-									break
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-
-		// Add the new element to the slice
-		if isPtr {
-			newSlice = reflect.Append(newSlice, newElem.Addr())
-		} else {
-			newSlice = reflect.Append(newSlice, newElem)
-		}
-	}
-
-	// Set the result back to the destination slice
-	sliceValue.Set(newSlice)
-	return nil
 }
 
 // setFieldValue handles type conversion and setting of field values
@@ -1761,8 +1308,8 @@ func (c *Chain) Count2(field string) (int64, error) {
 	}
 
 	result := countChain.list()
-	if result.err != nil {
-		return 0, result.err
+	if result.Error != nil {
+		return 0, result.Error
 	}
 
 	if len(result.Data) == 0 {
@@ -1906,20 +1453,6 @@ func (c *Chain) ReleaseSavepoint(name string) error {
 	return err
 }
 
-// First returns the first result or error if no results
-func (qr *QueryResult) First() *QueryResult {
-	if qr.err != nil {
-		return qr
-	}
-	if len(qr.Data) > 0 {
-		return &QueryResult{
-			Data:    qr.Data[:1],
-			Columns: qr.Columns,
-		}
-	}
-	return &QueryResult{err: sql.ErrNoRows}
-}
-
 // Where2 adds a condition directly
 func (c *Chain) Where2(cond *define.Condition) *Chain {
 	if cond != nil {
@@ -2010,8 +1543,8 @@ func (c *Chain) PageInfo(model interface{}) (*PageInfo, error) {
 	} else {
 		// 如果没有提供模型，返回原始查询结果
 		result := c.List()
-		if result.err != nil {
-			return nil, result.err
+		if result.Error != nil {
+			return nil, result.Error
 		}
 		list = result.Data
 	}

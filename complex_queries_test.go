@@ -92,7 +92,7 @@ func runComplexQueriesTest(t *testing.T, db *DB) {
 		result := db.Chain().Table("tests").
 			Where("age", define.OpGt, 25).
 			RawQuery(query, 25)
-		assert.NoError(t, result.Error())
+		assert.NoError(t, result.Error)
 		assert.Equal(t, int64(40), result.Data[0]["count"])
 
 		// Multiple aggregations
@@ -104,7 +104,7 @@ func runComplexQueriesTest(t *testing.T, db *DB) {
 				MAX(age) as max_age
 			FROM tests
 		`)
-		assert.NoError(t, result.Error())
+		assert.NoError(t, result.Error)
 		data := result.Data[0]
 		assert.Equal(t, int64(100), data["total_count"])
 		assert.InDelta(t, 24.5, data["avg_age"], 0.1)
@@ -122,7 +122,7 @@ func runComplexQueriesTest(t *testing.T, db *DB) {
 			HAVING count > 10
 			ORDER BY count DESC
 		`)
-		assert.NoError(t, result.Error())
+		assert.NoError(t, result.Error)
 		assert.Equal(t, 5, len(result.Data))
 	})
 
@@ -149,7 +149,7 @@ func runComplexQueriesTest(t *testing.T, db *DB) {
 			`
 		}
 		result := db.Chain().RawQuery(query, 20)
-		assert.NoError(t, result.Error())
+		assert.NoError(t, result.Error)
 		assert.Greater(t, len(result.Data), 0)
 
 		// Left join with null check
@@ -169,7 +169,7 @@ func runComplexQueriesTest(t *testing.T, db *DB) {
 			`
 		}
 		result = db.Chain().RawQuery(query)
-		assert.NoError(t, result.Error())
+		assert.NoError(t, result.Error)
 	})
 
 	t.Run("Window Functions", func(t *testing.T) {
@@ -191,7 +191,7 @@ func runComplexQueriesTest(t *testing.T, db *DB) {
 			`
 		}
 		result := db.Chain().RawQuery(query)
-		assert.NoError(t, result.Error())
+		assert.NoError(t, result.Error)
 		assert.Equal(t, 10, len(result.Data))
 
 		// Running total
@@ -211,22 +211,22 @@ func runComplexQueriesTest(t *testing.T, db *DB) {
 			`
 		}
 		result = db.Chain().RawQuery(query)
-		assert.NoError(t, result.Error())
+		assert.NoError(t, result.Error)
 		assert.Equal(t, 10, len(result.Data))
 	})
 
 	t.Run("Error Handling", func(t *testing.T) {
 		// Invalid SQL syntax
 		result := db.Chain().RawQuery("SELECT * FROMM tests")
-		assert.Error(t, result.Error())
+		assert.Error(t, result.Error)
 
 		// Invalid column name
 		result = db.Chain().RawQuery("SELECT invalid_column FROM tests")
-		assert.Error(t, result.Error())
+		assert.Error(t, result.Error)
 
 		// Invalid table name
 		result = db.Chain().RawQuery("SELECT * FROM invalid_table")
-		assert.Error(t, result.Error())
+		assert.Error(t, result.Error)
 
 		// Invalid group by
 		result = db.Chain().RawQuery(`
@@ -234,7 +234,7 @@ func runComplexQueriesTest(t *testing.T, db *DB) {
 			FROM tests
 			GROUP BY invalid_column
 		`)
-		assert.Error(t, result.Error())
+		assert.Error(t, result.Error)
 	})
 
 	t.Run("Complex Subqueries", func(t *testing.T) {
@@ -256,7 +256,7 @@ func runComplexQueriesTest(t *testing.T, db *DB) {
 			`
 		}
 		result := db.Chain().RawQuery(query)
-		assert.NoError(t, result.Error())
+		assert.NoError(t, result.Error)
 		assert.Equal(t, 5, len(result.Data))
 
 		// Subquery in WHERE
@@ -276,7 +276,7 @@ func runComplexQueriesTest(t *testing.T, db *DB) {
 			`
 		}
 		result = db.Chain().RawQuery(query)
-		assert.NoError(t, result.Error())
+		assert.NoError(t, result.Error)
 		assert.Greater(t, len(result.Data), 0)
 	})
 }
@@ -331,7 +331,7 @@ func runAdvancedRawQueriesTest(t *testing.T, db *DB) {
 			SELECT COUNT(*) as count, AVG(age) as avg_age 
 			FROM tests
 		`)
-		assert.NoError(t, result.Error())
+		assert.NoError(t, result.Error)
 		assert.Equal(t, int64(100), result.Data[0]["count"])
 
 		// Handle different types returned by MySQL and PostgreSQL
@@ -472,7 +472,7 @@ func runJoinQueriesTest(t *testing.T, db *DB) {
 			`
 		}
 		result := db.Chain().RawQuery(query, 25)
-		assert.NoError(t, result.Error())
+		assert.NoError(t, result.Error)
 		assert.True(t, len(result.Data) > 0)
 	})
 
@@ -496,7 +496,7 @@ func runJoinQueriesTest(t *testing.T, db *DB) {
 			`
 		}
 		result := db.Chain().RawQuery(query, 25)
-		assert.NoError(t, result.Error())
+		assert.NoError(t, result.Error)
 		assert.True(t, len(result.Data) > 0)
 	})
 }

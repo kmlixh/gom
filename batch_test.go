@@ -438,7 +438,7 @@ func TestBatchOperationsEdgeCases(t *testing.T) {
 
 		// Verify the record was inserted
 		var results []TestModel
-		err = db.Chain().Table("tests").Where("name", define.OpEq, "test_null").List(&results).Error()
+		err = db.Chain().Table("tests").Where("name", define.OpEq, "test_null").List(&results).Error
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(results))
 		assert.Equal(t, "test_null", results[0].Name)

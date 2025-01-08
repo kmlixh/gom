@@ -205,8 +205,8 @@ func main() {
 		WHERE price_rank = 1
 	`)
 
-	if result.Error() != nil {
-		log.Fatal(result.Error())
+	if result.Error != nil {
+		log.Fatal(result.Error)
 	}
 
 	fmt.Println("\nMost expensive products in each category:")
@@ -228,8 +228,8 @@ func main() {
 		GROUP BY u.role
 	`)
 
-	if result.Error() != nil {
-		log.Fatal(result.Error())
+	if result.Error != nil {
+		log.Fatal(result.Error)
 	}
 
 	fmt.Println("\nSales statistics by user role:")
@@ -251,8 +251,8 @@ func main() {
 		ORDER BY rank DESC
 	`)
 
-	if result.Error() != nil {
-		log.Fatal(result.Error())
+	if result.Error != nil {
+		log.Fatal(result.Error)
 	}
 
 	fmt.Println("\nFull-text search results:")
@@ -273,8 +273,8 @@ func main() {
 		ORDER BY month, category
 	`)
 
-	if result.Error() != nil {
-		log.Fatal(result.Error())
+	if result.Error != nil {
+		log.Fatal(result.Error)
 	}
 
 	fmt.Println("\nMonthly and cumulative sales by category:")

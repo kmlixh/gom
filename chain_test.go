@@ -118,7 +118,7 @@ func runChainOperationsTest(t *testing.T, db *DB) {
 
 		// Verify chain works by executing a query
 		var result []TestModel
-		err := chain.List(&result).Error()
+		err := chain.List(&result).Error
 		assert.NoError(t, err)
 	})
 
@@ -134,13 +134,13 @@ func runChainOperationsTest(t *testing.T, db *DB) {
 
 		// Test First
 		var firstResult TestModel
-		err = db.Chain().Table("tests").First(&firstResult).Error()
+		err = db.Chain().Table("tests").First(&firstResult).Error
 		assert.NoError(t, err)
 		assert.Equal(t, "test", firstResult.Name)
 
 		// Test List
 		var listResult []TestModel
-		err = db.Chain().Table("tests").List(&listResult).Error()
+		err = db.Chain().Table("tests").List(&listResult).Error
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(listResult))
 
@@ -158,7 +158,7 @@ func runChainOperationsTest(t *testing.T, db *DB) {
 
 		// Verify update
 		var updatedResult TestModel
-		err = db.Chain().Table("tests").First(&updatedResult).Error()
+		err = db.Chain().Table("tests").First(&updatedResult).Error
 		assert.NoError(t, err)
 		assert.Equal(t, 30, updatedResult.Age)
 

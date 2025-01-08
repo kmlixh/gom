@@ -193,15 +193,15 @@ func main() {
 	fmt.Printf("Found %d users, total pages: %d\n", len(queryUsers), pageInfo.Pages)
 
 	// 5.2 聚合查询
-	var result *gom.QueryResult
+	var result *define.Result
 	result = db.Chain().
 		Table("users").
 		Where("active", define.OpEq, true).
 		Fields("AVG(age) as avg_age").
 		List()
 
-	if result.Error() != nil {
-		log.Fatal(result.Error())
+	if result.Error != nil {
+		log.Fatal(result.Error)
 	}
 
 	if !result.Empty() {
@@ -217,8 +217,8 @@ func main() {
 		Having("COUNT(*) > ?", 1).
 		List()
 
-	if result.Error() != nil {
-		log.Fatal(result.Error())
+	if result.Error != nil {
+		log.Fatal(result.Error)
 	}
 
 	for _, r := range result.Data {
@@ -237,8 +237,8 @@ func main() {
 			WHERE u.id = ?
 		`, 1)
 
-	if result.Error() != nil {
-		log.Fatal(result.Error())
+	if result.Error != nil {
+		log.Fatal(result.Error)
 	}
 
 	for _, r := range result.Data {

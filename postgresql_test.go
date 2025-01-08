@@ -181,7 +181,7 @@ func TestPostgreSQLDBMetrics(t *testing.T) {
 	// Execute some queries to generate metrics
 	for i := 0; i < 5; i++ {
 		result := db.Chain().Table("tests").Fields("id").List()
-		assert.NoError(t, result.Error())
+		assert.NoError(t, result.Error)
 	}
 
 	// Get metrics
@@ -208,7 +208,7 @@ func TestPostgreSQLQueryStats(t *testing.T) {
 	// Execute a query and check stats
 	chain := db.Chain().Table("tests").Fields("id")
 	result := chain.List()
-	assert.NoError(t, result.Error())
+	assert.NoError(t, result.Error)
 
 	stats := chain.GetLastQueryStats()
 	assert.NotNil(t, stats)
