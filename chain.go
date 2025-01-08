@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -587,35 +588,247 @@ func (c *Chain) list() *define.Result {
 	}
 	defer rows.Close()
 
-	columns, err := rows.Columns()
+	// Get column types and names
+	columnTypes, err := rows.ColumnTypes()
 	if err != nil {
-		return &define.Result{Error: err}
+		return &define.Result{Error: fmt.Errorf("failed to get column types: %v", err)}
+	}
+
+	columns := make([]string, len(columnTypes))
+	for i, ct := range columnTypes {
+		columns[i] = ct.Name()
+	}
+
+	// Create scanners for each column based on its type
+	scanners := make([]interface{}, len(columnTypes))
+	for i, ct := range columnTypes {
+		scanners[i] = createScanner(ct)
 	}
 
 	var result []map[string]interface{}
 	for rows.Next() {
-		values := make([]interface{}, len(columns))
-		for i := range values {
-			values[i] = new(interface{})
-		}
-
-		err = rows.Scan(values...)
+		// Scan the row into scanners
+		err = rows.Scan(scanners...)
 		if err != nil {
-			return &define.Result{Error: err}
+			return &define.Result{Error: fmt.Errorf("failed to scan row: %v", err)}
 		}
 
+		// Convert scanned values to appropriate types
 		row := make(map[string]interface{})
-		for i, col := range columns {
-			val := *(values[i].(*interface{}))
-			row[col] = val
+		for i, ct := range columnTypes {
+			value := extractValue(scanners[i], ct)
+			row[columns[i]] = value
 		}
 		result = append(result, row)
+	}
+
+	if err = rows.Err(); err != nil {
+		return &define.Result{Error: fmt.Errorf("error during row iteration: %v", err)}
 	}
 
 	return &define.Result{
 		Data:    result,
 		Columns: columns,
 	}
+}
+
+// createScanner creates an appropriate scanner for the given column type
+func createScanner(ct *sql.ColumnType) interface{} {
+	// Get the database specific type name and convert to lowercase
+	dbTypeName := strings.ToLower(ct.DatabaseTypeName())
+
+	// Get the length/precision and scale for numeric types
+	length, scale, _ := ct.DecimalSize()
+
+	// Get if the column is nullable
+	nullable, _ := ct.Nullable()
+
+	// Handle specific database types
+	switch dbTypeName {
+	// Boolean types
+	case "bool", "boolean", "bit", "tinyint(1)":
+		if nullable {
+			return new(sql.NullBool)
+		}
+		return new(bool)
+
+	// Integer types
+	case "tinyint", "smallint", "mediumint", "int2", "int4":
+		if nullable {
+			return new(sql.NullInt32)
+		}
+		return new(int32)
+	case "int", "integer", "bigint", "int8":
+		if nullable {
+			return new(sql.NullInt64)
+		}
+		return new(int64)
+	case "year":
+		if nullable {
+			return new(sql.NullInt16)
+		}
+		return new(int16)
+
+	// Floating point types
+	case "float", "float4", "real":
+		if nullable {
+			return new(sql.NullFloat64)
+		}
+		return new(float32)
+	case "double", "float8":
+		if nullable {
+			return new(sql.NullFloat64)
+		}
+		return new(float64)
+	case "decimal", "numeric", "dec", "fixed":
+		if scale > 0 {
+			if nullable {
+				return new(sql.NullFloat64)
+			}
+			return new(float64)
+		}
+		if length > 9 {
+			if nullable {
+				return new(sql.NullInt64)
+			}
+			return new(int64)
+		}
+		if nullable {
+			return new(sql.NullInt32)
+		}
+		return new(int32)
+
+	// Time related types
+	case "time":
+		if nullable {
+			return new(sql.NullTime)
+		}
+		return new(time.Time)
+	case "date":
+		if nullable {
+			return new(sql.NullTime)
+		}
+		return new(time.Time)
+	case "datetime", "timestamp", "timestamptz":
+		if nullable {
+			return new(sql.NullTime)
+		}
+		return new(time.Time)
+	case "interval": // PostgreSQL interval type
+		return new(string)
+
+	// String types
+	case "char", "varchar", "tinytext", "text", "mediumtext", "longtext":
+		if nullable {
+			return new(sql.NullString)
+		}
+		return new(string)
+	case "enum", "set":
+		if nullable {
+			return new(sql.NullString)
+		}
+		return new(string)
+
+	// Binary types
+	case "binary", "varbinary", "tinyblob", "blob", "mediumblob", "longblob":
+		return new([]byte)
+
+	// JSON types
+	case "json", "jsonb":
+		return new([]byte)
+
+	// UUID types
+	case "uuid":
+		if nullable {
+			return new(sql.NullString)
+		}
+		return new(string)
+
+	// Network address types (PostgreSQL)
+	case "inet", "cidr", "macaddr":
+		if nullable {
+			return new(sql.NullString)
+		}
+		return new(string)
+
+	// Geometric types (PostgreSQL)
+	case "point", "line", "lseg", "box", "path", "polygon", "circle":
+		if nullable {
+			return new(sql.NullString)
+		}
+		return new(string)
+
+	// Array types (PostgreSQL)
+	case "array":
+		return new([]byte)
+
+	// XML type
+	case "xml":
+		if nullable {
+			return new(sql.NullString)
+		}
+		return new(string)
+
+	// Money types
+	case "money", "smallmoney":
+		if nullable {
+			return new(sql.NullFloat64)
+		}
+		return new(float64)
+
+	// Default to string for unknown types
+	default:
+		scanType := ct.ScanType()
+		if scanType != nil {
+			return reflect.New(scanType).Interface()
+		}
+		if nullable {
+			return new(sql.NullString)
+		}
+		return new(string)
+	}
+}
+
+// extractValue extracts the actual value from a scanner
+func extractValue(scanner interface{}, ct *sql.ColumnType) interface{} {
+	if scanner == nil {
+		return nil
+	}
+
+	switch v := scanner.(type) {
+	case *sql.NullBool:
+		if v.Valid {
+			return v.Bool
+		}
+	case *sql.NullInt64:
+		if v.Valid {
+			return v.Int64
+		}
+	case *sql.NullFloat64:
+		if v.Valid {
+			return v.Float64
+		}
+	case *sql.NullString:
+		if v.Valid {
+			return v.String
+		}
+	case *sql.NullTime:
+		if v.Valid {
+			return v.Time
+		}
+	case *[]byte:
+		if *v != nil {
+			// Try to parse JSON
+			if strings.ToLower(ct.DatabaseTypeName()) == "json" || strings.ToLower(ct.DatabaseTypeName()) == "jsonb" {
+				var js interface{}
+				if err := json.Unmarshal(*v, &js); err == nil {
+					return js
+				}
+			}
+			return string(*v)
+		}
+	}
+	return nil
 }
 
 // First returns the first result
