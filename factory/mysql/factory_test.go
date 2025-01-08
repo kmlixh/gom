@@ -41,7 +41,7 @@ func TestFactoryConnect(t *testing.T) {
 	factory := &Factory{}
 
 	// Test valid connection
-	db, err := factory.Connect("root:123456@tcp(10.0.1.5:3306)/test?charset=utf8mb4&parseTime=True")
+	db, err := factory.Connect(testutils.TestMySQLDSN)
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
 	db.Close()

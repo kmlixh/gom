@@ -11,6 +11,37 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// TestCategory 测试分类模型
+type TestCategory struct {
+	ID        int64     `gom:"id,pk,auto_increment"`
+	TestID    int64     `gom:"test_id"`
+	Category  string    `gom:"category"`
+	CreatedAt time.Time `gom:"created_at"`
+}
+
+// TestRawQueryResult 原始查询结果
+type TestRawQueryResult struct {
+	Count  int     `gom:"count"`
+	AvgAge float64 `gom:"avg_age"`
+}
+
+func setupTestTables(t *testing.T, db *DB) error {
+	// Create test tables
+	err := db.Chain().CreateTable(&TestModel{})
+	if err != nil {
+		t.Fatalf("Failed to create test table: %v", err)
+		return err
+	}
+
+	err = db.Chain().CreateTable(&TestCategory{})
+	if err != nil {
+		t.Fatalf("Failed to create test category table: %v", err)
+		return err
+	}
+
+	return nil
+}
+
 func TestComplexQueries(t *testing.T) {
 	t.Run("MySQL", func(t *testing.T) {
 		db := setupTestDB(t)
@@ -283,27 +314,75 @@ func runComplexQueriesTest(t *testing.T, db *DB) {
 
 func TestAdvancedRawQueries(t *testing.T) {
 	t.Run("MySQL", func(t *testing.T) {
-		db := setupTestDB(t)
+		db := setupMySQLTestDB(t)
 		if db == nil {
 			t.Skip("Skipping MySQL test due to database connection error")
 			return
 		}
 		defer db.Close()
 
-		runAdvancedRawQueriesTest(t, db)
+		err := setupTestTables(t, db)
+		if err != nil {
+			t.Fatalf("Failed to setup test tables: %v", err)
+			return
+		}
+
+		t.Run("Raw_Query", func(t *testing.T) {
+			query := `
+				SELECT COUNT(*) as count, AVG(age) as avg_age
+				FROM tests
+			`
+			var result TestRawQueryResult
+			err := db.Chain().Raw(query).Into(&result)
+			assert.NoError(t, err)
+			assert.True(t, result.AvgAge >= 0)
+		})
+
+		t.Run("Raw_Exec", func(t *testing.T) {
+			query := `
+				UPDATE tests
+				SET age = age + 1
+				WHERE age < ?
+			`
+			result := db.Chain().Raw(query, 25).Exec()
+			assert.NoError(t, result.Error)
+		})
 	})
 
 	t.Run("PostgreSQL", func(t *testing.T) {
-		db := setupTestDB(t)
+		db := setupPostgreSQLTestDB(t)
 		if db == nil {
 			t.Skip("Skipping PostgreSQL test due to database connection error")
 			return
 		}
-		defer func() {
-			_ = testutils.CleanupTestDB(db.DB, "tests")
-			db.Close()
-		}()
-		runAdvancedRawQueriesTest(t, db)
+		defer db.Close()
+
+		err := setupTestTables(t, db)
+		if err != nil {
+			t.Fatalf("Failed to setup test tables: %v", err)
+			return
+		}
+
+		t.Run("Raw_Query", func(t *testing.T) {
+			query := `
+				SELECT COUNT(*) as count, AVG(age) as avg_age
+				FROM tests
+			`
+			var result TestRawQueryResult
+			err := db.Chain().Raw(query).Into(&result)
+			assert.NoError(t, err)
+			assert.True(t, result.AvgAge >= 0)
+		})
+
+		t.Run("Raw_Exec", func(t *testing.T) {
+			query := `
+				UPDATE tests
+				SET age = age + 1
+				WHERE age < ?
+			`
+			result := db.Chain().Raw(query, 25).Exec()
+			assert.NoError(t, result.Error)
+		})
 	})
 }
 

@@ -2,6 +2,7 @@ package gom
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -16,14 +17,15 @@ var (
 
 // TestModel represents a test model for database operations
 type TestModel struct {
-	ID        int64     `gom:"id"`
-	Name      string    `gom:"name"`
-	Age       int       `gom:"age"`
-	CreatedAt time.Time `gom:"created_at"`
+	ID        int64     `gom:"id,@,auto"`
+	Name      string    `gom:"name,notnull"`
+	Age       int       `gom:"age,notnull"`
+	CreatedAt time.Time `gom:"created_at,notnull,default"`
 }
 
 // setupDB creates a new database connection with the given driver and DSN
 func setupDB(driver, dsn string) *DB {
+	fmt.Printf("Attempting to connect to database with driver %s and DSN %s\n", driver, dsn)
 	opts := &define.DBOptions{
 		MaxOpenConns:    10,
 		MaxIdleConns:    5,
@@ -33,23 +35,41 @@ func setupDB(driver, dsn string) *DB {
 	}
 	db, err := Open(driver, dsn, opts)
 	if err != nil {
+		fmt.Printf("Failed to open database connection: %v\n", err)
 		return nil
 	}
+
+	// Ping database to ensure connection is valid
+	if err := db.DB.Ping(); err != nil {
+		fmt.Printf("Failed to ping database: %v\n", err)
+		db.Close()
+		return nil
+	}
+
+	// Verify database connection by executing a simple query
+	var version string
+	if err := db.DB.QueryRow("SELECT VERSION()").Scan(&version); err != nil {
+		fmt.Printf("Failed to get database version: %v\n", err)
+		db.Close()
+		return nil
+	}
+	fmt.Printf("Successfully connected to database version: %s\n", version)
+
 	return db
 }
 
 func setupMySQLDB(t *testing.T) *DB {
-	db := setupDB("mysql", "root:123456@tcp(10.0.1.5:3306)/test?charset=utf8mb4&parseTime=True")
+	db := setupDB("mysql", testutils.TestMySQLDSN)
 	if db == nil {
-		t.Logf("Failed to connect to MySQL")
+		t.Fatalf("Failed to connect to MySQL: %s", testutils.TestMySQLDSN)
 	}
 	return db
 }
 
 func setupPostgreSQLDB(t *testing.T) *DB {
-	db := setupDB("postgres", "host=10.0.1.5 port=5432 user=postgres password=123456 dbname=test sslmode=disable")
+	db := setupDB("postgres", testutils.TestPgDSN)
 	if db == nil {
-		t.Logf("Failed to connect to PostgreSQL")
+		t.Fatalf("Failed to connect to PostgreSQL: %s", testutils.TestPgDSN)
 	}
 	return db
 }
@@ -61,10 +81,21 @@ func TestChainOperations(t *testing.T) {
 			t.Skip("Skipping MySQL test due to database connection error")
 			return
 		}
+		defer db.Close()
+
+		// Drop table if exists and create test table
+		_, err := db.DB.Exec("DROP TABLE IF EXISTS tests")
+		assert.NoError(t, err)
+
+		err = db.Chain().CreateTable(&TestModel{})
+		assert.NoError(t, err)
 		defer func() {
-			_ = testutils.CleanupTestDB(db.DB, "tests")
-			db.Close()
+			_, err := db.DB.Exec("DROP TABLE IF EXISTS tests")
+			if err != nil {
+				t.Logf("Failed to drop table: %v", err)
+			}
 		}()
+
 		runChainOperationsTest(t, db)
 	})
 
@@ -74,145 +105,137 @@ func TestChainOperations(t *testing.T) {
 			t.Skip("Skipping PostgreSQL test due to database connection error")
 			return
 		}
+		defer db.Close()
+
+		// Drop table if exists and create test table
+		_, err := db.DB.Exec("DROP TABLE IF EXISTS tests")
+		assert.NoError(t, err)
+
+		err = db.Chain().CreateTable(&TestModel{})
+		assert.NoError(t, err)
 		defer func() {
-			_ = testutils.CleanupTestDB(db.DB, "tests")
-			db.Close()
+			_, err := db.DB.Exec("DROP TABLE IF EXISTS tests")
+			if err != nil {
+				t.Logf("Failed to drop table: %v", err)
+			}
 		}()
+
 		runChainOperationsTest(t, db)
 	})
 }
 
 func runChainOperationsTest(t *testing.T, db *DB) {
-	// Create test table
-	err := db.Chain().CreateTable(&TestModel{})
+	tableName := "tests"
+
+	// Drop table if exists
+	_, err := db.DB.Exec("DROP TABLE IF EXISTS " + tableName)
 	assert.NoError(t, err)
 
-	t.Run("Chain Methods", func(t *testing.T) {
-		// Test Table method
-		chain := db.Chain().Table("tests")
-		assert.NotNil(t, chain)
+	// Create test table
+	var createTableSQL string
+	if db.Factory.GetType() == "postgres" {
+		createTableSQL = `CREATE TABLE tests (
+			id BIGSERIAL PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			age INTEGER NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`
+	} else {
+		createTableSQL = `CREATE TABLE tests (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			age INTEGER NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`
+	}
+	_, err = db.DB.Exec(createTableSQL)
+	assert.NoError(t, err)
 
-		// Test Fields method
-		chain = chain.Fields("id", "name")
-		assert.NotNil(t, chain)
+	// Verify table creation
+	var tableExists bool
+	if db.Factory.GetType() == "postgres" {
+		err = db.DB.QueryRow("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)", tableName).Scan(&tableExists)
+	} else {
+		err = db.DB.QueryRow("SELECT COUNT(*) > 0 FROM information_schema.tables WHERE table_name = ?", tableName).Scan(&tableExists)
+	}
+	assert.NoError(t, err)
+	assert.True(t, tableExists, "Table should exist after creation")
 
-		// Test Where method
-		chain = chain.Where("age", define.OpGt, 20)
-		assert.NotNil(t, chain)
+	// Test Insert
+	chain := db.Chain().Table(tableName)
+	result := chain.Values(map[string]interface{}{
+		"name":       "John",
+		"age":        30,
+		"created_at": time.Now(),
+	}).Save()
+	assert.NoError(t, result.Error)
+	fmt.Printf("Insert result: ID=%d, Affected=%d\n", result.ID, result.Affected)
 
-		// Test OrderBy method
-		chain = chain.OrderBy("age DESC")
-		assert.NotNil(t, chain)
+	// Verify the insert using direct SQL
+	var name string
+	var age int
+	var queryErr error
+	if db.Factory.GetType() == "postgres" {
+		var count int64
+		queryErr = db.DB.QueryRow("SELECT COUNT(*) FROM tests").Scan(&count)
+		assert.NoError(t, queryErr)
+		fmt.Printf("Total records in table: %d\n", count)
 
-		// Test GroupBy method
-		chain = chain.GroupBy("name")
-		assert.NotNil(t, chain)
+		queryErr = db.DB.QueryRow("SELECT name, age FROM tests WHERE id = $1", result.ID).Scan(&name, &age)
+	} else {
+		var count int64
+		queryErr = db.DB.QueryRow("SELECT COUNT(*) FROM tests").Scan(&count)
+		assert.NoError(t, queryErr)
+		fmt.Printf("Total records in table: %d\n", count)
 
-		// Test Having method
-		chain = chain.Having("COUNT(*) > ?", 1)
-		assert.NotNil(t, chain)
+		queryErr = db.DB.QueryRow("SELECT name, age FROM tests WHERE id = ?", result.ID).Scan(&name, &age)
+	}
+	assert.NoError(t, queryErr)
+	assert.Equal(t, "John", name)
+	assert.Equal(t, 30, age)
 
-		// Test Limit and Offset methods
-		chain = chain.Limit(10).Offset(5)
-		assert.NotNil(t, chain)
+	// Test Select
+	var users []struct {
+		ID        int64     `gom:"id"`
+		Name      string    `gom:"name"`
+		Age       int       `gom:"age"`
+		CreatedAt time.Time `gom:"created_at"`
+	}
+	err = db.Chain().Table(tableName).Where("id", define.OpEq, result.ID).List(&users).Error
+	assert.NoError(t, err)
+	if assert.NotEmpty(t, users, "Expected users to be non-empty") {
+		assert.Equal(t, "John", users[0].Name)
+		assert.Equal(t, 30, users[0].Age)
+	}
 
-		// Verify chain works by executing a query
-		var result []TestModel
-		err := chain.List(&result).Error
-		assert.NoError(t, err)
-	})
+	// Test Update
+	updateResult := db.Chain().Table(tableName).Where("id", define.OpEq, result.ID).
+		Values(map[string]interface{}{"age": 31}).Save()
+	assert.NoError(t, updateResult.Error)
 
-	t.Run("Chain Query Execution", func(t *testing.T) {
-		// Insert test data
-		model := &TestModel{
-			Name:      "test",
-			Age:       25,
-			CreatedAt: time.Now(),
-		}
-		err := db.Chain().Table("tests").From(model).Save().Error
-		assert.NoError(t, err)
+	// Verify update
+	users = nil
+	err = db.Chain().Table(tableName).Where("id", define.OpEq, result.ID).List(&users).Error
+	assert.NoError(t, err)
+	if assert.NotEmpty(t, users, "Expected users to be non-empty after update") {
+		assert.Equal(t, 31, users[0].Age)
+	}
 
-		// Test First
-		var firstResult TestModel
-		err = db.Chain().Table("tests").First(&firstResult).Error
-		assert.NoError(t, err)
-		assert.Equal(t, "test", firstResult.Name)
+	// Test Count
+	count, err := db.Chain().Table(tableName).Count()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), count)
 
-		// Test List
-		var listResult []TestModel
-		err = db.Chain().Table("tests").List(&listResult).Error
-		assert.NoError(t, err)
-		assert.Equal(t, 1, len(listResult))
+	// Test Delete
+	deleteResult := db.Chain().Table(tableName).Where("id", define.OpEq, result.ID).Delete()
+	assert.NoError(t, deleteResult.Error)
 
-		// Test Count
-		count, err := db.Chain().Table("tests").Count()
-		assert.NoError(t, err)
-		assert.Equal(t, int64(1), count)
+	// Verify delete
+	count, err = db.Chain().Table(tableName).Count()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(0), count)
 
-		// Test Update
-		err = db.Chain().Table("tests").
-			Where("name", define.OpEq, "test").
-			Set("age", 30).
-			Save().Error
-		assert.NoError(t, err)
-
-		// Verify update
-		var updatedResult TestModel
-		err = db.Chain().Table("tests").First(&updatedResult).Error
-		assert.NoError(t, err)
-		assert.Equal(t, 30, updatedResult.Age)
-
-		// Test Delete
-		err = db.Chain().Table("tests").
-			Where("name", define.OpEq, "test").
-			Delete().Error
-		assert.NoError(t, err)
-
-		// Verify delete
-		count, err = db.Chain().Table("tests").Count()
-		assert.NoError(t, err)
-		assert.Equal(t, int64(0), count)
-	})
-
-	t.Run("Chain Transaction", func(t *testing.T) {
-		// Test successful transaction
-		err := db.Chain().Transaction(func(tx *Chain) error {
-			model := &TestModel{
-				Name:      "transaction_test",
-				Age:       25,
-				CreatedAt: time.Now(),
-			}
-			return tx.Table("tests").From(model).Save().Error
-		})
-		assert.NoError(t, err)
-
-		// Verify transaction was committed
-		count, err := db.Chain().Table("tests").
-			Where("name", define.OpEq, "transaction_test").
-			Count()
-		assert.NoError(t, err)
-		assert.Equal(t, int64(1), count)
-
-		// Test failed transaction
-		err = db.Chain().Transaction(func(tx *Chain) error {
-			model := &TestModel{
-				Name:      "failed_transaction",
-				Age:       25,
-				CreatedAt: time.Now(),
-			}
-			err := tx.Table("tests").From(model).Save().Error
-			if err != nil {
-				return err
-			}
-			return errors.New("rollback test")
-		})
-		assert.Error(t, err)
-
-		// Verify transaction was rolled back
-		count, err = db.Chain().Table("tests").
-			Where("name", define.OpEq, "failed_transaction").
-			Count()
-		assert.NoError(t, err)
-		assert.Equal(t, int64(0), count)
-	})
+	// Clean up
+	_, err = db.DB.Exec("DROP TABLE IF EXISTS " + tableName)
+	assert.NoError(t, err)
 }

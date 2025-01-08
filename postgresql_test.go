@@ -6,39 +6,29 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/kmlixh/gom/v4/factory/postgres"
+	"github.com/kmlixh/gom/v4/define"
 	_ "github.com/kmlixh/gom/v4/factory/postgres"
 	"github.com/kmlixh/gom/v4/testutils"
 	"github.com/stretchr/testify/assert"
 )
 
 func setupPostgreSQLTestDB(t *testing.T) *DB {
-	// Open PostgreSQL connection
-	postgresDB, err := sql.Open("pgx", "host=10.0.1.5 port=5432 user=postgres password=123456 dbname=test sslmode=disable")
+	config := testutils.DefaultPostgresConfig()
+	opts := &define.DBOptions{
+		MaxOpenConns:    10,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: time.Hour,
+		ConnMaxIdleTime: 30 * time.Minute,
+		Debug:           true,
+	}
+
+	db, err := Open(config.Driver, config.DSN(), opts)
 	if err != nil {
-		t.Skipf("Skipping PostgreSQL tests: %v", err)
+		if t != nil {
+			t.Skipf("Skipping PostgreSQL tests: %v", err)
+		}
 		return nil
 	}
-
-	// Test PostgreSQL connection
-	if err = postgresDB.Ping(); err != nil {
-		postgresDB.Close()
-		t.Skipf("Skipping PostgreSQL tests: %v", err)
-		return nil
-	}
-
-	db := &DB{
-		DB:      postgresDB,
-		Factory: &postgres.Factory{},
-	}
-
-	// Create test tables
-	err = db.Chain().CreateTable(&TestModel{})
-	if err != nil {
-		postgresDB.Close()
-		t.Fatalf("Failed to create test table: %v", err)
-	}
-
 	return db
 }
 

@@ -81,6 +81,10 @@ type Chain struct {
 
 	// Transaction management
 	txStack *txStack
+
+	// Raw SQL fields
+	rawSQL string
+	args   []interface{}
 }
 
 // SensitiveType defines the type of sensitive data
@@ -458,7 +462,7 @@ func (c *Chain) BatchValues(values []map[string]interface{}) *Chain {
 	return c
 }
 
-// From sets the table name and conditions from a struct or string
+// From sets the model for the chain operation
 func (c *Chain) From(model interface{}) *Chain {
 	// Store the model for potential ID callback
 	c.model = model
@@ -469,77 +473,78 @@ func (c *Chain) From(model interface{}) *Chain {
 		return c
 	}
 
+	// Get model type and value
 	modelType := reflect.TypeOf(model)
 	if modelType.Kind() == reflect.Ptr {
 		modelType = modelType.Elem()
 	}
-
-	// Set table name if not already set
-	if c.tableName == "" {
-		c.tableName = getTableNameFromStruct(modelType, model)
-	}
-
-	// Get non-empty fields
 	modelValue := reflect.ValueOf(model)
 	if modelValue.Kind() == reflect.Ptr {
 		modelValue = modelValue.Elem()
 	}
 
-	// Get fields and values
+	// If no table name is set, use the model type name
+	if c.tableName == "" {
+		c.tableName = strings.ToLower(modelType.Name())
+	}
+
+	// Extract field values from the model
 	for i := 0; i < modelType.NumField(); i++ {
 		field := modelType.Field(i)
-		value := modelValue.Field(i)
-
 		tag := field.Tag.Get("gom")
-		if tag == "" || tag == "-" {
+		if tag == "" {
 			continue
 		}
 
-		// Parse tag to get column name
+		// Parse tag
 		parts := strings.Split(tag, ",")
 		columnName := parts[0]
-
-		// Handle special cases for query model
-		if strings.HasSuffix(modelType.Name(), "Query") {
-			if !value.IsZero() {
-				switch {
-				case strings.HasPrefix(field.Name, "Min"):
-					c.Where(strings.TrimPrefix(columnName, "min_"), define.OpGe, value.Interface())
-				case strings.HasPrefix(field.Name, "Max"):
-					c.Where(strings.TrimPrefix(columnName, "max_"), define.OpLe, value.Interface())
-				case field.Name == "IsActive":
-					c.Where("active", define.OpEq, value.Interface())
-				default:
-					c.Where(columnName, define.OpEq, value.Interface())
-				}
-			}
+		if columnName == "" {
 			continue
 		}
 
-		// Handle normal model fields
-		if !value.IsZero() {
-			if field.Name == "ID" {
-				c.Where(columnName, define.OpEq, value.Interface())
-			} else {
-				if c.fieldMap == nil {
-					c.fieldMap = make(map[string]interface{})
-				}
-				c.fieldMap[columnName] = value.Interface()
-				if !contains(c.fieldOrder, columnName) {
-					c.fieldOrder = append(c.fieldOrder, columnName)
+		// Skip auto-increment fields for insert
+		isAuto := false
+		for _, part := range parts[1:] {
+			if part == "auto" {
+				isAuto = true
+				break
+			}
+		}
+		if isAuto {
+			continue
+		}
+
+		// Get field value
+		fieldValue := modelValue.Field(i)
+		if !fieldValue.IsValid() {
+			continue
+		}
+
+		// Handle zero values based on tag options
+		isZero := reflect.DeepEqual(fieldValue.Interface(), reflect.Zero(fieldValue.Type()).Interface())
+		if isZero {
+			hasDefault := false
+			for _, part := range parts[1:] {
+				if part == "default" {
+					hasDefault = true
+					break
 				}
 			}
-		} else if !strings.HasSuffix(modelType.Name(), "Query") {
-			// For non-query models, include zero-value fields in INSERT operations
-			if field.Name != "ID" {
-				if c.fieldMap == nil {
-					c.fieldMap = make(map[string]interface{})
-				}
-				c.fieldMap[columnName] = value.Interface()
-				if !contains(c.fieldOrder, columnName) {
-					c.fieldOrder = append(c.fieldOrder, columnName)
-				}
+			if hasDefault {
+				continue
 			}
+		}
+
+		// Add field to fieldMap
+		if c.fieldMap == nil {
+			c.fieldMap = make(map[string]interface{})
+		}
+		c.fieldMap[columnName] = fieldValue.Interface()
+
+		// Add to fieldOrder if not already present
+		if !contains(c.fieldOrder, columnName) {
+			c.fieldOrder = append(c.fieldOrder, columnName)
 		}
 	}
 
@@ -792,30 +797,63 @@ func createScanner(ct *sql.ColumnType) interface{} {
 // extractValue extracts the actual value from a scanner
 func extractValue(scanner interface{}, ct *sql.ColumnType) interface{} {
 	if scanner == nil {
-		return nil
+		// Return zero value based on column type
+		switch strings.ToLower(ct.DatabaseTypeName()) {
+		case "bool", "boolean", "bit", "tinyint(1)":
+			return false
+		case "tinyint", "smallint", "mediumint", "int", "integer", "bigint", "year":
+			return int64(0)
+		case "float", "double", "decimal", "numeric":
+			return float64(0)
+		case "time", "date", "datetime", "timestamp":
+			return time.Time{}
+		default:
+			return ""
+		}
 	}
 
 	switch v := scanner.(type) {
+	case *bool:
+		return *v
+	case *int16:
+		return *v
+	case *int32:
+		return *v
+	case *int64:
+		return *v
+	case *float32:
+		return *v
+	case *float64:
+		return *v
+	case *string:
+		return *v
+	case *time.Time:
+		return *v
 	case *sql.NullBool:
 		if v.Valid {
 			return v.Bool
 		}
+		return false
 	case *sql.NullInt64:
 		if v.Valid {
 			return v.Int64
 		}
+		return int64(0)
 	case *sql.NullFloat64:
 		if v.Valid {
 			return v.Float64
 		}
+		return float64(0)
 	case *sql.NullString:
 		if v.Valid {
 			return v.String
 		}
+		return ""
 	case *sql.NullTime:
 		if v.Valid {
 			return v.Time
 		}
+		return time.Time{}
 	case *[]byte:
 		if *v != nil {
 			// Try to parse JSON
@@ -827,6 +865,7 @@ func extractValue(scanner interface{}, ct *sql.ColumnType) interface{} {
 			}
 			return string(*v)
 		}
+		return ""
 	}
 	return nil
 }
@@ -920,6 +959,10 @@ func (c *Chain) Save(models ...interface{}) define.Result {
 
 // executeInsert executes an INSERT query
 func (c *Chain) executeInsert() define.Result {
+	if len(c.fieldMap) == 0 {
+		return define.Result{Error: fmt.Errorf("no fields to insert")}
+	}
+
 	sqlStr, args := c.factory.BuildInsert(c.tableName, c.fieldMap, c.fieldOrder)
 	if define.Debug {
 		log.Printf("[SQL] %s %v", sqlStr, args)
@@ -927,6 +970,7 @@ func (c *Chain) executeInsert() define.Result {
 
 	var result sql.Result
 	var err error
+
 	if c.tx != nil {
 		result, err = c.tx.Exec(sqlStr, args...)
 	} else {
@@ -934,15 +978,21 @@ func (c *Chain) executeInsert() define.Result {
 	}
 
 	if err != nil {
-		return define.Result{Error: err}
+		return define.Result{Error: fmt.Errorf("failed to execute insert: %v", err)}
 	}
 
-	lastID, err := result.LastInsertId()
-	if err != nil {
-		return define.Result{Error: err}
-	}
-
+	lastID, _ := result.LastInsertId()
 	affected, _ := result.RowsAffected()
+
+	// For PostgreSQL, if LastInsertId is not supported, try to get it from the RETURNING clause
+	if lastID == 0 && c.factory.GetType() == "postgres" {
+		var id int64
+		err = c.db.DB.QueryRow("SELECT lastval()").Scan(&id)
+		if err == nil {
+			lastID = id
+		}
+	}
+
 	return define.Result{
 		ID:       lastID,
 		Affected: affected,
@@ -1537,8 +1587,38 @@ func (c *Chain) Count2(field string) (int64, error) {
 	switch v := count.(type) {
 	case int64:
 		return v, nil
+	case int32:
+		return int64(v), nil
 	case int:
 		return int64(v), nil
+	case int16:
+		return int64(v), nil
+	case int8:
+		return int64(v), nil
+	case uint64:
+		return int64(v), nil
+	case uint32:
+		return int64(v), nil
+	case uint16:
+		return int64(v), nil
+	case uint8:
+		return int64(v), nil
+	case float64:
+		return int64(v), nil
+	case float32:
+		return int64(v), nil
+	case string:
+		if i, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return i, nil
+		}
+		return 0, fmt.Errorf("failed to convert string count to int64: %s", v)
+	case []uint8:
+		if i, err := strconv.ParseInt(string(v), 10, 64); err == nil {
+			return i, nil
+		}
+		return 0, fmt.Errorf("failed to convert []uint8 count to int64: %s", string(v))
+	case nil:
+		return 0, nil
 	default:
 		return 0, fmt.Errorf("unexpected count type: %T", v)
 	}
@@ -2775,4 +2855,31 @@ func (c *Chain) OrWhere(field string, op define.OpType, value interface{}) *Chai
 	}
 	c.conds = append(c.conds, cond)
 	return c
+}
+
+// Raw 执行原始 SQL 查询
+func (c *Chain) Raw(query string, args ...interface{}) *Chain {
+	c.rawSQL = query
+	c.args = args
+	return c
+}
+
+// Exec 执行原始 SQL 语句
+func (c *Chain) Exec() *define.Result {
+	if c.rawSQL == "" {
+		return &define.Result{Error: errors.New("raw SQL is empty")}
+	}
+
+	result, err := c.db.DB.Exec(c.rawSQL, c.args...)
+	if err != nil {
+		return &define.Result{Error: err}
+	}
+
+	lastInsertID, _ := result.LastInsertId()
+	rowsAffected, _ := result.RowsAffected()
+
+	return &define.Result{
+		ID:       lastInsertID,
+		Affected: rowsAffected,
+	}
 }

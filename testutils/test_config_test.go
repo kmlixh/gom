@@ -3,6 +3,8 @@ package testutils
 import (
 	"os"
 	"testing"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 func TestDefaultConfigs(t *testing.T) {

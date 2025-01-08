@@ -5,39 +5,29 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kmlixh/gom/v4/factory/mysql"
+	"github.com/kmlixh/gom/v4/define"
 	_ "github.com/kmlixh/gom/v4/factory/mysql"
 	"github.com/kmlixh/gom/v4/testutils"
 	"github.com/stretchr/testify/assert"
 )
 
 func setupMySQLTestDB(t *testing.T) *DB {
-	// Open MySQL connection
-	mysqlDB, err := sql.Open("mysql", testutils.TestMySQLDSN)
+	config := testutils.DefaultMySQLConfig()
+	opts := &define.DBOptions{
+		MaxOpenConns:    10,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: time.Hour,
+		ConnMaxIdleTime: 30 * time.Minute,
+		Debug:           true,
+	}
+
+	db, err := Open(config.Driver, config.DSN(), opts)
 	if err != nil {
-		t.Skipf("Skipping MySQL tests: %v", err)
+		if t != nil {
+			t.Skipf("Skipping MySQL tests: %v", err)
+		}
 		return nil
 	}
-
-	// Test MySQL connection
-	if err = mysqlDB.Ping(); err != nil {
-		mysqlDB.Close()
-		t.Skipf("Skipping MySQL tests: %v", err)
-		return nil
-	}
-
-	db := &DB{
-		DB:      mysqlDB,
-		Factory: &mysql.Factory{},
-	}
-
-	// Create test tables
-	err = db.Chain().CreateTable(&TestModel{})
-	if err != nil {
-		mysqlDB.Close()
-		t.Fatalf("Failed to create test table: %v", err)
-	}
-
 	return db
 }
 

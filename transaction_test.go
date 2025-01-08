@@ -23,13 +23,15 @@ func setupTestDB(t *testing.T) *DB {
 	}
 
 	// Try MySQL first
-	db, err := Open("mysql", "root:123456@tcp(10.0.1.5:3306)/test?charset=utf8mb4&parseTime=True", opts)
+	mysqlConfig := testutils.DefaultMySQLConfig()
+	db, err := Open(mysqlConfig.Driver, mysqlConfig.DSN(), opts)
 	if err == nil {
 		return db
 	}
 
 	// If MySQL fails, try PostgreSQL
-	db, err = Open("postgres", "host=10.0.1.5 port=5432 user=postgres password=123456 dbname=test sslmode=disable", opts)
+	pgConfig := testutils.DefaultPostgresConfig()
+	db, err = Open(pgConfig.Driver, pgConfig.DSN(), opts)
 	if err == nil {
 		return db
 	}
