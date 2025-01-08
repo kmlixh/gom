@@ -2,6 +2,7 @@ package define
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -73,14 +74,22 @@ func (r *Result) Into(dest interface{}) error {
 	fieldMap := make(map[string]reflect.StructField)
 	for i := 0; i < elemType.NumField(); i++ {
 		field := elemType.Field(i)
+
+		// Try gom tag first
 		tag := field.Tag.Get("gom")
-		if tag == "" || tag == "-" {
-			continue
+		if tag != "" && tag != "-" {
+			parts := strings.Split(tag, ",")
+			columnName := strings.ToLower(parts[0])
+			fieldMap[columnName] = field
 		}
-		// Parse tag to get column name
-		parts := strings.Split(tag, ",")
-		columnName := strings.ToLower(parts[0])
-		fieldMap[columnName] = field
+
+		// Try json tag if gom tag is not present
+		jsonTag := field.Tag.Get("json")
+		if jsonTag != "" && jsonTag != "-" {
+			parts := strings.Split(jsonTag, ",")
+			columnName := strings.ToLower(parts[0])
+			fieldMap[columnName] = field
+		}
 
 		// Also map the field name itself in lowercase
 		fieldMap[strings.ToLower(field.Name)] = field
@@ -108,6 +117,52 @@ func (r *Result) Into(dest interface{}) error {
 					continue
 				}
 
+				// Handle JSON data from database
+				switch v := value.(type) {
+				case string:
+					// Try to unmarshal if the field is a struct, map, slice, or array
+					switch fieldValue.Kind() {
+					case reflect.Struct, reflect.Map, reflect.Slice, reflect.Array:
+						if err := json.Unmarshal([]byte(v), fieldValue.Addr().Interface()); err == nil {
+							continue
+						}
+					}
+				case []byte:
+					// Handle JSON stored as bytes
+					switch fieldValue.Kind() {
+					case reflect.Struct, reflect.Map, reflect.Slice, reflect.Array:
+						if err := json.Unmarshal(v, fieldValue.Addr().Interface()); err == nil {
+							continue
+						}
+					case reflect.String:
+						// If the field is string, try to unmarshal first, if fails then set as string
+						var js interface{}
+						if err := json.Unmarshal(v, &js); err == nil {
+							// It's valid JSON, keep it as JSON string
+							fieldValue.SetString(string(v))
+						} else {
+							// Not valid JSON, treat as normal string
+							fieldValue.SetString(string(v))
+						}
+						continue
+					}
+				case map[string]interface{}, []interface{}:
+					// Handle JSON objects/arrays already decoded by database driver
+					jsonData, err := json.Marshal(v)
+					if err == nil {
+						switch fieldValue.Kind() {
+						case reflect.Struct, reflect.Map:
+							if err := json.Unmarshal(jsonData, fieldValue.Addr().Interface()); err == nil {
+								continue
+							}
+						case reflect.String:
+							fieldValue.SetString(string(jsonData))
+							continue
+						}
+					}
+				}
+
+				// Normal type conversion
 				srcValue := reflect.ValueOf(value)
 				if srcValue.Type().ConvertibleTo(fieldValue.Type()) {
 					fieldValue.Set(srcValue.Convert(fieldValue.Type()))
@@ -128,6 +183,28 @@ func (r *Result) Into(dest interface{}) error {
 	return nil
 }
 
+// IntoMap scans a single result row into a map
+func (r *Result) IntoMap() (map[string]interface{}, error) {
+	if r.Error != nil {
+		return nil, r.Error
+	}
+
+	if len(r.Data) == 0 {
+		return nil, sql.ErrNoRows
+	}
+
+	return r.Data[0], nil
+}
+
+// IntoMaps returns all result rows as a slice of maps
+func (r *Result) IntoMaps() ([]map[string]interface{}, error) {
+	if r.Error != nil {
+		return nil, r.Error
+	}
+
+	return r.Data, nil
+}
+
 // First returns the first result or error if no results
 func (r *Result) First() *Result {
 	if r.Error != nil {
@@ -140,6 +217,25 @@ func (r *Result) First() *Result {
 		}
 	}
 	return &Result{Error: sql.ErrNoRows}
+}
+
+// ToJSON converts the result to JSON string
+func (r *Result) ToJSON() (string, error) {
+	if r.Error != nil {
+		return "", r.Error
+	}
+
+	jsonData, err := json.Marshal(r)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result to JSON: %v", err)
+	}
+
+	return string(jsonData), nil
+}
+
+// FromJSON parses JSON string into the result
+func (r *Result) FromJSON(jsonStr string) error {
+	return json.Unmarshal([]byte(jsonStr), r)
 }
 
 // Ensure Result implements sql.Result interface
