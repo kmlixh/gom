@@ -2,7 +2,10 @@ package define
 
 import (
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,9 +35,17 @@ type Transfer struct {
 	Fields       map[string]*FieldInfo     // Map of column name to field info
 	FieldOrder   []string                  // Order of fields for consistent operations
 	PrimaryKey   *FieldInfo                // Primary key field info
-	mu           sync.RWMutex              // For concurrent access
+	model        interface{}               // Original model
 	scannerCache map[string][]*ScannerInfo // Cache of column scanners
-	model        interface{}
+	mu           sync.RWMutex              // Mutex for concurrent access
+}
+
+// TypeConverter is the interface that wraps the basic type conversion methods
+type TypeConverter interface {
+	// FromDB converts a value from database format to Go type
+	FromDB(value interface{}) error
+	// ToDB converts a Go type to database format
+	ToDB() (interface{}, error)
 }
 
 // cache for Transfer objects
@@ -75,10 +86,15 @@ func GetTransfer(model interface{}) *Transfer {
 		Fields:       make(map[string]*FieldInfo),
 		FieldOrder:   make([]string, 0),
 		scannerCache: make(map[string][]*ScannerInfo),
+		model:        model,
 	}
 
 	// Set table name
-	transfer.TableName = strings.ToLower(modelType.Name())
+	if namer, ok := model.(interface{ TableName() string }); ok {
+		transfer.TableName = namer.TableName()
+	} else {
+		transfer.TableName = strings.ToLower(modelType.Name())
+	}
 
 	// Parse struct fields
 	for i := 0; i < modelType.NumField(); i++ {
@@ -359,7 +375,9 @@ func (t *Transfer) ScanRow(rows *sql.Rows, columns []string) (interface{}, error
 			if fieldValue.CanSet() {
 				convertedValue := info.Convert(scanners[i])
 				if convertedValue != nil {
-					fieldValue.Set(reflect.ValueOf(convertedValue))
+					if err := setFieldValue(fieldValue, convertedValue); err != nil {
+						return nil, fmt.Errorf("error setting field %s: %v", columns[i], err)
+					}
 				}
 			}
 		}
@@ -399,7 +417,295 @@ func (t *Transfer) ScanAll(rows *sql.Rows) (interface{}, error) {
 	return slice.Interface(), nil
 }
 
+// setFieldValue handles type conversion and setting of field values
+func setFieldValue(field reflect.Value, value interface{}) error {
+	if value == nil {
+		return nil
+	}
+
+	// Try custom type converter first
+	if field.CanAddr() {
+		if converter, ok := field.Addr().Interface().(TypeConverter); ok {
+			return converter.FromDB(value)
+		}
+	}
+
+	switch field.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		switch v := value.(type) {
+		case int64:
+			if field.OverflowInt(v) {
+				return fmt.Errorf("value %v overflows %s", v, field.Type())
+			}
+			field.SetInt(v)
+		case float64:
+			if float64(int64(v)) != v {
+				return fmt.Errorf("value %v has fractional part and cannot be converted to %s", v, field.Type())
+			}
+			if field.OverflowInt(int64(v)) {
+				return fmt.Errorf("value %v overflows %s", v, field.Type())
+			}
+			field.SetInt(int64(v))
+		case string:
+			// Handle different number formats
+			str := strings.TrimSpace(v)
+			base := 10
+			if strings.HasPrefix(str, "0x") || strings.HasPrefix(str, "0X") {
+				str = str[2:]
+				base = 16
+			} else if strings.HasPrefix(str, "0b") || strings.HasPrefix(str, "0B") {
+				str = str[2:]
+				base = 2
+			} else if strings.HasPrefix(str, "0") && len(str) > 1 {
+				str = str[1:]
+				base = 8
+			}
+
+			if i, err := strconv.ParseInt(str, base, 64); err == nil {
+				if field.OverflowInt(i) {
+					return fmt.Errorf("value %v overflows %s", i, field.Type())
+				}
+				field.SetInt(i)
+			} else {
+				return fmt.Errorf("cannot convert %q to %s: %v", v, field.Type(), err)
+			}
+		case []uint8:
+			return setFieldValue(field, string(v))
+		default:
+			return fmt.Errorf("cannot convert %T(%v) to %s", value, value, field.Type())
+		}
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		switch v := value.(type) {
+		case int64:
+			if v < 0 {
+				return fmt.Errorf("negative value %v cannot be converted to %s", v, field.Type())
+			}
+			if field.OverflowUint(uint64(v)) {
+				return fmt.Errorf("value %v overflows %s", v, field.Type())
+			}
+			field.SetUint(uint64(v))
+		case float64:
+			if v < 0 {
+				return fmt.Errorf("negative value %v cannot be converted to %s", v, field.Type())
+			}
+			if float64(uint64(v)) != v {
+				return fmt.Errorf("value %v has fractional part and cannot be converted to %s", v, field.Type())
+			}
+			if field.OverflowUint(uint64(v)) {
+				return fmt.Errorf("value %v overflows %s", v, field.Type())
+			}
+			field.SetUint(uint64(v))
+		case string:
+			str := strings.TrimSpace(v)
+			base := 10
+			if strings.HasPrefix(str, "0x") || strings.HasPrefix(str, "0X") {
+				str = str[2:]
+				base = 16
+			} else if strings.HasPrefix(str, "0b") || strings.HasPrefix(str, "0B") {
+				str = str[2:]
+				base = 2
+			} else if strings.HasPrefix(str, "0") && len(str) > 1 {
+				str = str[1:]
+				base = 8
+			}
+
+			if i, err := strconv.ParseUint(str, base, 64); err == nil {
+				if field.OverflowUint(i) {
+					return fmt.Errorf("value %v overflows %s", i, field.Type())
+				}
+				field.SetUint(i)
+			} else {
+				return fmt.Errorf("cannot convert %q to %s: %v", v, field.Type(), err)
+			}
+		case []uint8:
+			return setFieldValue(field, string(v))
+		default:
+			return fmt.Errorf("cannot convert %T(%v) to %s", value, value, field.Type())
+		}
+
+	case reflect.Float32, reflect.Float64:
+		switch v := value.(type) {
+		case float64:
+			if field.OverflowFloat(v) {
+				return fmt.Errorf("value %v overflows %s", v, field.Type())
+			}
+			field.SetFloat(v)
+		case int64:
+			field.SetFloat(float64(v))
+		case string:
+			if f, err := strconv.ParseFloat(v, 64); err == nil {
+				if field.OverflowFloat(f) {
+					return fmt.Errorf("value %v overflows %s", f, field.Type())
+				}
+				field.SetFloat(f)
+			} else {
+				return fmt.Errorf("cannot convert %q to %s: %v", v, field.Type(), err)
+			}
+		case []uint8:
+			return setFieldValue(field, string(v))
+		default:
+			return fmt.Errorf("cannot convert %T(%v) to %s", value, value, field.Type())
+		}
+
+	case reflect.Bool:
+		switch v := value.(type) {
+		case bool:
+			field.SetBool(v)
+		case int64:
+			field.SetBool(v != 0)
+		case float64:
+			field.SetBool(v != 0)
+		case string:
+			str := strings.ToLower(strings.TrimSpace(v))
+			field.SetBool(str == "true" || str == "1" || str == "yes" || str == "on")
+		case []uint8:
+			return setFieldValue(field, string(v))
+		default:
+			return fmt.Errorf("cannot convert %T(%v) to bool", value, value)
+		}
+
+	case reflect.String:
+		switch v := value.(type) {
+		case string:
+			field.SetString(v)
+		case []uint8:
+			field.SetString(string(v))
+		case int64, float64, bool:
+			field.SetString(fmt.Sprint(v))
+		default:
+			return fmt.Errorf("cannot convert %T(%v) to string", value, value)
+		}
+
+	case reflect.Slice:
+		if field.Type() == reflect.TypeOf([]byte(nil)) {
+			switch v := value.(type) {
+			case []byte:
+				field.SetBytes(v)
+			case string:
+				field.SetBytes([]byte(v))
+			default:
+				return fmt.Errorf("cannot convert %T to []byte", value)
+			}
+			return nil
+		}
+
+		switch v := value.(type) {
+		case []byte:
+			// Try to parse as JSON array first
+			var arr []interface{}
+			if err := json.Unmarshal(v, &arr); err == nil {
+				// Create a new slice with the correct length
+				newSlice := reflect.MakeSlice(field.Type(), len(arr), len(arr))
+
+				// Convert each element
+				for i, elem := range arr {
+					if err := setFieldValue(newSlice.Index(i), elem); err != nil {
+						return fmt.Errorf("error setting array element %d: %v", i, err)
+					}
+				}
+				field.Set(newSlice)
+				return nil
+			}
+
+			// Try to parse as comma-separated string
+			return setFieldValue(field, string(v))
+		case string:
+			// Handle comma-separated values
+			if field.Type().Elem().Kind() != reflect.String {
+				// Try to parse as JSON if not string slice
+				var arr []interface{}
+				if err := json.Unmarshal([]byte(v), &arr); err == nil {
+					newSlice := reflect.MakeSlice(field.Type(), len(arr), len(arr))
+					for i, elem := range arr {
+						if err := setFieldValue(newSlice.Index(i), elem); err != nil {
+							return fmt.Errorf("error setting array element %d: %v", i, err)
+						}
+					}
+					field.Set(newSlice)
+					return nil
+				}
+			}
+
+			// Split by comma for string slices
+			parts := strings.Split(v, ",")
+			newSlice := reflect.MakeSlice(field.Type(), len(parts), len(parts))
+			for i, part := range parts {
+				if err := setFieldValue(newSlice.Index(i), strings.TrimSpace(part)); err != nil {
+					return fmt.Errorf("error setting array element %d: %v", i, err)
+				}
+			}
+			field.Set(newSlice)
+		case []interface{}:
+			// Direct array assignment
+			newSlice := reflect.MakeSlice(field.Type(), len(v), len(v))
+			for i, elem := range v {
+				if err := setFieldValue(newSlice.Index(i), elem); err != nil {
+					return fmt.Errorf("error setting array element %d: %v", i, err)
+				}
+			}
+			field.Set(newSlice)
+		default:
+			// Try to handle single value as one-element array
+			newSlice := reflect.MakeSlice(field.Type(), 1, 1)
+			if err := setFieldValue(newSlice.Index(0), value); err != nil {
+				return fmt.Errorf("cannot convert %T to %s", value, field.Type())
+			}
+			field.Set(newSlice)
+		}
+
+	case reflect.Struct:
+		if field.Type() == reflect.TypeOf(time.Time{}) {
+			switch v := value.(type) {
+			case time.Time:
+				field.Set(reflect.ValueOf(v))
+			case string:
+				formats := []string{
+					"2006-01-02 15:04:05",
+					"2006-01-02T15:04:05Z",
+					time.RFC3339,
+					"2006-01-02",                // 日期
+					"15:04:05",                  // 时间
+					"2006-01-02 15:04:05.999",   // 带毫秒
+					"2006-01-02T15:04:05.999Z",  // ISO带毫秒
+					"2006-01-02 15:04:05-07:00", // 带时区
+					"2006/01/02 15:04:05",       // 斜线日期
+					"20060102150405",            // 紧凑格式
+				}
+				var lastErr error
+				for _, format := range formats {
+					if t, err := time.ParseInLocation(format, v, time.Local); err == nil {
+						field.Set(reflect.ValueOf(t))
+						return nil
+					} else {
+						lastErr = err
+					}
+				}
+				return fmt.Errorf("cannot parse %q as time using any known format: %v", v, lastErr)
+			case []uint8:
+				return setFieldValue(field, string(v))
+			case int64:
+				// Unix timestamp
+				t := time.Unix(v, 0)
+				field.Set(reflect.ValueOf(t))
+			case float64:
+				// Unix timestamp with fractional seconds
+				sec := int64(v)
+				nsec := int64((v - float64(sec)) * 1e9)
+				t := time.Unix(sec, nsec)
+				field.Set(reflect.ValueOf(t))
+			default:
+				return fmt.Errorf("cannot convert %T(%v) to time.Time", value, value)
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
 // SetModel sets the model type for scanning
 func (t *Transfer) SetModel(model interface{}) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.model = model
 }
