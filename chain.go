@@ -1030,6 +1030,11 @@ func (c *Chain) executeUpdate() define.Result {
 // Update updates records with the given fields
 func (c *Chain) Update(fields map[string]interface{}) define.Result {
 	if len(c.conds) > 0 {
+		// If fields is nil and we have a model, use the model's fields
+		if fields == nil && c.model != nil {
+			fields = define.StructToMap(c.model)
+		}
+
 		// Update
 		c.fieldMap = fields
 		c.fieldOrder = make([]string, 0, len(fields))
@@ -2882,4 +2887,215 @@ func (c *Chain) Exec() *define.Result {
 		ID:       lastInsertID,
 		Affected: rowsAffected,
 	}
+}
+
+// List2 executes a SELECT query and returns results into the provided struct(s)
+func (c *Chain) List2(dest interface{}) error {
+	if dest == nil {
+		return fmt.Errorf("destination cannot be nil")
+	}
+
+	// Get the type of destination
+	destType := reflect.TypeOf(dest)
+	if destType.Kind() != reflect.Ptr {
+		return fmt.Errorf("destination must be a pointer")
+	}
+
+	// Get element type for table name
+	elemType := destType.Elem()
+	isSlice := false
+	if elemType.Kind() == reflect.Slice {
+		isSlice = true
+		elemType = elemType.Elem()
+		if elemType.Kind() == reflect.Ptr {
+			elemType = elemType.Elem()
+		}
+	}
+
+	// Create model instance for transfer
+	modelInstance := reflect.New(elemType).Interface()
+
+	// Get transfer for the element type
+	transfer := define.GetTransfer(modelInstance)
+	if transfer == nil {
+		return fmt.Errorf("failed to get transfer for type %v", elemType)
+	}
+
+	// Set table name if not set
+	if c.tableName == "" {
+		c.tableName = transfer.GetTableName()
+	}
+
+	// Set model for scanning
+	transfer.SetModel(modelInstance)
+
+	// Build and execute query
+	orderByExpr := c.buildOrderBy()
+	sqlStr, args := c.factory.BuildSelect(c.tableName, c.fieldList, c.conds, orderByExpr, c.limitCount, c.offsetCount)
+	if define.Debug {
+		log.Printf("[SQL] %s %v", sqlStr, args)
+	}
+
+	var rows *sql.Rows
+	var err error
+	if c.tx != nil {
+		rows, err = c.tx.Query(sqlStr, args...)
+	} else {
+		rows, err = c.db.DB.Query(sqlStr, args...)
+	}
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	// Scan results
+	var result interface{}
+	if isSlice {
+		result, err = transfer.ScanAll(rows)
+	} else {
+		if !rows.Next() {
+			return sql.ErrNoRows
+		}
+		columns, err := rows.Columns()
+		if err != nil {
+			return err
+		}
+		result, err = transfer.ScanRow(rows, columns)
+	}
+	if err != nil {
+		return err
+	}
+
+	// Set result to destination
+	destValue := reflect.ValueOf(dest).Elem()
+	resultValue := reflect.ValueOf(result)
+	destValue.Set(resultValue)
+
+	return nil
+}
+
+// Update2 updates records using the provided struct(s)
+func (c *Chain) Update2(models ...interface{}) error {
+	if len(models) == 0 {
+		return fmt.Errorf("no models provided")
+	}
+
+	// Handle multiple models
+	for _, model := range models {
+		if model == nil {
+			continue
+		}
+
+		// Get transfer for the model
+		transfer := define.GetTransfer(model)
+		if transfer == nil {
+			continue
+		}
+
+		// Set table name if not set
+		if c.tableName == "" {
+			c.tableName = transfer.GetTableName()
+		}
+
+		// Convert struct to map using transfer
+		fields := transfer.ToMap(model)
+		if fields == nil || len(fields) == 0 {
+			continue
+		}
+
+		// Extract ID for condition if no conditions are set
+		if len(c.conds) == 0 {
+			if pkValue, _ := transfer.GetPrimaryKeyValue(model); pkValue != nil {
+				c.Where(transfer.PrimaryKey.Column, define.OpEq, pkValue)
+			}
+		}
+
+		// Execute update
+		result := c.Update(fields)
+		if result.Error != nil {
+			return result.Error
+		}
+	}
+
+	return nil
+}
+
+// Save2 saves (inserts or updates) the provided struct(s)
+func (c *Chain) Save2(models ...interface{}) error {
+	if len(models) == 0 {
+		return fmt.Errorf("no models provided")
+	}
+
+	for _, model := range models {
+		if model == nil {
+			continue
+		}
+
+		// Get transfer for the model
+		transfer := define.GetTransfer(model)
+		if transfer == nil {
+			continue
+		}
+
+		// Set table name if not set
+		if c.tableName == "" {
+			c.tableName = transfer.GetTableName()
+		}
+
+		// Store model for potential ID callback
+		c.model = model
+
+		// Convert struct to map using transfer
+		fields := transfer.ToMap(model)
+		if fields == nil || len(fields) == 0 {
+			continue
+		}
+
+		// Execute save
+		result := c.Save()
+		if result.Error != nil {
+			return result.Error
+		}
+	}
+
+	return nil
+}
+
+// Delete2 deletes records using the provided struct(s)
+func (c *Chain) Delete2(models ...interface{}) error {
+	if len(models) == 0 {
+		return fmt.Errorf("no models provided")
+	}
+
+	for _, model := range models {
+		if model == nil {
+			continue
+		}
+
+		// Get transfer for the model
+		transfer := define.GetTransfer(model)
+		if transfer == nil {
+			continue
+		}
+
+		// Set table name if not set
+		if c.tableName == "" {
+			c.tableName = transfer.GetTableName()
+		}
+
+		// Extract ID for condition if no conditions are set
+		if len(c.conds) == 0 {
+			if pkValue, _ := transfer.GetPrimaryKeyValue(model); pkValue != nil {
+				c.Where(transfer.PrimaryKey.Column, define.OpEq, pkValue)
+			}
+		}
+
+		// Execute delete
+		result := c.Delete()
+		if result.Error != nil {
+			return result.Error
+		}
+	}
+
+	return nil
 }
