@@ -528,10 +528,23 @@ func (c *Chain) From(model interface{}) *Chain {
 			for _, part := range parts[1:] {
 				if part == "default" {
 					hasDefault = true
+					// Set default value for time fields
+					if fieldValue.Type() == reflect.TypeOf(time.Time{}) {
+						fieldValue.Set(reflect.ValueOf(time.Now()))
+					} else if fieldValue.Type().Kind() == reflect.Bool {
+						fieldValue.SetBool(true)
+					}
 					break
 				}
 			}
 			if hasDefault {
+				if c.fieldMap == nil {
+					c.fieldMap = make(map[string]interface{})
+				}
+				c.fieldMap[columnName] = fieldValue.Interface()
+				if !contains(c.fieldOrder, columnName) {
+					c.fieldOrder = append(c.fieldOrder, columnName)
+				}
 				continue
 			}
 		}
@@ -2969,8 +2982,12 @@ func (c *Chain) List2(dest interface{}) error {
 	// Set result to destination
 	destValue := reflect.ValueOf(dest).Elem()
 	resultValue := reflect.ValueOf(result)
-	destValue.Set(resultValue)
-
+	if !isSlice {
+		// For single record, we need to set the pointer value
+		destValue.Set(resultValue.Elem())
+	} else {
+		destValue.Set(resultValue)
+	}
 	return nil
 }
 

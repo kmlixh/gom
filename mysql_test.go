@@ -45,7 +45,8 @@ func cleanupMySQLTestDB(t *testing.T, db *DB) {
 }
 
 func TestMySQLDBConnection(t *testing.T) {
-	db, err := sql.Open("mysql", testutils.TestMySQLDSN)
+	config := testutils.DefaultMySQLConfig()
+	db, err := sql.Open("mysql", config.DSN())
 	if err != nil {
 		t.Skipf("Skipping MySQL test: %v", err)
 		return

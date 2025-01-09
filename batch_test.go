@@ -125,6 +125,9 @@ func TestBatchInsert(t *testing.T) {
 }
 
 func runBatchInsertTest(t *testing.T, db *DB) {
+	// Clean up test table first
+	_ = testutils.CleanupTestDB(db.DB, "tests")
+
 	// Create test table
 	err := db.Chain().CreateTable(&TestModel{})
 	assert.NoError(t, err)

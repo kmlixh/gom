@@ -11,18 +11,22 @@ import (
 )
 
 type TestUser struct {
-	ID        int64     `gom:"id,@"`
-	Name      string    `gom:"name"`
-	Age       int       `gom:"age"`
-	Email     string    `gom:"email"`
-	CreatedAt time.Time `gom:"created_at"`
-	UpdatedAt time.Time `gom:"updated_at"`
-	IsActive  bool      `gom:"is_active"`
-	Score     float64   `gom:"score"`
+	ID        int64     `gom:"id,@" sql:"id,pk,auto_increment"`
+	Name      string    `gom:"name" sql:"name"`
+	Age       int       `gom:"age" sql:"age"`
+	Email     string    `gom:"email" sql:"email"`
+	CreatedAt time.Time `gom:"created_at" sql:"created_at"`
+	UpdatedAt time.Time `gom:"updated_at" sql:"updated_at"`
+	IsActive  bool      `gom:"is_active" sql:"is_active"`
+	Score     float64   `gom:"score" sql:"score"`
+}
+
+func (t *TestUser) TableName() string {
+	return "test_user"
 }
 
 func createTestDB(t *testing.T) *DB {
-	db, err := sql.Open("mysql", "root:root@tcp(localhost:3306)/test?charset=utf8mb4&parseTime=true")
+	db, err := sql.Open("mysql", "remote:123456@tcp(192.168.110.249:3306)/test?charset=utf8mb4&parseTime=True")
 	assert.NoError(t, err)
 
 	// Create test table
@@ -49,7 +53,30 @@ func createTestDB(t *testing.T) *DB {
 
 func TestTransferBasicOperations(t *testing.T) {
 	db := createTestDB(t)
+	if db == nil {
+		t.Skip("Skipping test due to database connection error")
+		return
+	}
 	defer db.Close()
+
+	// Create test table
+	_, err := db.DB.Exec(`
+		CREATE TABLE IF NOT EXISTS test_user (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			name VARCHAR(255) NOT NULL,
+			age INT,
+			email VARCHAR(255),
+			created_at DATETIME,
+			updated_at DATETIME,
+			is_active BOOLEAN DEFAULT true,
+			score DOUBLE DEFAULT 0.0
+		)
+	`)
+	assert.NoError(t, err)
+
+	// Clear test data
+	_, err = db.DB.Exec("TRUNCATE TABLE test_user")
+	assert.NoError(t, err)
 
 	// Test data
 	now := time.Now().Round(time.Second)
@@ -76,14 +103,14 @@ func TestTransferBasicOperations(t *testing.T) {
 
 	// Test Save2
 	for _, user := range users {
-		err := db.Chain().Save2(&user)
+		err := db.Chain().Table("test_user").Save2(&user)
 		assert.NoError(t, err)
 		assert.NotZero(t, user.ID)
 	}
 
 	// Test List2 single
 	var user TestUser
-	err := db.Chain().Where("id", define.OpEq, users[0].ID).List2(&user)
+	err = db.Chain().Table("test_user").Where("id", define.OpEq, users[0].ID).List2(&user)
 	assert.NoError(t, err)
 	assert.Equal(t, users[0].Name, user.Name)
 	assert.Equal(t, users[0].Age, user.Age)
@@ -94,7 +121,7 @@ func TestTransferBasicOperations(t *testing.T) {
 
 	// Test List2 multiple
 	var fetchedUsers []TestUser
-	err = db.Chain().OrderBy("id").List2(&fetchedUsers)
+	err = db.Chain().Table("test_user").OrderBy("id").List2(&fetchedUsers)
 	assert.NoError(t, err)
 	assert.Len(t, fetchedUsers, 2)
 	assert.Equal(t, users[0].Name, fetchedUsers[0].Name)
@@ -102,20 +129,20 @@ func TestTransferBasicOperations(t *testing.T) {
 
 	// Test Update2
 	user.Name = "Updated User 1"
-	err = db.Chain().Update2(&user)
+	err = db.Chain().Table("test_user").Update2(&user)
 	assert.NoError(t, err)
 
 	var updatedUser TestUser
-	err = db.Chain().Where("id", define.OpEq, user.ID).List2(&updatedUser)
+	err = db.Chain().Table("test_user").Where("id", define.OpEq, user.ID).List2(&updatedUser)
 	assert.NoError(t, err)
 	assert.Equal(t, "Updated User 1", updatedUser.Name)
 
 	// Test Delete2
-	err = db.Chain().Delete2(&user)
+	err = db.Chain().Table("test_user").Delete2(&user)
 	assert.NoError(t, err)
 
 	var deletedUser TestUser
-	err = db.Chain().Where("id", define.OpEq, user.ID).List2(&deletedUser)
+	err = db.Chain().Table("test_user").Where("id", define.OpEq, user.ID).List2(&deletedUser)
 	assert.Equal(t, sql.ErrNoRows, err)
 }
 
