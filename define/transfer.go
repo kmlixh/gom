@@ -139,7 +139,7 @@ func GetTransfer(model interface{}) *Transfer {
 }
 
 // ToMap converts a struct to map using cached field information
-func (t *Transfer) ToMap(model interface{}) map[string]interface{} {
+func (t *Transfer) ToMap(model interface{}, isUpdate ...bool) map[string]interface{} {
 	if model == nil {
 		return nil
 	}
@@ -153,6 +153,7 @@ func (t *Transfer) ToMap(model interface{}) map[string]interface{} {
 	}
 
 	result := make(map[string]interface{})
+	forUpdate := len(isUpdate) > 0 && isUpdate[0]
 
 	for _, columnName := range t.FieldOrder {
 		fieldInfo := t.Fields[columnName]
@@ -167,13 +168,23 @@ func (t *Transfer) ToMap(model interface{}) map[string]interface{} {
 			continue
 		}
 
-		// Handle zero values based on tag options
-		isZero := reflect.DeepEqual(fieldValue.Interface(), reflect.Zero(fieldInfo.Type).Interface())
-		if isZero && fieldInfo.HasDefault {
-			continue
+		// For updates, include only fields that have changed
+		if forUpdate {
+			// Skip primary key field for updates
+			if fieldInfo.IsPrimary {
+				continue
+			}
+			// Include field if it has been explicitly set (non-zero value)
+			if !reflect.DeepEqual(fieldValue.Interface(), reflect.Zero(fieldInfo.Type).Interface()) {
+				result[columnName] = fieldValue.Interface()
+			}
+		} else {
+			// For inserts, skip zero values with default tag
+			isZero := reflect.DeepEqual(fieldValue.Interface(), reflect.Zero(fieldInfo.Type).Interface())
+			if !isZero || !fieldInfo.HasDefault {
+				result[columnName] = fieldValue.Interface()
+			}
 		}
-
-		result[columnName] = fieldValue.Interface()
 	}
 
 	return result

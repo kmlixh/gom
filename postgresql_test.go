@@ -46,7 +46,8 @@ func cleanupPostgreSQLTestDB(t *testing.T, db *DB) {
 }
 
 func TestPostgreSQLDBConnection(t *testing.T) {
-	db, err := sql.Open("pgx", "host=10.0.1.5 port=5432 user=postgres password=123456 dbname=test sslmode=disable")
+	config := testutils.DefaultPostgresConfig()
+	db, err := sql.Open("pgx", config.DSN())
 	if err != nil {
 		t.Skipf("Skipping PostgreSQL test: %v", err)
 		return

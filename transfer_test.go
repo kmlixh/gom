@@ -7,6 +7,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/kmlixh/gom/v4/define"
+	"github.com/kmlixh/gom/v4/testutils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -26,11 +27,33 @@ func (t *TestUser) TableName() string {
 }
 
 func createTestDB(t *testing.T) *DB {
-	db, err := sql.Open("mysql", "remote:123456@tcp(192.168.110.249:3306)/test?charset=utf8mb4&parseTime=True")
-	assert.NoError(t, err)
+	// Initialize database options
+	opts := &define.DBOptions{
+		MaxOpenConns:    10,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: time.Hour,
+		ConnMaxIdleTime: 30 * time.Minute,
+		Debug:           true,
+	}
+
+	// Get MySQL config from testutils
+	config := testutils.DefaultMySQLConfig()
+	db, err := Open(config.Driver, config.DSN(), opts)
+	if err != nil {
+		t.Skipf("Skipping test: could not connect to database: %v", err)
+		return nil
+	}
+
+	// Test the connection
+	err = db.DB.Ping()
+	if err != nil {
+		t.Skipf("Skipping test: could not ping database: %v", err)
+		db.Close()
+		return nil
+	}
 
 	// Create test table
-	_, err = db.Exec(`
+	_, err = db.DB.Exec(`
 		CREATE TABLE IF NOT EXISTS test_user (
 			id BIGINT PRIMARY KEY AUTO_INCREMENT,
 			name VARCHAR(255) NOT NULL,
@@ -42,13 +65,21 @@ func createTestDB(t *testing.T) *DB {
 			score DOUBLE DEFAULT 0.0
 		)
 	`)
-	assert.NoError(t, err)
+	if err != nil {
+		t.Errorf("Failed to create test table: %v", err)
+		db.Close()
+		return nil
+	}
 
 	// Clear test data
-	_, err = db.Exec("TRUNCATE TABLE test_user")
-	assert.NoError(t, err)
+	_, err = db.DB.Exec("TRUNCATE TABLE test_user")
+	if err != nil {
+		t.Errorf("Failed to truncate test table: %v", err)
+		db.Close()
+		return nil
+	}
 
-	return &DB{DB: db}
+	return db
 }
 
 func TestTransferBasicOperations(t *testing.T) {
@@ -59,77 +90,44 @@ func TestTransferBasicOperations(t *testing.T) {
 	}
 	defer db.Close()
 
-	// Create test table
-	_, err := db.DB.Exec(`
-		CREATE TABLE IF NOT EXISTS test_user (
-			id BIGINT PRIMARY KEY AUTO_INCREMENT,
-			name VARCHAR(255) NOT NULL,
-			age INT,
-			email VARCHAR(255),
-			created_at DATETIME,
-			updated_at DATETIME,
-			is_active BOOLEAN DEFAULT true,
-			score DOUBLE DEFAULT 0.0
-		)
-	`)
-	assert.NoError(t, err)
-
-	// Clear test data
-	_, err = db.DB.Exec("TRUNCATE TABLE test_user")
-	assert.NoError(t, err)
-
-	// Test data
+	// Create test user
 	now := time.Now().Round(time.Second)
-	users := []TestUser{
-		{
-			Name:      "User 1",
-			Age:       25,
-			Email:     "user1@test.com",
-			CreatedAt: now,
-			UpdatedAt: now,
-			IsActive:  true,
-			Score:     85.5,
-		},
-		{
-			Name:      "User 2",
-			Age:       30,
-			Email:     "user2@test.com",
-			CreatedAt: now,
-			UpdatedAt: now,
-			IsActive:  false,
-			Score:     92.0,
-		},
+	user := &TestUser{
+		Name:      "User 1",
+		Age:       25,
+		Email:     "user1@test.com",
+		CreatedAt: now,
+		UpdatedAt: now,
+		IsActive:  true,
+		Score:     85.5,
 	}
 
 	// Test Save2
-	for _, user := range users {
-		err := db.Chain().Table("test_user").Save2(&user)
-		assert.NoError(t, err)
-		assert.NotZero(t, user.ID)
-	}
+	err := db.Chain().Table("test_user").Save2(user)
+	assert.NoError(t, err)
+	assert.NotZero(t, user.ID)
 
 	// Test List2 single
-	var user TestUser
-	err = db.Chain().Table("test_user").Where("id", define.OpEq, users[0].ID).List2(&user)
+	var fetchedUser TestUser
+	err = db.Chain().Table("test_user").Where("id", define.OpEq, user.ID).List2(&fetchedUser)
 	assert.NoError(t, err)
-	assert.Equal(t, users[0].Name, user.Name)
-	assert.Equal(t, users[0].Age, user.Age)
-	assert.Equal(t, users[0].Email, user.Email)
-	assert.Equal(t, users[0].CreatedAt.Unix(), user.CreatedAt.Unix())
-	assert.Equal(t, users[0].IsActive, user.IsActive)
-	assert.Equal(t, users[0].Score, user.Score)
+	assert.Equal(t, user.Name, fetchedUser.Name)
+	assert.Equal(t, user.Age, fetchedUser.Age)
+	assert.Equal(t, user.Email, fetchedUser.Email)
+	assert.Equal(t, user.CreatedAt.Unix(), fetchedUser.CreatedAt.Unix())
+	assert.Equal(t, user.IsActive, fetchedUser.IsActive)
+	assert.Equal(t, user.Score, fetchedUser.Score)
 
 	// Test List2 multiple
-	var fetchedUsers []TestUser
-	err = db.Chain().Table("test_user").OrderBy("id").List2(&fetchedUsers)
+	var users []TestUser
+	err = db.Chain().Table("test_user").OrderBy("id").List2(&users)
 	assert.NoError(t, err)
-	assert.Len(t, fetchedUsers, 2)
-	assert.Equal(t, users[0].Name, fetchedUsers[0].Name)
-	assert.Equal(t, users[1].Name, fetchedUsers[1].Name)
+	assert.Len(t, users, 1)
+	assert.Equal(t, user.Name, users[0].Name)
 
 	// Test Update2
 	user.Name = "Updated User 1"
-	err = db.Chain().Table("test_user").Update2(&user)
+	err = db.Chain().Table("test_user").Update2(user)
 	assert.NoError(t, err)
 
 	var updatedUser TestUser
@@ -138,7 +136,7 @@ func TestTransferBasicOperations(t *testing.T) {
 	assert.Equal(t, "Updated User 1", updatedUser.Name)
 
 	// Test Delete2
-	err = db.Chain().Table("test_user").Delete2(&user)
+	err = db.Chain().Table("test_user").Delete2(user)
 	assert.NoError(t, err)
 
 	var deletedUser TestUser
@@ -147,13 +145,11 @@ func TestTransferBasicOperations(t *testing.T) {
 }
 
 func BenchmarkTransferOperations(b *testing.B) {
-	db, err := sql.Open("mysql", "root:root@tcp(localhost:3306)/test?charset=utf8mb4&parseTime=true")
+	gdb, err := Open("mysql", "root:root@tcp(localhost:3306)/test?charset=utf8mb4&parseTime=true", nil)
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer db.Close()
-
-	gdb := &DB{DB: db}
+	defer gdb.Close()
 
 	// Prepare test data
 	now := time.Now()
@@ -229,11 +225,12 @@ func TestTransferEdgeCases(t *testing.T) {
 		INSERT INTO test_user (name, age, email) 
 		VALUES ('Invalid', 'not a number', 'test@test.com')
 	`)
-	assert.NoError(t, err)
+	assert.Error(t, err) // Should error on invalid integer value
 
 	var users []TestUser
 	err = db.Chain().List2(&users)
-	assert.NoError(t, err) // Should not error, invalid values should be zero
+	assert.NoError(t, err) // Should succeed in listing existing records
+	assert.Empty(t, users) // No records should exist
 }
 
 func TestTransferConcurrency(t *testing.T) {

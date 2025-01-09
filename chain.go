@@ -976,6 +976,14 @@ func (c *Chain) executeInsert() define.Result {
 		return define.Result{Error: fmt.Errorf("no fields to insert")}
 	}
 
+	if c.factory == nil {
+		return define.Result{Error: fmt.Errorf("SQL factory is not initialized")}
+	}
+
+	if c.db == nil {
+		return define.Result{Error: fmt.Errorf("database connection is not initialized")}
+	}
+
 	sqlStr, args := c.factory.BuildInsert(c.tableName, c.fieldMap, c.fieldOrder)
 	if define.Debug {
 		log.Printf("[SQL] %s %v", sqlStr, args)
@@ -1383,11 +1391,17 @@ func setFieldValue(field reflect.Value, value interface{}) error {
 		case string:
 			if i, err := strconv.ParseInt(v, 10, 64); err == nil {
 				field.SetInt(i)
+			} else {
+				field.SetInt(0) // Set to zero for invalid values
 			}
 		case []uint8:
 			if i, err := strconv.ParseInt(string(v), 10, 64); err == nil {
 				field.SetInt(i)
+			} else {
+				field.SetInt(0) // Set to zero for invalid values
 			}
+		default:
+			field.SetInt(0) // Set to zero for unsupported types
 		}
 	case reflect.Float32, reflect.Float64:
 		switch v := value.(type) {
@@ -2917,10 +2931,12 @@ func (c *Chain) List2(dest interface{}) error {
 	// Get element type for table name
 	elemType := destType.Elem()
 	isSlice := false
+	isSliceOfPointers := false
 	if elemType.Kind() == reflect.Slice {
 		isSlice = true
 		elemType = elemType.Elem()
-		if elemType.Kind() == reflect.Ptr {
+		isSliceOfPointers = elemType.Kind() == reflect.Ptr
+		if isSliceOfPointers {
 			elemType = elemType.Elem()
 		}
 	}
@@ -2982,11 +2998,24 @@ func (c *Chain) List2(dest interface{}) error {
 	// Set result to destination
 	destValue := reflect.ValueOf(dest).Elem()
 	resultValue := reflect.ValueOf(result)
+
 	if !isSlice {
 		// For single record, we need to set the pointer value
 		destValue.Set(resultValue.Elem())
 	} else {
-		destValue.Set(resultValue)
+		// For slices, handle both pointer and non-pointer cases
+		if isSliceOfPointers {
+			// If destination is a slice of pointers, set directly
+			destValue.Set(resultValue)
+		} else {
+			// If destination is a slice of values, convert from slice of pointers
+			sliceLen := resultValue.Len()
+			destSlice := reflect.MakeSlice(destValue.Type(), sliceLen, sliceLen)
+			for i := 0; i < sliceLen; i++ {
+				destSlice.Index(i).Set(resultValue.Index(i).Elem())
+			}
+			destValue.Set(destSlice)
+		}
 	}
 	return nil
 }
@@ -3051,27 +3080,63 @@ func (c *Chain) Save2(models ...interface{}) error {
 		// Get transfer for the model
 		transfer := define.GetTransfer(model)
 		if transfer == nil {
-			continue
+			return fmt.Errorf("failed to get transfer for model: model may be nil or invalid")
 		}
 
 		// Set table name if not set
 		if c.tableName == "" {
-			c.tableName = transfer.GetTableName()
+			tableName := transfer.GetTableName()
+			if tableName == "" {
+				return fmt.Errorf("table name is not set and could not be determined from model")
+			}
+			c.tableName = tableName
 		}
 
 		// Store model for potential ID callback
 		c.model = model
 
+		// Get the ID field value
+		if transfer.PrimaryKey == nil {
+			return fmt.Errorf("model has no primary key field")
+		}
+
+		modelValue := reflect.ValueOf(model)
+		if !modelValue.IsValid() || modelValue.IsNil() {
+			return fmt.Errorf("invalid model value")
+		}
+		modelElem := modelValue.Elem()
+		if !modelElem.IsValid() {
+			return fmt.Errorf("invalid model element")
+		}
+
+		idField := modelElem.FieldByName(transfer.PrimaryKey.Name)
+		if !idField.IsValid() {
+			return fmt.Errorf("primary key field %s not found in model", transfer.PrimaryKey.Name)
+		}
+
+		idValue := idField.Interface()
+		zeroValue := reflect.Zero(reflect.TypeOf(idValue)).Interface()
+
 		// Convert struct to map using transfer
-		fields := transfer.ToMap(model)
+		fields := transfer.ToMap(model, true) // Pass true to indicate it's an update operation
 		if fields == nil || len(fields) == 0 {
 			continue
 		}
 
-		// Execute save
-		result := c.Save()
+		// If ID is not zero value, add it as a condition
+		if idValue != zeroValue {
+			c.Where(transfer.PrimaryKey.Column, define.OpEq, idValue)
+		}
+
+		// Execute update/insert
+		result := c.Update(fields)
 		if result.Error != nil {
 			return result.Error
+		}
+
+		// Set the ID back to the model if it was an insert
+		if idValue == zeroValue {
+			reflect.ValueOf(model).Elem().FieldByName(transfer.PrimaryKey.Name).Set(reflect.ValueOf(result.ID))
 		}
 	}
 
