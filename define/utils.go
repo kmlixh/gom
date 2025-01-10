@@ -39,7 +39,7 @@ func StructToMap(model interface{}) map[string]interface{} {
 			continue
 		}
 
-		// Get the field name and check tag options
+		// Get field name and check tag options
 		fieldName := field.Name
 		isAuto := false
 		isDefault := false
@@ -59,19 +59,19 @@ func StructToMap(model interface{}) map[string]interface{} {
 					isDefault = true
 				}
 			}
-		}
 
-		// Skip auto-increment fields
-		if isAuto {
-			continue
+			// Skip auto-increment fields
+			if isAuto {
+				continue
+			}
+
+			// Skip zero value fields with default tag
+			if isDefault && fieldValue.IsZero() {
+				continue
+			}
 		}
 
 		if !fieldValue.IsValid() {
-			continue
-		}
-
-		// Handle default tag
-		if isDefault && fieldValue.IsZero() {
 			continue
 		}
 
@@ -85,12 +85,14 @@ func StructToMap(model interface{}) map[string]interface{} {
 				nestedMap := StructToMap(fieldValue.Interface())
 				if nestedMap != nil {
 					value = nestedMap
+				} else {
+					value = fieldValue.Interface()
 				}
 			}
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			value = fieldValue.Int()
+			value = int(fieldValue.Int())
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			value = fieldValue.Uint()
+			value = int(fieldValue.Uint())
 		case reflect.Float32, reflect.Float64:
 			value = fieldValue.Float()
 		case reflect.String:
@@ -103,6 +105,8 @@ func StructToMap(model interface{}) map[string]interface{} {
 					nestedMap := StructToMap(fieldValue.Elem().Interface())
 					if nestedMap != nil {
 						value = nestedMap
+					} else {
+						value = fieldValue.Elem().Interface()
 					}
 				} else {
 					value = fieldValue.Elem().Interface()
@@ -123,12 +127,25 @@ func StructToMap(model interface{}) map[string]interface{} {
 				value = nil
 			}
 		default:
-			value = fieldValue.Interface()
-		}
-
-		// Only skip nil values for fields with gom tag in gom package
-		if value == nil && strings.HasPrefix(modelType.PkgPath(), "github.com/kmlixh/gom") && field.Tag.Get("gom") != "" {
-			continue
+			// Try to convert custom types
+			if fieldValue.Type().Name() != "" {
+				switch fieldValue.Kind() {
+				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+					value = int(fieldValue.Int())
+				case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+					value = int(fieldValue.Uint())
+				case reflect.Float32, reflect.Float64:
+					value = fieldValue.Float()
+				case reflect.String:
+					value = fieldValue.String()
+				case reflect.Bool:
+					value = fieldValue.Bool()
+				default:
+					value = fieldValue.Interface()
+				}
+			} else {
+				value = fieldValue.Interface()
+			}
 		}
 
 		fieldMap[fieldName] = value
