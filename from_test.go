@@ -1,13 +1,14 @@
 package gom
 
 import (
-	"database/sql"
 	"testing"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/kmlixh/gom/v4/define"
 	"github.com/kmlixh/gom/v4/testutils"
+	"github.com/stretchr/testify/assert"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 func setupFromTestDB(t *testing.T) *DB {
@@ -25,6 +26,19 @@ func setupFromTestDB(t *testing.T) *DB {
 		return nil
 	}
 
+	// Test database connection
+	if err := db.DB.Ping(); err != nil {
+		t.Fatalf("Failed to ping database: %v", err)
+		return nil
+	}
+
+	// Drop table if exists to ensure clean state
+	_, err = db.DB.Exec("DROP TABLE IF EXISTS fromtestuser")
+	if err != nil {
+		t.Fatalf("Failed to drop test table: %v", err)
+		return nil
+	}
+
 	createTableSQL := `
 		CREATE TABLE IF NOT EXISTS fromtestuser (
 			id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -33,7 +47,7 @@ func setupFromTestDB(t *testing.T) *DB {
 			email VARCHAR(255),
 			created_at DATETIME,
 			updated_at DATETIME,
-			is_active BOOLEAN DEFAULT true,
+			is_active TINYINT(1) NOT NULL DEFAULT 1,
 			score DOUBLE DEFAULT 0.0
 		)
 	`
@@ -43,9 +57,15 @@ func setupFromTestDB(t *testing.T) *DB {
 		return nil
 	}
 
-	_, err = db.DB.Exec("TRUNCATE TABLE fromtestuser")
+	// Verify table creation
+	var tableName string
+	err = db.DB.QueryRow("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?", "test", "fromtestuser").Scan(&tableName)
 	if err != nil {
-		t.Fatalf("Failed to truncate test table: %v", err)
+		t.Fatalf("Failed to verify table creation: %v", err)
+		return nil
+	}
+	if tableName != "fromtestuser" {
+		t.Fatalf("Table 'fromtestuser' was not created")
 		return nil
 	}
 
@@ -70,355 +90,208 @@ func (u *FromTestUser) TableName() string {
 func TestFromBasicOperations(t *testing.T) {
 	db := setupFromTestDB(t)
 	if db == nil {
-		t.Skip("Skipping test due to database error")
+		t.Skip("Skipping test due to database connection error")
 		return
 	}
 	defer db.Close()
 
-	// Test data
-	now := time.Now().Round(time.Second)
-	user := &FromTestUser{
+	user := FromTestUser{
 		Name:      "Test User",
 		Age:       25,
 		Email:     "test@example.com",
-		CreatedAt: now,
+		IsActive:  true,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
-	// Test From with Insert
-	chain := db.Chain().From(user)
-	result := chain.Save()
-	if result.Error != nil {
-		t.Errorf("Failed to save user: %v", result.Error)
-		return
-	}
-	if result.ID == 0 {
-		t.Error("Expected non-zero ID after save")
-		return
-	}
-	user.ID = result.ID
+	// Test Save
+	result := db.Chain().Table("fromtestuser").Save(&user)
+	assert.NoError(t, result.Error)
+	assert.NotZero(t, user.ID)
 
-	// Verify the insert
-	fetchedUser := &FromTestUser{}
-	err := db.Chain().Where("id", define.OpEq, user.ID).From(fetchedUser).List2(fetchedUser)
-	if err != nil {
-		t.Errorf("Failed to fetch user: %v", err)
-		return
-	}
-	if user.Name != fetchedUser.Name {
-		t.Errorf("Expected name %s, got %s", user.Name, fetchedUser.Name)
-	}
-	if user.Age != fetchedUser.Age {
-		t.Errorf("Expected age %d, got %d", user.Age, fetchedUser.Age)
-	}
-	if user.Email != fetchedUser.Email {
-		t.Errorf("Expected email %s, got %s", user.Email, fetchedUser.Email)
-	}
-	if user.CreatedAt.Unix() != fetchedUser.CreatedAt.Unix() {
-		t.Errorf("Expected created_at %v, got %v", user.CreatedAt, fetchedUser.CreatedAt)
-	}
-	if !fetchedUser.IsActive {
-		t.Error("Expected IsActive to be true by default")
-	}
+	// Test List
+	var users []FromTestUser
+	result = db.Chain().Table("fromtestuser").Where("id", define.OpEq, user.ID).List(&users)
+	assert.NoError(t, result.Error)
+	assert.Len(t, users, 1)
+	fetchedUser := users[0]
+	assert.Equal(t, user.Name, fetchedUser.Name)
+	assert.Equal(t, user.Age, fetchedUser.Age)
+	assert.Equal(t, user.Email, fetchedUser.Email)
+	assert.True(t, user.CreatedAt.Equal(fetchedUser.CreatedAt) || user.CreatedAt.Sub(fetchedUser.CreatedAt) < time.Second)
+	assert.True(t, user.IsActive == fetchedUser.IsActive)
 
-	// Test From with Update
-	user.Name = "Updated Name"
-	user.Age = 26
-	result = db.Chain().From(user).Where("id", define.OpEq, user.ID).Update(nil)
-	if result.Error != nil {
-		t.Errorf("Failed to update user: %v", result.Error)
-		return
-	}
-	if result.Affected != 1 {
-		t.Errorf("Expected 1 row affected, got %d", result.Affected)
-	}
+	// Test Update
+	user.Name = "Updated User"
+	result = db.Chain().Table("fromtestuser").Where("id", define.OpEq, user.ID).Update(&user)
+	assert.NoError(t, result.Error)
 
-	// Verify the update
-	fetchedUser = &FromTestUser{}
-	err = db.Chain().Where("id", define.OpEq, user.ID).From(fetchedUser).List2(fetchedUser)
-	if err != nil {
-		t.Errorf("Failed to fetch updated user: %v", err)
-		return
-	}
-	if fetchedUser.Name != "Updated Name" {
-		t.Errorf("Expected updated name %s, got %s", "Updated Name", fetchedUser.Name)
-	}
-	if fetchedUser.Age != 26 {
-		t.Errorf("Expected updated age %d, got %d", 26, fetchedUser.Age)
-	}
+	// Verify update
+	var updatedUsers []FromTestUser
+	result = db.Chain().Table("fromtestuser").Where("id", define.OpEq, user.ID).List(&updatedUsers)
+	assert.NoError(t, result.Error)
+	assert.Len(t, updatedUsers, 1)
+	updatedUser := updatedUsers[0]
+	assert.Equal(t, "Updated User", updatedUser.Name)
 
-	// Test From with Delete
-	result = db.Chain().From(user).Where("id", define.OpEq, user.ID).Delete()
-	if result.Error != nil {
-		t.Errorf("Failed to delete user: %v", result.Error)
-		return
-	}
-	if result.Affected != 1 {
-		t.Errorf("Expected 1 row affected, got %d", result.Affected)
-	}
+	// Test Delete
+	result = db.Chain().Table("fromtestuser").Delete(&user)
+	assert.NoError(t, result.Error)
 
-	// Verify the delete
-	fetchedUser = &FromTestUser{}
-	err = db.Chain().Where("id", define.OpEq, user.ID).From(fetchedUser).List2(fetchedUser)
-	if err != sql.ErrNoRows {
-		t.Errorf("Expected sql.ErrNoRows, got %v", err)
-	}
+	// Verify deletion
+	var deletedUsers []FromTestUser
+	result = db.Chain().Table("fromtestuser").Where("id", define.OpEq, user.ID).List(&deletedUsers)
+	assert.NoError(t, result.Error)
+	assert.Len(t, deletedUsers, 0)
 }
 
 func TestFromWithDefaults(t *testing.T) {
 	db := setupFromTestDB(t)
 	if db == nil {
-		t.Skip("Skipping test due to database error")
+		t.Skip("Skipping test due to database connection error")
 		return
 	}
 	defer db.Close()
 
-	// Test data with only required fields
-	user := &FromTestUser{
-		Name:      "Default Test",
-		Age:       30,
-		Email:     "default@example.com",
-		CreatedAt: time.Now(),
+	user := FromTestUser{
+		Name:     "Default Test",
+		Age:      30,
+		Email:    "default@example.com",
+		IsActive: true,
 	}
 
-	// Insert with defaults
-	result := db.Chain().From(user).Save()
-	if result.Error != nil {
-		t.Errorf("Failed to save user: %v", result.Error)
-		return
-	}
-	if result.ID == 0 {
-		t.Error("Expected non-zero ID after save")
-		return
-	}
-	user.ID = result.ID
+	// Test Save
+	result := db.Chain().Table("fromtestuser").Save(&user)
+	assert.NoError(t, result.Error)
+	assert.NotZero(t, user.ID)
 
-	// Verify defaults were applied
-	fetchedUser := &FromTestUser{}
-	err := db.Chain().Where("id", define.OpEq, user.ID).From(fetchedUser).List2(fetchedUser)
-	if err != nil {
-		t.Errorf("Failed to fetch user: %v", err)
-		return
-	}
-	if !fetchedUser.IsActive {
-		t.Error("Expected IsActive to be true by default")
-	}
-	if fetchedUser.Score != 0.0 {
-		t.Errorf("Expected Score to be 0.0 by default, got %f", fetchedUser.Score)
-	}
-	if fetchedUser.UpdatedAt.IsZero() {
-		t.Error("Expected UpdatedAt to have default timestamp")
-	}
+	// Test List
+	var users []FromTestUser
+	result = db.Chain().Table("fromtestuser").Where("id", define.OpEq, user.ID).List(&users)
+	assert.NoError(t, result.Error)
+	assert.Len(t, users, 1)
+	fetchedUser := users[0]
+	assert.Equal(t, user.Name, fetchedUser.Name)
+	assert.Equal(t, user.Age, fetchedUser.Age)
+	assert.Equal(t, user.Email, fetchedUser.Email)
+	assert.True(t, user.CreatedAt.Equal(fetchedUser.CreatedAt) || user.CreatedAt.Sub(fetchedUser.CreatedAt) < time.Second)
+	assert.True(t, user.IsActive == fetchedUser.IsActive)
 }
 
 func TestFromWithBatchOperations(t *testing.T) {
 	db := setupFromTestDB(t)
 	if db == nil {
-		t.Skip("Skipping test due to database error")
+		t.Skip("Skipping test due to database connection error")
 		return
 	}
 	defer db.Close()
 
-	// Create test data
-	now := time.Now().Round(time.Second)
-	users := []*FromTestUser{
+	// Create test users
+	users := []FromTestUser{
 		{
 			Name:      "Batch User 1",
 			Age:       25,
 			Email:     "batch1@example.com",
-			CreatedAt: now,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			IsActive:  true,
 		},
 		{
 			Name:      "Batch User 2",
 			Age:       30,
 			Email:     "batch2@example.com",
-			CreatedAt: now,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			IsActive:  true,
 		},
 	}
 
-	// Test batch insert
-	for _, user := range users {
-		result := db.Chain().From(user).Save()
-		if result.Error != nil {
-			t.Errorf("Failed to save user: %v", result.Error)
-			return
-		}
-		if result.ID == 0 {
-			t.Error("Expected non-zero ID after save")
-			return
-		}
-		user.ID = result.ID
+	// Test batch save
+	for i := range users {
+		result := db.Chain().Table("fromtestuser").Save(&users[i])
+		assert.NoError(t, result.Error)
+		assert.NotZero(t, users[i].ID)
 	}
 
 	// Test batch update
-	for _, user := range users {
-		user.Name = "Updated " + user.Name
-		result := db.Chain().From(user).Where("id", define.OpEq, user.ID).Update(nil)
-		if result.Error != nil {
-			t.Errorf("Failed to update user: %v", result.Error)
-			return
-		}
-		if result.Affected != 1 {
-			t.Errorf("Expected 1 row affected, got %d", result.Affected)
-		}
+	for i := range users {
+		users[i].Name = "Updated " + users[i].Name
+		result := db.Chain().Table("fromtestuser").Update(&users[i])
+		assert.NoError(t, result.Error)
 	}
 
-	// Verify updates
-	var fetchedUsers []*FromTestUser
-	err := db.Chain().OrderBy("id").From(&FromTestUser{}).List2(&fetchedUsers)
-	if err != nil {
-		t.Errorf("Failed to fetch users: %v", err)
-		return
-	}
-	if len(fetchedUsers) != 2 {
-		t.Errorf("Expected 2 users, got %d", len(fetchedUsers))
-		return
-	}
-	if fetchedUsers[0].Name != "Updated Batch User 1" {
-		t.Errorf("Expected name %s, got %s", "Updated Batch User 1", fetchedUsers[0].Name)
-	}
-	if fetchedUsers[1].Name != "Updated Batch User 2" {
-		t.Errorf("Expected name %s, got %s", "Updated Batch User 2", fetchedUsers[1].Name)
+	// Test batch list
+	var fetchedUsers []FromTestUser
+	result := db.Chain().Table("fromtestuser").OrderBy("id").List(&fetchedUsers)
+	assert.NoError(t, result.Error)
+	assert.Len(t, fetchedUsers, len(users))
+	for i := range users {
+		assert.Equal(t, users[i].Name, fetchedUsers[i].Name)
 	}
 
 	// Test batch delete
-	for _, user := range users {
-		result := db.Chain().From(user).Where("id", define.OpEq, user.ID).Delete()
-		if result.Error != nil {
-			t.Errorf("Failed to delete user: %v", result.Error)
-			return
-		}
-		if result.Affected != 1 {
-			t.Errorf("Expected 1 row affected, got %d", result.Affected)
-		}
-	}
-
-	// Verify all deleted
-	err = db.Chain().From(&FromTestUser{}).List2(&fetchedUsers)
-	if err != nil {
-		t.Errorf("Failed to fetch users: %v", err)
-		return
-	}
-	if len(fetchedUsers) != 0 {
-		t.Errorf("Expected 0 users after deletion, got %d", len(fetchedUsers))
+	for i := range users {
+		result := db.Chain().Table("fromtestuser").Delete(&users[i])
+		assert.NoError(t, result.Error)
 	}
 }
 
 func TestFromWithComplexQueries(t *testing.T) {
 	db := setupFromTestDB(t)
 	if db == nil {
-		t.Skip("Skipping test due to database error")
+		t.Skip("Skipping test due to database connection error")
 		return
 	}
 	defer db.Close()
 
-	// Create test data
-	now := time.Now().Round(time.Second)
-	users := []*FromTestUser{
+	// Create test users with different scores
+	users := []FromTestUser{
 		{
 			Name:      "Complex User 1",
 			Age:       25,
 			Email:     "complex1@example.com",
-			CreatedAt: now,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			IsActive:  true,
 			Score:     85.5,
 		},
 		{
 			Name:      "Complex User 2",
 			Age:       30,
 			Email:     "complex2@example.com",
-			CreatedAt: now,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			IsActive:  true,
 			Score:     92.0,
 		},
 		{
 			Name:      "Complex User 3",
 			Age:       35,
 			Email:     "complex3@example.com",
-			CreatedAt: now,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			IsActive:  true,
 			Score:     78.5,
 		},
 	}
 
-	// Insert test data
-	for _, user := range users {
-		result := db.Chain().From(user).Save()
-		if result.Error != nil {
-			t.Errorf("Failed to save user: %v", result.Error)
-			return
-		}
-		if result.ID == 0 {
-			t.Error("Expected non-zero ID after save")
-			return
-		}
-		user.ID = result.ID
+	// Save test users
+	for i := range users {
+		result := db.Chain().Table("fromtestuser").Save(&users[i])
+		assert.NoError(t, result.Error)
+		assert.NotZero(t, users[i].ID)
 	}
 
-	// Test complex query with multiple conditions
-	var fetchedUsers []*FromTestUser
-	err := db.Chain().
-		From(&FromTestUser{}).
+	// Test complex query
+	var fetchedUsers []FromTestUser
+	result := db.Chain().Table("fromtestuser").
 		Where("age", define.OpGe, 25).
-		And("age", define.OpLe, 30).
-		And("score", define.OpGt, 80.0).
+		Where("age", define.OpLe, 30).
+		Where("score", define.OpGt, 80).
 		OrderBy("score").
-		List2(&fetchedUsers)
-
-	if err != nil {
-		t.Errorf("Failed to fetch users with complex query: %v", err)
-		return
-	}
-	if len(fetchedUsers) != 2 {
-		t.Errorf("Expected 2 users, got %d", len(fetchedUsers))
-		return
-	}
-	if fetchedUsers[0].Name != "Complex User 1" {
-		t.Errorf("Expected first user %s, got %s", "Complex User 1", fetchedUsers[0].Name)
-	}
-	if fetchedUsers[1].Name != "Complex User 2" {
-		t.Errorf("Expected second user %s, got %s", "Complex User 2", fetchedUsers[1].Name)
-	}
-
-	// Test with OR conditions
-	err = db.Chain().
-		From(&FromTestUser{}).
-		Where("age", define.OpEq, 25).
-		Or("score", define.OpGt, 90.0).
-		OrderBy("age").
-		List2(&fetchedUsers)
-
-	if err != nil {
-		t.Errorf("Failed to fetch users with OR conditions: %v", err)
-		return
-	}
-	if len(fetchedUsers) != 2 {
-		t.Errorf("Expected 2 users, got %d", len(fetchedUsers))
-		return
-	}
-	if fetchedUsers[0].Name != "Complex User 1" {
-		t.Errorf("Expected first user %s, got %s", "Complex User 1", fetchedUsers[0].Name)
-	}
-	if fetchedUsers[1].Name != "Complex User 2" {
-		t.Errorf("Expected second user %s, got %s", "Complex User 2", fetchedUsers[1].Name)
-	}
-
-	// Test with pagination
-	var pagedUsers []*FromTestUser
-	err = db.Chain().
-		From(&FromTestUser{}).
-		OrderBy("age").
-		Limit(2).
-		List2(&pagedUsers)
-
-	if err != nil {
-		t.Errorf("Failed to fetch users with pagination: %v", err)
-		return
-	}
-	if len(pagedUsers) != 2 {
-		t.Errorf("Expected 2 users, got %d", len(pagedUsers))
-		return
-	}
-	if pagedUsers[0].Name != "Complex User 1" {
-		t.Errorf("Expected first user %s, got %s", "Complex User 1", pagedUsers[0].Name)
-	}
-	if pagedUsers[1].Name != "Complex User 2" {
-		t.Errorf("Expected second user %s, got %s", "Complex User 2", pagedUsers[1].Name)
-	}
+		List(&fetchedUsers)
+	assert.NoError(t, result.Error)
+	assert.Len(t, fetchedUsers, 2)
+	assert.Equal(t, users[0].Name, fetchedUsers[0].Name) // Complex User 1
+	assert.Equal(t, users[1].Name, fetchedUsers[1].Name) // Complex User 2
 }

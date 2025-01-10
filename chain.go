@@ -652,26 +652,22 @@ func (c *Chain) list() *define.Result {
 
 // createScanner creates an appropriate scanner for the given column type
 func createScanner(ct *sql.ColumnType) interface{} {
-	// Get the database specific type name and convert to lowercase
-	dbTypeName := strings.ToLower(ct.DatabaseTypeName())
-
-	// Get the length/precision and scale for numeric types
-	length, scale, _ := ct.DecimalSize()
-
-	// Get if the column is nullable
+	dbType := ct.DatabaseTypeName()
 	nullable, _ := ct.Nullable()
+	scanType := ct.ScanType()
 
-	// Handle specific database types
-	switch dbTypeName {
-	// Boolean types
+	switch strings.ToLower(dbType) {
 	case "bool", "boolean", "bit", "tinyint(1)":
 		if nullable {
-			return new(sql.NullBool)
+			return new(sql.NullInt64)
 		}
-		return new(bool)
-
-	// Integer types
-	case "tinyint", "smallint", "mediumint", "int2", "int4":
+		return new(int64)
+	case "tinyint":
+		if nullable {
+			return new(sql.NullInt64)
+		}
+		return new(int64)
+	case "int2", "int4":
 		if nullable {
 			return new(sql.NullInt32)
 		}
@@ -686,8 +682,6 @@ func createScanner(ct *sql.ColumnType) interface{} {
 			return new(sql.NullInt16)
 		}
 		return new(int16)
-
-	// Floating point types
 	case "float", "float4", "real":
 		if nullable {
 			return new(sql.NullFloat64)
@@ -699,6 +693,7 @@ func createScanner(ct *sql.ColumnType) interface{} {
 		}
 		return new(float64)
 	case "decimal", "numeric", "dec", "fixed":
+		length, scale, _ := ct.DecimalSize()
 		if scale > 0 {
 			if nullable {
 				return new(sql.NullFloat64)
@@ -715,8 +710,6 @@ func createScanner(ct *sql.ColumnType) interface{} {
 			return new(sql.NullInt32)
 		}
 		return new(int32)
-
-	// Time related types
 	case "time":
 		if nullable {
 			return new(sql.NullTime)
@@ -734,8 +727,6 @@ func createScanner(ct *sql.ColumnType) interface{} {
 		return new(time.Time)
 	case "interval": // PostgreSQL interval type
 		return new(string)
-
-	// String types
 	case "char", "varchar", "tinytext", "text", "mediumtext", "longtext":
 		if nullable {
 			return new(sql.NullString)
@@ -746,57 +737,38 @@ func createScanner(ct *sql.ColumnType) interface{} {
 			return new(sql.NullString)
 		}
 		return new(string)
-
-	// Binary types
 	case "binary", "varbinary", "tinyblob", "blob", "mediumblob", "longblob":
 		return new([]byte)
-
-	// JSON types
 	case "json", "jsonb":
 		return new([]byte)
-
-	// UUID types
 	case "uuid":
 		if nullable {
 			return new(sql.NullString)
 		}
 		return new(string)
-
-	// Network address types (PostgreSQL)
 	case "inet", "cidr", "macaddr":
 		if nullable {
 			return new(sql.NullString)
 		}
 		return new(string)
-
-	// Geometric types (PostgreSQL)
 	case "point", "line", "lseg", "box", "path", "polygon", "circle":
 		if nullable {
 			return new(sql.NullString)
 		}
 		return new(string)
-
-	// Array types (PostgreSQL)
 	case "array":
 		return new([]byte)
-
-	// XML type
 	case "xml":
 		if nullable {
 			return new(sql.NullString)
 		}
 		return new(string)
-
-	// Money types
 	case "money", "smallmoney":
 		if nullable {
 			return new(sql.NullFloat64)
 		}
 		return new(float64)
-
-	// Default to string for unknown types
 	default:
-		scanType := ct.ScanType()
 		if scanType != nil {
 			return reflect.New(scanType).Interface()
 		}
@@ -828,11 +800,28 @@ func extractValue(scanner interface{}, ct *sql.ColumnType) interface{} {
 	switch v := scanner.(type) {
 	case *bool:
 		return *v
-	case *int16:
+	case *int64:
+		if ct != nil && (strings.ToLower(ct.DatabaseTypeName()) == "tinyint(1)" ||
+			strings.ToLower(ct.DatabaseTypeName()) == "bool" ||
+			strings.ToLower(ct.DatabaseTypeName()) == "boolean") {
+			return *v != 0
+		}
 		return *v
+	case *sql.NullInt64:
+		if !v.Valid {
+			return nil
+		}
+		if ct != nil && (strings.ToLower(ct.DatabaseTypeName()) == "tinyint(1)" ||
+			strings.ToLower(ct.DatabaseTypeName()) == "bool" ||
+			strings.ToLower(ct.DatabaseTypeName()) == "boolean") {
+			return v.Int64 != 0
+		}
+		return v.Int64
 	case *int32:
 		return *v
-	case *int64:
+	case *int16:
+		return *v
+	case *int8:
 		return *v
 	case *float32:
 		return *v
@@ -847,11 +836,6 @@ func extractValue(scanner interface{}, ct *sql.ColumnType) interface{} {
 			return v.Bool
 		}
 		return false
-	case *sql.NullInt64:
-		if v.Valid {
-			return v.Int64
-		}
-		return int64(0)
 	case *sql.NullFloat64:
 		if v.Valid {
 			return v.Float64
@@ -912,76 +896,133 @@ func (c *Chain) One(dest ...interface{}) *define.Result {
 	return result
 }
 
-// Save executes an INSERT or UPDATE query
-func (c *Chain) Save(models ...interface{}) define.Result {
-	// Process sensitive data before saving
-	if c.fieldMap != nil {
-		if err := c.processSensitiveData(c.fieldMap); err != nil {
-			return define.Result{Error: err}
-		}
-	}
-
-	// Call the original Save logic
-	if len(models) == 0 {
+// Save saves (inserts or updates) records with the given fields or model
+func (c *Chain) Save(fieldsOrModel ...interface{}) *define.Result {
+	// If no arguments provided, use existing fieldMap
+	if len(fieldsOrModel) == 0 {
 		if len(c.fieldMap) == 0 {
-			return define.Result{Error: fmt.Errorf("no fields to update")}
+			return &define.Result{Error: fmt.Errorf("no fields to save")}
 		}
 		if len(c.conds) > 0 {
-			// Update
 			return c.executeUpdate()
-		} else {
-			// Insert
-			return c.executeInsert()
 		}
+		return c.executeInsert()
 	}
 
-	// Process provided models
-	for _, model := range models {
-		if model == nil {
-			continue
-		}
+	// Handle the first argument
+	switch v := fieldsOrModel[0].(type) {
+	case map[string]interface{}:
+		return c.Sets(v).Save()
+	case nil:
+		return &define.Result{Error: fmt.Errorf("nil argument provided")}
+	default:
+		// Try to convert struct to map using transfer
+		if transfer := define.GetTransfer(v); transfer != nil {
+			// Set table name if not set
+			if c.tableName == "" {
+				c.tableName = transfer.GetTableName()
+			}
 
-		fields, err := c.extractModelFields(model)
-		if err != nil {
-			return define.Result{Error: err}
-		}
+			// Store model for potential ID callback
+			c.model = v
 
-		c.fieldMap = fields
-		c.fieldOrder = make([]string, 0, len(fields))
-		for field := range fields {
-			c.fieldOrder = append(c.fieldOrder, field)
-		}
+			// Get the ID field value
+			if transfer.PrimaryKey == nil {
+				return &define.Result{Error: fmt.Errorf("model has no primary key field")}
+			}
 
-		if len(c.conds) > 0 {
-			// Update
-			result := c.executeUpdate()
+			modelValue := reflect.ValueOf(v)
+			if !modelValue.IsValid() {
+				return &define.Result{Error: fmt.Errorf("nil pointer")}
+			}
+			if modelValue.Kind() != reflect.Ptr {
+				return &define.Result{Error: fmt.Errorf("non-pointer")}
+			}
+			if modelValue.IsNil() {
+				return &define.Result{Error: fmt.Errorf("nil pointer")}
+			}
+			modelElem := modelValue.Elem()
+			if !modelElem.IsValid() {
+				return &define.Result{Error: fmt.Errorf("invalid model element")}
+			}
+
+			idField := modelElem.FieldByName(transfer.PrimaryKey.Name)
+			if !idField.IsValid() {
+				return &define.Result{Error: fmt.Errorf("primary key field %s not found in model", transfer.PrimaryKey.Name)}
+			}
+
+			idValue := idField.Interface()
+			zeroValue := reflect.Zero(reflect.TypeOf(idValue)).Interface()
+
+			// Convert struct to map using transfer
+			fields := transfer.ToMap(v)
+			if fields == nil || len(fields) == 0 {
+				return &define.Result{Error: fmt.Errorf("no fields to save")}
+			}
+
+			// Convert boolean values to integers for MySQL
+			for k, v := range fields {
+				if b, ok := v.(bool); ok {
+					if b {
+						fields[k] = 1
+					} else {
+						fields[k] = 0
+					}
+				}
+			}
+
+			// If ID is not zero value, add it as a condition for update
+			if idValue != zeroValue {
+				c.Where(transfer.PrimaryKey.Column, define.OpEq, idValue)
+				result := c.Sets(fields).Update()
+				return result
+			}
+
+			// Otherwise, perform insert
+			result := c.Sets(fields).executeInsert()
 			if result.Error != nil {
 				return result
 			}
-		} else {
-			// Insert
-			result := c.executeInsert()
-			if result.Error != nil {
-				return result
-			}
-		}
-	}
 
-	return define.Result{}
+			// Set the ID back to the model if it was an insert
+			if result.ID != 0 {
+				reflect.ValueOf(v).Elem().FieldByName(transfer.PrimaryKey.Name).Set(reflect.ValueOf(result.ID))
+			}
+			return result
+		}
+		return &define.Result{Error: fmt.Errorf("unsupported argument type: %T", v)}
+	}
 }
 
 // executeInsert executes an INSERT query
-func (c *Chain) executeInsert() define.Result {
+func (c *Chain) executeInsert() *define.Result {
 	if len(c.fieldMap) == 0 {
-		return define.Result{Error: fmt.Errorf("no fields to insert")}
+		return &define.Result{Error: fmt.Errorf("no fields to insert")}
 	}
 
 	if c.factory == nil {
-		return define.Result{Error: fmt.Errorf("SQL factory is not initialized")}
+		return &define.Result{Error: fmt.Errorf("SQL factory is not initialized")}
 	}
 
 	if c.db == nil {
-		return define.Result{Error: fmt.Errorf("database connection is not initialized")}
+		return &define.Result{Error: fmt.Errorf("database connection is not initialized")}
+	}
+
+	// Start a transaction if not already in one
+	var tx *sql.Tx
+	var err error
+	if c.tx == nil {
+		tx, err = c.db.DB.Begin()
+		if err != nil {
+			return &define.Result{Error: fmt.Errorf("failed to begin transaction: %v", err)}
+		}
+		defer func() {
+			if err != nil {
+				tx.Rollback()
+			}
+		}()
+	} else {
+		tx = c.tx
 	}
 
 	sqlStr, args := c.factory.BuildInsert(c.tableName, c.fieldMap, c.fieldOrder)
@@ -989,17 +1030,9 @@ func (c *Chain) executeInsert() define.Result {
 		log.Printf("[SQL] %s %v", sqlStr, args)
 	}
 
-	var result sql.Result
-	var err error
-
-	if c.tx != nil {
-		result, err = c.tx.Exec(sqlStr, args...)
-	} else {
-		result, err = c.db.DB.Exec(sqlStr, args...)
-	}
-
+	result, err := tx.Exec(sqlStr, args...)
 	if err != nil {
-		return define.Result{Error: fmt.Errorf("failed to execute insert: %v", err)}
+		return &define.Result{Error: fmt.Errorf("failed to execute insert: %v", err)}
 	}
 
 	lastID, _ := result.LastInsertId()
@@ -1008,20 +1041,28 @@ func (c *Chain) executeInsert() define.Result {
 	// For PostgreSQL, if LastInsertId is not supported, try to get it from the RETURNING clause
 	if lastID == 0 && c.factory.GetType() == "postgres" {
 		var id int64
-		err = c.db.DB.QueryRow("SELECT lastval()").Scan(&id)
+		err = tx.QueryRow("SELECT lastval()").Scan(&id)
 		if err == nil {
 			lastID = id
 		}
 	}
 
-	return define.Result{
+	// Commit transaction if we started it
+	if c.tx == nil {
+		err = tx.Commit()
+		if err != nil {
+			return &define.Result{Error: fmt.Errorf("failed to commit transaction: %v", err)}
+		}
+	}
+
+	return &define.Result{
 		ID:       lastID,
 		Affected: affected,
 	}
 }
 
 // executeUpdate executes an UPDATE query
-func (c *Chain) executeUpdate() define.Result {
+func (c *Chain) executeUpdate() *define.Result {
 	sqlStr, args := c.factory.BuildUpdate(c.tableName, c.fieldMap, c.fieldOrder, c.conds)
 	if define.Debug {
 		log.Printf("[SQL] %s %v", sqlStr, args)
@@ -1036,47 +1077,78 @@ func (c *Chain) executeUpdate() define.Result {
 	}
 
 	if err != nil {
-		return define.Result{Error: err}
+		return &define.Result{Error: err}
 	}
 
 	lastID, _ := result.LastInsertId()
 	affected, _ := result.RowsAffected()
 
-	return define.Result{
+	return &define.Result{
 		ID:       lastID,
 		Affected: affected,
 	}
 }
 
-// Update updates records with the given fields
-func (c *Chain) Update(fields map[string]interface{}) define.Result {
-	if len(c.conds) > 0 {
-		// If fields is nil and we have a model, use the model's fields
-		if fields == nil && c.model != nil {
-			fields = define.StructToMap(c.model)
+// Update updates records with the given fields or model
+func (c *Chain) Update(fieldsOrModel ...interface{}) *define.Result {
+	// If no arguments provided, use existing fieldMap
+	if len(fieldsOrModel) == 0 {
+		if c.fieldMap == nil {
+			return &define.Result{Error: fmt.Errorf("no fields to update")}
 		}
-
-		// Update
-		c.fieldMap = fields
-		c.fieldOrder = make([]string, 0, len(fields))
-		for field := range fields {
-			c.fieldOrder = append(c.fieldOrder, field)
+		if len(c.conds) > 0 {
+			return c.executeUpdate()
 		}
-		return c.executeUpdate()
+		return c.executeInsert()
 	}
 
-	// Insert
-	c.fieldMap = fields
-	c.fieldOrder = make([]string, 0, len(fields))
-	for field := range fields {
-		c.fieldOrder = append(c.fieldOrder, field)
+	// Handle the first argument
+	switch v := fieldsOrModel[0].(type) {
+	case map[string]interface{}:
+		return c.Sets(v).Update()
+	case nil:
+		return &define.Result{Error: fmt.Errorf("nil argument provided")}
+	default:
+		// Try to convert struct to map using transfer
+		if transfer := define.GetTransfer(v); transfer != nil {
+			// Set table name if not set
+			if c.tableName == "" {
+				c.tableName = transfer.GetTableName()
+			}
+
+			// Convert struct to map using transfer
+			fields := transfer.ToMap(v)
+			if fields == nil || len(fields) == 0 {
+				return &define.Result{Error: fmt.Errorf("no fields to update")}
+			}
+
+			// Convert boolean values to integers for MySQL
+			for k, v := range fields {
+				if b, ok := v.(bool); ok {
+					if b {
+						fields[k] = 1
+					} else {
+						fields[k] = 0
+					}
+				}
+			}
+
+			// Extract ID for condition if no conditions are set
+			if len(c.conds) == 0 {
+				if pkValue, _ := transfer.GetPrimaryKeyValue(v); pkValue != nil {
+					c.Where(transfer.PrimaryKey.Column, define.OpEq, pkValue)
+				}
+			}
+
+			return c.Sets(fields).Update()
+		}
+		return &define.Result{Error: fmt.Errorf("unsupported argument type: %T", v)}
 	}
-	return c.executeInsert()
 }
 
 // Delete executes a DELETE query
-func (c *Chain) Delete(models ...interface{}) define.Result {
-	// 如果没有提供模型，使用已设置的条件
+func (c *Chain) Delete(models ...interface{}) *define.Result {
+	// If no arguments provided, use existing conditions
 	if len(models) == 0 {
 		sql, args := c.factory.BuildDelete(c.tableName, c.conds)
 		if define.Debug {
@@ -1093,148 +1165,113 @@ func (c *Chain) Delete(models ...interface{}) define.Result {
 			sqlResult, err = c.db.DB.Exec(sql, args...)
 		}
 		if err != nil {
-			return define.Result{Error: err}
+			return &define.Result{Error: err}
 		}
 		affected, err := sqlResult.RowsAffected()
 		if err != nil {
-			return define.Result{Error: err}
+			return &define.Result{Error: err}
 		}
-		return define.Result{Affected: affected}
+		return &define.Result{Affected: affected}
 	}
 
-	// 如果只有一个模型，不需要事务
+	// If only one model, no need for transaction
 	if len(models) == 1 {
 		return c.deleteSingleModel(models[0])
 	}
 
-	// 多个模型需要使用事务
+	// Multiple models need transaction
 	return c.deleteMultipleModels(models)
 }
 
 // deleteSingleModel deletes a single model without transaction
-func (c *Chain) deleteSingleModel(model interface{}) define.Result {
-	// 获取模型的主键值
-	pkValue, err := c.extractPrimaryKeyValue(model)
-	if err != nil {
-		return define.Result{Error: err}
+func (c *Chain) deleteSingleModel(model interface{}) *define.Result {
+	// Try to get transfer for struct-based model
+	if transfer := define.GetTransfer(model); transfer != nil {
+		// Set table name if not set
+		if c.tableName == "" {
+			c.tableName = transfer.GetTableName()
+		}
+
+		// Extract ID for condition if no conditions are set
+		if len(c.conds) == 0 {
+			if pkValue, _ := transfer.GetPrimaryKeyValue(model); pkValue != nil {
+				c.Where(transfer.PrimaryKey.Column, define.OpEq, pkValue)
+			}
+		}
+
+		return c.Delete()
 	}
 
-	// 使用主键作为删除条件
-	c.conds = append(c.conds, &define.Condition{
-		Field: "id",
-		Op:    define.OpEq,
-		Value: pkValue,
-	})
+	// Handle map-based model
+	if fields, ok := model.(map[string]interface{}); ok {
+		// Extract primary key for delete condition
+		var pkField, pkValue = "", interface{}(nil)
+		for k, v := range fields {
+			if strings.HasSuffix(strings.ToLower(k), "id") {
+				pkField = k
+				pkValue = v
+				break
+			}
+		}
 
-	sql, args := c.factory.BuildDelete(c.tableName, c.conds)
-	if define.Debug {
-		log.Printf("[SQL] %s %v", sql, args)
+		if pkField != "" {
+			c.Where(pkField, define.OpEq, pkValue)
+		}
+
+		return c.Delete()
 	}
 
-	var sqlResult interface {
-		LastInsertId() (int64, error)
-		RowsAffected() (int64, error)
-	}
-	if c.tx != nil {
-		sqlResult, err = c.tx.Exec(sql, args...)
-	} else {
-		sqlResult, err = c.db.DB.Exec(sql, args...)
-	}
-	if err != nil {
-		return define.Result{Error: err}
-	}
-	affected, err := sqlResult.RowsAffected()
-	if err != nil {
-		return define.Result{Error: err}
-	}
-	return define.Result{Affected: affected}
+	return &define.Result{Error: fmt.Errorf("unsupported model type: %T", model)}
 }
 
 // deleteMultipleModels deletes multiple models within a transaction
-func (c *Chain) deleteMultipleModels(models []interface{}) define.Result {
-	// 如果已经在事务中，直接使用现有事务
+func (c *Chain) deleteMultipleModels(models []interface{}) *define.Result {
+	// If already in transaction, use existing transaction
 	if c.tx != nil {
 		return c.executeMultipleDeletes(models)
 	}
 
-	// 开启新事务
+	// Start new transaction
 	tx, err := c.db.DB.Begin()
 	if err != nil {
-		return define.Result{Error: fmt.Errorf("failed to begin transaction: %v", err)}
+		return &define.Result{Error: fmt.Errorf("failed to begin transaction: %v", err)}
 	}
 
-	// 创建新的带事务的 Chain
-	txChain := &Chain{
-		db:        c.db,
-		tx:        tx,
-		tableName: c.tableName,
-		conds:     c.conds,
-		factory:   c.factory,
-	}
+	// Create new Chain with transaction
+	txChain := c.clone()
+	txChain.tx = tx
 
 	result := txChain.executeMultipleDeletes(models)
 	if result.Error != nil {
-		// 发生错误时回滚事务
+		// Rollback on error
 		rollbackErr := tx.Rollback()
 		if rollbackErr != nil {
-			return define.Result{Error: fmt.Errorf("delete failed: %v, rollback failed: %v", result.Error, rollbackErr)}
+			return &define.Result{Error: fmt.Errorf("delete failed: %v, rollback failed: %v", result.Error, rollbackErr)}
 		}
-		return define.Result{Error: fmt.Errorf("delete failed: %v", result.Error)}
+		return &define.Result{Error: fmt.Errorf("delete failed: %v", result.Error)}
 	}
 
-	// 提交事务
+	// Commit transaction
 	if err := tx.Commit(); err != nil {
-		return define.Result{Error: fmt.Errorf("failed to commit transaction: %v", err)}
+		return &define.Result{Error: fmt.Errorf("failed to commit transaction: %v", err)}
 	}
 
 	return result
 }
 
 // executeMultipleDeletes executes deletes for multiple models
-func (c *Chain) executeMultipleDeletes(models []interface{}) define.Result {
+func (c *Chain) executeMultipleDeletes(models []interface{}) *define.Result {
 	var totalAffected int64
 
-	for i, model := range models {
-		// 获取模型的主键值
-		pkValue, err := c.extractPrimaryKeyValue(model)
-		if err != nil {
-			return define.Result{Error: fmt.Errorf("failed to extract primary key from model %d: %v", i+1, err)}
+	for _, model := range models {
+		result := c.clone().deleteSingleModel(model)
+		if result.Error != nil {
+			return result
 		}
-
-		// 使用主键作为删除条件
-		c.conds = append(c.conds, &define.Condition{
-			Field: "id",
-			Op:    define.OpEq,
-			Value: pkValue,
-		})
-
-		sql, args := c.factory.BuildDelete(c.tableName, c.conds)
-		if define.Debug {
-			log.Printf("[SQL] %s %v", sql, args)
-		}
-
-		var sqlResult interface {
-			LastInsertId() (int64, error)
-			RowsAffected() (int64, error)
-		}
-		sqlResult, err = c.tx.Exec(sql, args...)
-		if err != nil {
-			return define.Result{Error: fmt.Errorf("failed to delete model %d: %v", i+1, err)}
-		}
-
-		affected, err := sqlResult.RowsAffected()
-		if err != nil {
-			return define.Result{Error: fmt.Errorf("failed to get affected rows for model %d: %v", i+1, err)}
-		}
-
-		if affected == 0 {
-			return define.Result{Error: fmt.Errorf("no rows affected when deleting model %d", i+1)}
-		}
-
-		totalAffected += affected
+		totalAffected += result.Affected
 	}
 
-	return define.Result{Affected: totalAffected}
+	return &define.Result{Affected: totalAffected}
 }
 
 // extractPrimaryKeyValue extracts the primary key value from a model
@@ -2916,268 +2953,48 @@ func (c *Chain) Exec() *define.Result {
 	}
 }
 
-// List2 executes a SELECT query and returns results into the provided struct(s)
-func (c *Chain) List2(dest interface{}) error {
-	if dest == nil {
-		return fmt.Errorf("destination cannot be nil")
+// Sets allows batch setting of field values
+func (c *Chain) Sets(fields map[string]interface{}) *Chain {
+	if fields == nil {
+		return c
 	}
-
-	// Get the type of destination
-	destType := reflect.TypeOf(dest)
-	if destType.Kind() != reflect.Ptr {
-		return fmt.Errorf("destination must be a pointer")
+	if c.fieldMap == nil {
+		c.fieldMap = make(map[string]interface{})
 	}
-
-	// Get element type for table name
-	elemType := destType.Elem()
-	isSlice := false
-	isSliceOfPointers := false
-	if elemType.Kind() == reflect.Slice {
-		isSlice = true
-		elemType = elemType.Elem()
-		isSliceOfPointers = elemType.Kind() == reflect.Ptr
-		if isSliceOfPointers {
-			elemType = elemType.Elem()
-		}
+	for k, v := range fields {
+		c.fieldMap[k] = v
 	}
-
-	// Create model instance for transfer
-	modelInstance := reflect.New(elemType).Interface()
-
-	// Get transfer for the element type
-	transfer := define.GetTransfer(modelInstance)
-	if transfer == nil {
-		return fmt.Errorf("failed to get transfer for type %v", elemType)
+	c.fieldOrder = make([]string, 0, len(c.fieldMap))
+	for field := range c.fieldMap {
+		c.fieldOrder = append(c.fieldOrder, field)
 	}
+	return c
+}
 
-	// Set table name if not set
+// NewChain creates a new Chain instance with the given database and factory
+func NewChain(db *DB, factory define.SQLFactory) *Chain {
+	return &Chain{
+		db:      db,
+		factory: factory,
+	}
+}
+
+// BuildSelect builds a SELECT query using the current chain state
+func (c *Chain) BuildSelect() (string, []interface{}, error) {
 	if c.tableName == "" {
-		c.tableName = transfer.GetTableName()
+		return "", nil, errors.New("empty table name")
 	}
 
-	// Set model for scanning
-	transfer.SetModel(modelInstance)
-
-	// Build and execute query
-	orderByExpr := c.buildOrderBy()
-	sqlStr, args := c.factory.BuildSelect(c.tableName, c.fieldList, c.conds, orderByExpr, c.limitCount, c.offsetCount)
-	if define.Debug {
-		log.Printf("[SQL] %s %v", sqlStr, args)
+	// Use default fields if none specified
+	fields := c.fieldList
+	if len(fields) == 0 {
+		fields = []string{"*"}
 	}
 
-	var rows *sql.Rows
-	var err error
-	if c.tx != nil {
-		rows, err = c.tx.Query(sqlStr, args...)
-	} else {
-		rows, err = c.db.DB.Query(sqlStr, args...)
-	}
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
+	// Build order by clause
+	orderBy := c.factory.BuildOrderBy(c.orderByExprs)
 
-	// Scan results
-	var result interface{}
-	if isSlice {
-		result, err = transfer.ScanAll(rows)
-	} else {
-		if !rows.Next() {
-			return sql.ErrNoRows
-		}
-		columns, err := rows.Columns()
-		if err != nil {
-			return err
-		}
-		result, err = transfer.ScanRow(rows, columns)
-	}
-	if err != nil {
-		return err
-	}
-
-	// Set result to destination
-	destValue := reflect.ValueOf(dest).Elem()
-	resultValue := reflect.ValueOf(result)
-
-	if !isSlice {
-		// For single record, we need to set the pointer value
-		destValue.Set(resultValue.Elem())
-	} else {
-		// For slices, handle both pointer and non-pointer cases
-		if isSliceOfPointers {
-			// If destination is a slice of pointers, set directly
-			destValue.Set(resultValue)
-		} else {
-			// If destination is a slice of values, convert from slice of pointers
-			sliceLen := resultValue.Len()
-			destSlice := reflect.MakeSlice(destValue.Type(), sliceLen, sliceLen)
-			for i := 0; i < sliceLen; i++ {
-				destSlice.Index(i).Set(resultValue.Index(i).Elem())
-			}
-			destValue.Set(destSlice)
-		}
-	}
-	return nil
-}
-
-// Update2 updates records using the provided struct(s)
-func (c *Chain) Update2(models ...interface{}) error {
-	if len(models) == 0 {
-		return fmt.Errorf("no models provided")
-	}
-
-	// Handle multiple models
-	for _, model := range models {
-		if model == nil {
-			continue
-		}
-
-		// Get transfer for the model
-		transfer := define.GetTransfer(model)
-		if transfer == nil {
-			continue
-		}
-
-		// Set table name if not set
-		if c.tableName == "" {
-			c.tableName = transfer.GetTableName()
-		}
-
-		// Convert struct to map using transfer
-		fields := transfer.ToMap(model)
-		if fields == nil || len(fields) == 0 {
-			continue
-		}
-
-		// Extract ID for condition if no conditions are set
-		if len(c.conds) == 0 {
-			if pkValue, _ := transfer.GetPrimaryKeyValue(model); pkValue != nil {
-				c.Where(transfer.PrimaryKey.Column, define.OpEq, pkValue)
-			}
-		}
-
-		// Execute update
-		result := c.Update(fields)
-		if result.Error != nil {
-			return result.Error
-		}
-	}
-
-	return nil
-}
-
-// Save2 saves (inserts or updates) the provided struct(s)
-func (c *Chain) Save2(models ...interface{}) error {
-	if len(models) == 0 {
-		return fmt.Errorf("no models provided")
-	}
-
-	for _, model := range models {
-		if model == nil {
-			continue
-		}
-
-		// Get transfer for the model
-		transfer := define.GetTransfer(model)
-		if transfer == nil {
-			return fmt.Errorf("failed to get transfer for model: model may be nil or invalid")
-		}
-
-		// Set table name if not set
-		if c.tableName == "" {
-			tableName := transfer.GetTableName()
-			if tableName == "" {
-				return fmt.Errorf("table name is not set and could not be determined from model")
-			}
-			c.tableName = tableName
-		}
-
-		// Store model for potential ID callback
-		c.model = model
-
-		// Get the ID field value
-		if transfer.PrimaryKey == nil {
-			return fmt.Errorf("model has no primary key field")
-		}
-
-		modelValue := reflect.ValueOf(model)
-		if !modelValue.IsValid() || modelValue.IsNil() {
-			return fmt.Errorf("invalid model value")
-		}
-		modelElem := modelValue.Elem()
-		if !modelElem.IsValid() {
-			return fmt.Errorf("invalid model element")
-		}
-
-		idField := modelElem.FieldByName(transfer.PrimaryKey.Name)
-		if !idField.IsValid() {
-			return fmt.Errorf("primary key field %s not found in model", transfer.PrimaryKey.Name)
-		}
-
-		idValue := idField.Interface()
-		zeroValue := reflect.Zero(reflect.TypeOf(idValue)).Interface()
-
-		// Convert struct to map using transfer
-		fields := transfer.ToMap(model, true) // Pass true to indicate it's an update operation
-		if fields == nil || len(fields) == 0 {
-			continue
-		}
-
-		// If ID is not zero value, add it as a condition
-		if idValue != zeroValue {
-			c.Where(transfer.PrimaryKey.Column, define.OpEq, idValue)
-		}
-
-		// Execute update/insert
-		result := c.Update(fields)
-		if result.Error != nil {
-			return result.Error
-		}
-
-		// Set the ID back to the model if it was an insert
-		if idValue == zeroValue {
-			reflect.ValueOf(model).Elem().FieldByName(transfer.PrimaryKey.Name).Set(reflect.ValueOf(result.ID))
-		}
-	}
-
-	return nil
-}
-
-// Delete2 deletes records using the provided struct(s)
-func (c *Chain) Delete2(models ...interface{}) error {
-	if len(models) == 0 {
-		return fmt.Errorf("no models provided")
-	}
-
-	for _, model := range models {
-		if model == nil {
-			continue
-		}
-
-		// Get transfer for the model
-		transfer := define.GetTransfer(model)
-		if transfer == nil {
-			continue
-		}
-
-		// Set table name if not set
-		if c.tableName == "" {
-			c.tableName = transfer.GetTableName()
-		}
-
-		// Extract ID for condition if no conditions are set
-		if len(c.conds) == 0 {
-			if pkValue, _ := transfer.GetPrimaryKeyValue(model); pkValue != nil {
-				c.Where(transfer.PrimaryKey.Column, define.OpEq, pkValue)
-			}
-		}
-
-		// Execute delete
-		result := c.Delete()
-		if result.Error != nil {
-			return result.Error
-		}
-	}
-
-	return nil
+	// Build the query using the factory
+	sql, args := c.factory.BuildSelect(c.tableName, fields, c.conds, orderBy, c.limitCount, c.offsetCount)
+	return sql, args, nil
 }

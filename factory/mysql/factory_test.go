@@ -2,7 +2,9 @@ package mysql
 
 import (
 	"database/sql"
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,7 +14,7 @@ import (
 )
 
 func setupTestDB(t *testing.T) *sql.DB {
-	db, err := sql.Open("mysql", testutils.TestMySQLDSN)
+	db, err := sql.Open("mysql", testutils.DefaultMySQLConfig().DSN())
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
 
@@ -41,7 +43,7 @@ func TestFactoryConnect(t *testing.T) {
 	factory := &Factory{}
 
 	// Test valid connection
-	db, err := factory.Connect(testutils.TestMySQLDSN)
+	db, err := factory.Connect(testutils.DefaultMySQLConfig().DSN())
 	assert.NoError(t, err)
 	assert.NotNil(t, db)
 	db.Close()
@@ -189,7 +191,7 @@ func TestFactoryGetTableInfo(t *testing.T) {
 	factory := &Factory{}
 
 	// Skip test if no database connection
-	db, err := sql.Open("mysql", testutils.TestMySQLDSN)
+	db, err := sql.Open("mysql", testutils.DefaultMySQLConfig().DSN())
 	if err != nil {
 		t.Skip("Skipping test due to database connection error")
 		return
@@ -204,7 +206,7 @@ func TestFactoryGetTableInfo(t *testing.T) {
 
 func TestFactoryGetTables(t *testing.T) {
 	factory := &Factory{}
-	db, err := factory.Connect(testutils.TestMySQLDSN)
+	db, err := factory.Connect(testutils.DefaultMySQLConfig().DSN())
 	if err != nil {
 		t.Skip("Skipping test due to database connection error:", err)
 		return
@@ -315,4 +317,104 @@ func TestFactoryBuildSelectWithGroupBy(t *testing.T) {
 	assert.Contains(t, query, "HAVING count > ? AND avg_age >= ?")
 	assert.Contains(t, query, "ORDER BY avg_age DESC")
 	assert.Equal(t, []interface{}{5, 25}, args)
+}
+
+func TestComplexQueries(t *testing.T) {
+	factory := &define.MockSQLFactory{}
+
+	t.Run("Complex Join Query", func(t *testing.T) {
+		query := `
+			SELECT u.*, o.order_id, o.total_amount 
+			FROM users u 
+			LEFT JOIN orders o ON u.id = o.user_id 
+			WHERE u.status = ? AND o.total_amount > ?
+			GROUP BY u.id
+			HAVING COUNT(o.order_id) > ?
+			ORDER BY o.total_amount DESC
+			LIMIT ? OFFSET ?
+		`
+		args := []interface{}{"active", 1000.0, 5, 10, 0}
+
+		// 测试查询构建
+		result, err := factory.BuildRawQuery(query, args)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, result)
+		assert.Equal(t, len(args), len(result.Args))
+	})
+
+	t.Run("Subquery Test", func(t *testing.T) {
+		query := `
+			SELECT * FROM products p
+			WHERE p.category_id IN (
+				SELECT id FROM categories 
+				WHERE active = ?
+			) AND p.price > (
+				SELECT AVG(price) FROM products
+				WHERE category_id = p.category_id
+			)
+			ORDER BY p.price DESC
+		`
+		args := []interface{}{true}
+
+		result, err := factory.BuildRawQuery(query, args)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, result)
+	})
+}
+
+func TestPerformanceEdgeCases(t *testing.T) {
+	factory := &define.MockSQLFactory{}
+
+	t.Run("Large IN Clause", func(t *testing.T) {
+		// 测试大量IN条件的情况
+		ids := make([]interface{}, 1000)
+		placeholders := make([]string, 1000)
+		for i := 0; i < 1000; i++ {
+			ids[i] = i
+			placeholders[i] = "?"
+		}
+
+		query := fmt.Sprintf("SELECT * FROM table WHERE id IN (%s)", strings.Join(placeholders, ","))
+		result, err := factory.BuildRawQuery(query, ids)
+		assert.NoError(t, err)
+		assert.Equal(t, 1000, len(result.Args))
+	})
+
+	t.Run("Deep Nested Query", func(t *testing.T) {
+		// 测试深度嵌套查询
+		query := `
+			SELECT * FROM t1 
+			WHERE id IN (
+				SELECT t2.id FROM t2 
+				WHERE t2.value > (
+					SELECT AVG(t3.value) FROM t3 
+					WHERE t3.id IN (
+						SELECT t4.id FROM t4 
+						WHERE t4.status = ?
+					)
+				)
+			)
+		`
+		args := []interface{}{"active"}
+
+		result, err := factory.BuildRawQuery(query, args)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, result)
+	})
+
+	t.Run("Large Batch Insert", func(t *testing.T) {
+		// 测试大批量插入
+		values := make([]map[string]interface{}, 1000)
+		for i := 0; i < 1000; i++ {
+			values[i] = map[string]interface{}{
+				"id":    i,
+				"name":  fmt.Sprintf("test_%d", i),
+				"value": i * 100,
+			}
+		}
+
+		sql, args := factory.BuildBatchInsert("test_table", values)
+		assert.NotEmpty(t, sql)
+		assert.Equal(t, 3000, len(args)) // 1000 rows * 3 columns
+	})
 }

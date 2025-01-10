@@ -37,7 +37,7 @@ func TestDSNGeneration(t *testing.T) {
 		Password: "testpass",
 		DBName:   "testdb",
 	}
-	expectedMySQLDSN := "testuser:testpass@tcp(localhost:3306)/testdb?parseTime=true&multiStatements=true"
+	expectedMySQLDSN := "testuser:testpass@tcp(localhost:3306)/testdb?charset=utf8mb4&parseTime=True"
 	if dsn := mysqlConfig.DSN(); dsn != expectedMySQLDSN {
 		t.Errorf("Expected MySQL DSN %s, got %s", expectedMySQLDSN, dsn)
 	}
@@ -51,9 +51,16 @@ func TestDSNGeneration(t *testing.T) {
 		Password: "testpass",
 		DBName:   "testdb",
 	}
-	expectedPGDSN := "host=localhost port=5432 user=testuser password=testpass dbname=testdb sslmode=disable"
+	expectedPGDSN := "postgres://testuser:testpass@localhost:5432/testdb?sslmode=disable"
 	if dsn := pgConfig.DSN(); dsn != expectedPGDSN {
 		t.Errorf("Expected PostgreSQL DSN %s, got %s", expectedPGDSN, dsn)
+	}
+
+	// 测试环境变量DSN覆盖
+	os.Setenv("TEST_MYSQL_DSN", "custom_dsn")
+	defer os.Unsetenv("TEST_MYSQL_DSN")
+	if dsn := mysqlConfig.DSN(); dsn != "custom_dsn" {
+		t.Errorf("Expected custom DSN from environment variable, got %s", dsn)
 	}
 
 	// 测试未知驱动

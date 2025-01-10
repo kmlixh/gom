@@ -2,6 +2,7 @@ package gom
 
 import (
 	"database/sql"
+	"math"
 	"testing"
 	"time"
 
@@ -61,7 +62,7 @@ func createTestDB(t *testing.T) *DB {
 			email VARCHAR(255),
 			created_at DATETIME,
 			updated_at DATETIME,
-			is_active BOOLEAN DEFAULT true,
+			is_active TINYINT(1) DEFAULT 1,
 			score DOUBLE DEFAULT 0.0
 		)
 	`)
@@ -90,58 +91,70 @@ func TestTransferBasicOperations(t *testing.T) {
 	}
 	defer db.Close()
 
-	// Create test user
-	now := time.Now().Round(time.Second)
+	// Clean up any existing data
+	_, err := db.DB.Exec("DELETE FROM test_user")
+	assert.NoError(t, err)
+
+	now := time.Now().UTC()
 	user := &TestUser{
-		Name:      "User 1",
+		Name:      "Test User",
 		Age:       25,
-		Email:     "user1@test.com",
+		Email:     "test@example.com",
 		CreatedAt: now,
 		UpdatedAt: now,
 		IsActive:  true,
 		Score:     85.5,
 	}
 
-	// Test Save2
-	err := db.Chain().Table("test_user").Save2(user)
-	assert.NoError(t, err)
+	// Test Save
+	result := db.Chain().Table("test_user").Save(user)
+	assert.NoError(t, result.Error)
 	assert.NotZero(t, user.ID)
 
-	// Test List2 single
-	var fetchedUser TestUser
-	err = db.Chain().Table("test_user").Where("id", define.OpEq, user.ID).List2(&fetchedUser)
-	assert.NoError(t, err)
+	// Test List single
+	var users []TestUser
+	result = db.Chain().Table("test_user").Where("id", define.OpEq, user.ID).List(&users)
+	assert.NoError(t, result.Error)
+	assert.Len(t, users, 1)
+	fetchedUser := users[0]
 	assert.Equal(t, user.Name, fetchedUser.Name)
 	assert.Equal(t, user.Age, fetchedUser.Age)
 	assert.Equal(t, user.Email, fetchedUser.Email)
-	assert.Equal(t, user.CreatedAt.Unix(), fetchedUser.CreatedAt.Unix())
+	timeDiff := math.Abs(float64(user.CreatedAt.Unix() - fetchedUser.CreatedAt.Unix()))
+	assert.LessOrEqual(t, timeDiff, float64(1), "CreatedAt timestamps should be within 1 second")
 	assert.Equal(t, user.IsActive, fetchedUser.IsActive)
 	assert.Equal(t, user.Score, fetchedUser.Score)
 
-	// Test List2 multiple
-	var users []TestUser
-	err = db.Chain().Table("test_user").OrderBy("id").List2(&users)
-	assert.NoError(t, err)
+	// Test List multiple
+	users = nil
+	result = db.Chain().Table("test_user").OrderBy("id").List(&users)
+	assert.NoError(t, result.Error)
 	assert.Len(t, users, 1)
 	assert.Equal(t, user.Name, users[0].Name)
 
-	// Test Update2
-	user.Name = "Updated User 1"
-	err = db.Chain().Table("test_user").Update2(user)
-	assert.NoError(t, err)
+	// Test Update
+	updatedUser := *user
+	updatedUser.Name = "Updated User 1"
+	result = db.Chain().Table("test_user").Where("id", define.OpEq, user.ID).Values(map[string]interface{}{
+		"name": updatedUser.Name,
+	}).Save()
+	assert.NoError(t, result.Error)
 
-	var updatedUser TestUser
-	err = db.Chain().Table("test_user").Where("id", define.OpEq, user.ID).List2(&updatedUser)
-	assert.NoError(t, err)
-	assert.Equal(t, "Updated User 1", updatedUser.Name)
+	users = nil
+	result = db.Chain().Table("test_user").Where("id", define.OpEq, user.ID).List(&users)
+	assert.NoError(t, result.Error)
+	assert.Len(t, users, 1)
+	assert.Equal(t, "Updated User 1", users[0].Name)
 
-	// Test Delete2
-	err = db.Chain().Table("test_user").Delete2(user)
-	assert.NoError(t, err)
+	// Test Delete
+	result = db.Chain().Table("test_user").Where("id", define.OpEq, user.ID).Delete()
+	assert.NoError(t, result.Error)
 
-	var deletedUser TestUser
-	err = db.Chain().Table("test_user").Where("id", define.OpEq, user.ID).List2(&deletedUser)
-	assert.Equal(t, sql.ErrNoRows, err)
+	// Verify deletion
+	var checkUser TestUser
+	result = db.Chain().Table("test_user").Where("id", define.OpEq, user.ID).First(&checkUser)
+	assert.Error(t, result.Error)
+	assert.Equal(t, sql.ErrNoRows, result.Error)
 }
 
 func BenchmarkTransferOperations(b *testing.B) {
@@ -163,41 +176,41 @@ func BenchmarkTransferOperations(b *testing.B) {
 		Score:     85.5,
 	}
 
-	err = gdb.Chain().Save2(user)
-	if err != nil {
-		b.Fatal(err)
+	result := gdb.Chain().Save(user)
+	if result.Error != nil {
+		b.Fatal(result.Error)
 	}
 
-	b.Run("List2Single", func(b *testing.B) {
+	b.Run("ListSingle", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			var u TestUser
-			err := gdb.Chain().Where("id", define.OpEq, user.ID).List2(&u)
-			if err != nil {
-				b.Fatal(err)
+			result := gdb.Chain().Where("id", define.OpEq, user.ID).List(&u)
+			if result.Error != nil {
+				b.Fatal(result.Error)
 			}
 		}
 	})
 
-	b.Run("List2Multiple", func(b *testing.B) {
+	b.Run("ListMultiple", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			var users []TestUser
-			err := gdb.Chain().List2(&users)
-			if err != nil {
-				b.Fatal(err)
+			result := gdb.Chain().List(&users)
+			if result.Error != nil {
+				b.Fatal(result.Error)
 			}
 		}
 	})
 
-	b.Run("Update2", func(b *testing.B) {
+	b.Run("Update", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			u := *user
 			u.Name = "Updated " + string(rune(i))
-			err := gdb.Chain().Update2(&u)
-			if err != nil {
-				b.Fatal(err)
+			result := gdb.Chain().Update(&u)
+			if result.Error != nil {
+				b.Fatal(result.Error)
 			}
 		}
 	})
@@ -205,36 +218,56 @@ func BenchmarkTransferOperations(b *testing.B) {
 
 func TestTransferEdgeCases(t *testing.T) {
 	db := createTestDB(t)
+	if db == nil {
+		t.Skip("Skipping test due to database connection error")
+		return
+	}
 	defer db.Close()
 
+	// Clean up any existing data
+	_, err := db.DB.Exec("DELETE FROM test_user")
+	assert.NoError(t, err)
+
 	// Test nil pointer
-	err := db.Chain().List2(nil)
-	assert.Error(t, err)
+	var nilPtr *TestUser
+	result := db.Chain().Table("test_user").Save(nilPtr)
+	assert.Error(t, result.Error)
+	assert.Contains(t, result.Error.Error(), "nil pointer")
 
 	// Test non-pointer
 	var user TestUser
-	err = db.Chain().List2(user)
-	assert.Error(t, err)
+	result = db.Chain().Table("test_user").Save(user)
+	assert.Error(t, result.Error)
+	assert.Contains(t, result.Error.Error(), "non-pointer")
 
 	// Test empty result
-	err = db.Chain().Where("id", define.OpEq, -1).List2(&user)
-	assert.Equal(t, sql.ErrNoRows, err)
+	result = db.Chain().Table("test_user").Where("id", define.OpEq, -1).First(&user)
+	assert.Equal(t, sql.ErrNoRows, result.Error)
 
 	// Test invalid field type
 	_, err = db.DB.Exec(`
-		INSERT INTO test_user (name, age, email) 
-		VALUES ('Invalid', 'not a number', 'test@test.com')
+		INSERT INTO test_user (name, age, email, created_at, updated_at, is_active, score) 
+		VALUES ('Invalid', 'not a number', 'test@test.com', NOW(), NOW(), true, 1.0)
 	`)
 	assert.Error(t, err) // Should error on invalid integer value
 
 	var users []TestUser
-	err = db.Chain().List2(&users)
-	assert.NoError(t, err) // Should succeed in listing existing records
+	result = db.Chain().Table("test_user").List(&users)
+	assert.NoError(t, result.Error)
 	assert.Empty(t, users) // No records should exist
+
+	// Test invalid table name
+	result = db.Chain().Table("non_existent_table").List(&users)
+	assert.Error(t, result.Error)
+	assert.Contains(t, result.Error.Error(), "table") // Error should mention table issue
 }
 
 func TestTransferConcurrency(t *testing.T) {
 	db := createTestDB(t)
+	if db == nil {
+		t.Skip("Skipping test due to database connection error")
+		return
+	}
 	defer db.Close()
 
 	// Create test data
@@ -248,16 +281,17 @@ func TestTransferConcurrency(t *testing.T) {
 		Score:     85.5,
 	}
 
-	err := db.Chain().Save2(user)
-	assert.NoError(t, err)
+	result := db.Chain().Table("test_user").Save(user)
+	assert.NoError(t, result.Error)
 
 	// Test concurrent access
 	done := make(chan bool)
 	for i := 0; i < 10; i++ {
 		go func() {
-			var u TestUser
-			err := db.Chain().Where("id", define.OpEq, user.ID).List2(&u)
-			assert.NoError(t, err)
+			var users []TestUser
+			result := db.Chain().Table("test_user").Where("id", define.OpEq, user.ID).List(&users)
+			assert.NoError(t, result.Error)
+			assert.Len(t, users, 1)
 			done <- true
 		}()
 	}

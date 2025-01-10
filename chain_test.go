@@ -3,6 +3,7 @@ package gom
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -59,17 +60,19 @@ func setupDB(driver, dsn string) *DB {
 }
 
 func setupMySQLDB(t *testing.T) *DB {
-	db := setupDB("mysql", testutils.TestMySQLDSN)
+	config := testutils.DefaultMySQLConfig()
+	db := setupDB(config.Driver, config.DSN())
 	if db == nil {
-		t.Fatalf("Failed to connect to MySQL: %s", testutils.TestMySQLDSN)
+		t.Fatalf("Failed to connect to MySQL with DSN: %s", config.DSN())
 	}
 	return db
 }
 
 func setupPostgreSQLDB(t *testing.T) *DB {
-	db := setupDB("postgres", testutils.TestPgDSN)
+	config := testutils.DefaultPostgresConfig()
+	db := setupDB(config.Driver, config.DSN())
 	if db == nil {
-		t.Fatalf("Failed to connect to PostgreSQL: %s", testutils.TestPgDSN)
+		t.Fatalf("Failed to connect to PostgreSQL with DSN: %s", config.DSN())
 	}
 	return db
 }
@@ -238,4 +241,58 @@ func runChainOperationsTest(t *testing.T, db *DB) {
 	// Clean up
 	_, err = db.DB.Exec("DROP TABLE IF EXISTS " + tableName)
 	assert.NoError(t, err)
+}
+
+func TestChainConcurrentOperations(t *testing.T) {
+	t.Run("Concurrent Chain Operations", func(t *testing.T) {
+		db := setupMySQLDB(t)
+		factory := &define.MockSQLFactory{}
+		chain := NewChain(db, factory)
+		var wg sync.WaitGroup
+		numGoroutines := 10
+
+		wg.Add(numGoroutines)
+		for i := 0; i < numGoroutines; i++ {
+			go func(id int) {
+				defer wg.Done()
+				// 测试并发添加条件
+				chain.Where("id", define.OpEq, id)
+				chain.And("status", define.OpEq, "active")
+				chain.Or("type", define.OpEq, "test")
+			}(i)
+		}
+		wg.Wait()
+
+		// 验证并发操作后的链状态
+		assert.NotNil(t, chain)
+		assert.NotEmpty(t, chain.conds)
+	})
+}
+
+func TestChainErrorHandling(t *testing.T) {
+	t.Run("Invalid SQL Generation", func(t *testing.T) {
+		db := setupMySQLDB(t)
+		factory := &define.MockSQLFactory{}
+		chain := NewChain(db, factory)
+		chain.Table("") // 空表名
+
+		sql, args, err := chain.BuildSelect()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "empty table name")
+		assert.Empty(t, sql)
+		assert.Empty(t, args)
+	})
+
+	t.Run("Invalid Condition Values", func(t *testing.T) {
+		db := setupMySQLDB(t)
+		factory := &define.MockSQLFactory{}
+		chain := NewChain(db, factory)
+		chain.Table("test_table")
+		chain.Where("id", define.OpEq, nil) // 无效的参数值
+
+		sql, args, err := chain.BuildSelect()
+		assert.Error(t, err)
+		assert.Empty(t, sql)
+		assert.Empty(t, args)
+	})
 }

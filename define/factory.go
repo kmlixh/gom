@@ -13,6 +13,18 @@ const (
 	OrderDesc                  // Descending order
 )
 
+// String returns the string representation of OrderType
+func (o OrderType) String() string {
+	switch o {
+	case OrderAsc:
+		return "ASC"
+	case OrderDesc:
+		return "DESC"
+	default:
+		return "ASC"
+	}
+}
+
 // OrderBy represents an order by clause
 type OrderBy struct {
 	Field string

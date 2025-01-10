@@ -112,3 +112,9 @@ const (
 	// OpCustom represents custom operation
 	OpCustom
 )
+
+// SQLQuery represents a SQL query with its arguments
+type SQLQuery struct {
+	Query string
+	Args  []interface{}
+}

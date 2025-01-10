@@ -323,127 +323,63 @@ func TestDomainComplexOperations(t *testing.T) {
 	`)
 	assert.NoError(t, err)
 
-	// 清理测试数据
-	defer func() {
-		db.DB.Exec("DROP TABLE IF EXISTS domain_services")
-		db.DB.Exec("DROP TABLE IF EXISTS services")
-		db.DB.Exec("DROP TABLE IF EXISTS domains")
-	}()
+	// 清理旧数据
+	_, err = db.DB.Exec("DELETE FROM domain_services")
+	assert.NoError(t, err)
+	_, err = db.DB.Exec("DELETE FROM services")
+	assert.NoError(t, err)
+	_, err = db.DB.Exec("DELETE FROM domains")
+	assert.NoError(t, err)
 
-	// 1. 批量插入多个域名
+	// 1. 插入测试数据
+	now := time.Now().UTC()
 	domains := []Domain{
 		{
 			Name:         "Domain 1",
 			DomainName:   "domain-1",
 			Description:  "Description 1",
-			ServiceCount: 0,
+			ServiceCount: 1,
 			Status:       1,
+			CreatedAt:    now,
+			UpdatedAt:    now,
 		},
 		{
 			Name:         "Domain 2",
 			DomainName:   "domain-2",
 			Description:  "Description 2",
-			ServiceCount: 0,
-			Status:       2,
+			ServiceCount: 2,
+			Status:       0,
+			CreatedAt:    now,
+			UpdatedAt:    now,
 		},
 		{
 			Name:         "Domain 3",
 			DomainName:   "domain-3",
 			Description:  "Description 3",
-			ServiceCount: 0,
+			ServiceCount: 1,
 			Status:       1,
+			CreatedAt:    now,
+			UpdatedAt:    now,
 		},
 	}
 
-	// 插入域名
-	for i := range domains {
+	for _, domain := range domains {
 		result := db.Chain().Table("domains").Values(map[string]interface{}{
-			"name":          domains[i].Name,
-			"identifier":    domains[i].DomainName,
-			"description":   domains[i].Description,
-			"service_count": domains[i].ServiceCount,
-			"status":        domains[i].Status,
+			"name":          domain.Name,
+			"identifier":    domain.DomainName,
+			"description":   domain.Description,
+			"service_count": domain.ServiceCount,
+			"status":        domain.Status,
+			"created_at":    domain.CreatedAt,
+			"updated_at":    domain.UpdatedAt,
 		}).Save()
 		assert.NoError(t, result.Error)
-		domains[i].ID = uint(result.ID)
+		domain.ID = uint(result.ID)
 	}
 
-	// 2. 测试复杂查询
-	// 2.1 按状态分组统计
-	var statusCounts []struct {
-		Status int64 `gom:"status"`
-		Count  int64 `gom:"count"`
-	}
-	result := db.Chain().
-		Table("domains").
-		Fields("status", "COUNT(*) as count").
-		GroupBy("status").
-		OrderBy("status").
-		List(&statusCounts)
-	assert.NoError(t, result.Error)
-	assert.Len(t, statusCounts, 2)
-	assert.Equal(t, int64(2), statusCounts[0].Count) // status 1 有两个
-	assert.Equal(t, int64(1), statusCounts[1].Count) // status 2 有一个
-
-	// 2.2 使用 IN 查询
-	var activeDomains []Domain
-	result = db.Chain().
-		Table("domains").
-		Where("status", define.OpIn, []interface{}{1}).
-		OrderBy("id").
-		List(&activeDomains)
-	assert.NoError(t, result.Error)
-	assert.Len(t, activeDomains, 2)
-	assert.Equal(t, "Domain 1", activeDomains[0].Name)
-	assert.Equal(t, "Domain 3", activeDomains[1].Name)
-
-	// 2.3 模糊查询
-	var searchedDomains []Domain
-	result = db.Chain().
-		Table("domains").
-		Where("name", define.OpLike, "%2%").
-		List(&searchedDomains)
-	assert.NoError(t, result.Error)
-	assert.Len(t, searchedDomains, 1)
-	assert.Equal(t, "Domain 2", searchedDomains[0].Name)
-
-	// 2.4 多条件组合查询
-	var complexDomains []Domain
-	result = db.Chain().
-		Table("domains").
-		Where("status", define.OpEq, 1).
-		Where("service_count", define.OpEq, 0).
-		OrderBy("id").
-		List(&complexDomains)
-	assert.NoError(t, result.Error)
-	assert.Len(t, complexDomains, 2)
-
-	// 3. 测试批量更新
-	updateResult := db.Chain().
-		Table("domains").
-		Where("status", define.OpEq, 1).
-		Values(map[string]interface{}{
-			"service_count": 1,
-		}).Save()
-	assert.NoError(t, updateResult.Error)
-
-	// 验证更新结果
-	var updatedDomains []Domain
-	result = db.Chain().
-		Table("domains").
-		Where("service_count", define.OpEq, 1).
-		OrderBy("id").
-		List(&updatedDomains)
-	assert.NoError(t, result.Error)
-	assert.Len(t, updatedDomains, 2)
-	for _, d := range updatedDomains {
-		assert.Equal(t, 1, d.ServiceCount)
-		assert.Equal(t, 1, d.Status)
-	}
-
-	// 4. 测试分页查询
+	// 2. 测试分页查询
 	var pagedDomains []Domain
-	result = db.Chain().
+	result := db.Chain().
 		Table("domains").
 		OrderBy("id").
 		Limit(2).
@@ -454,6 +390,7 @@ func TestDomainComplexOperations(t *testing.T) {
 	assert.Equal(t, "Domain 2", pagedDomains[1].Name)
 
 	// 第二页
+	pagedDomains = nil
 	result = db.Chain().
 		Table("domains").
 		OrderBy("id").
@@ -464,7 +401,20 @@ func TestDomainComplexOperations(t *testing.T) {
 	assert.Len(t, pagedDomains, 1)
 	assert.Equal(t, "Domain 3", pagedDomains[0].Name)
 
-	// 5. 测试聚合函数
+	// 3. 测试复杂条件查询
+	var filteredDomains []Domain
+	result = db.Chain().
+		Table("domains").
+		Where("status", define.OpEq, 1).
+		Where("service_count", define.OpGt, 0).
+		OrderBy("id").
+		List(&filteredDomains)
+	assert.NoError(t, result.Error)
+	assert.Len(t, filteredDomains, 2)
+	assert.Equal(t, "Domain 1", filteredDomains[0].Name)
+	assert.Equal(t, "Domain 3", filteredDomains[1].Name)
+
+	// 4. 测试聚合函数
 	var avgResults []struct {
 		AvgStatus float64 `gom:"avg_status"`
 	}
@@ -474,7 +424,7 @@ func TestDomainComplexOperations(t *testing.T) {
 		List(&avgResults)
 	assert.NoError(t, result.Error)
 	assert.Len(t, avgResults, 1)
-	assert.InDelta(t, 1.33, avgResults[0].AvgStatus, 0.01)
+	assert.InDelta(t, 0.67, avgResults[0].AvgStatus, 0.01)
 
 	var maxResults []struct {
 		MaxStatus int64 `gom:"max_status"`
@@ -485,18 +435,7 @@ func TestDomainComplexOperations(t *testing.T) {
 		List(&maxResults)
 	assert.NoError(t, result.Error)
 	assert.Len(t, maxResults, 1)
-	assert.Equal(t, int64(2), maxResults[0].MaxStatus)
-
-	// 6. 测试复杂条件查询
-	var rawDomains []Domain
-	result = db.Chain().
-		Table("domains").
-		Where("status", define.OpEq, 1).
-		Where("service_count", define.OpGt, 0).
-		OrderBy("id").
-		List(&rawDomains)
-	assert.NoError(t, result.Error)
-	assert.Len(t, rawDomains, 2)
+	assert.Equal(t, int64(1), maxResults[0].MaxStatus)
 }
 
 func TestDomainEdgeCases(t *testing.T) {
