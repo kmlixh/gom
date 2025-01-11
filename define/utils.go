@@ -1,155 +1,137 @@
 package define
 
 import (
+	"errors"
 	"reflect"
 	"strings"
-	"time"
 )
 
-// StructToMap converts a struct to a map[string]interface{} using gom tags
-func StructToMap(model interface{}) map[string]interface{} {
-	if model == nil {
-		return nil
-	}
-
-	// Get model type and value
-	modelType := reflect.TypeOf(model)
-	if modelType.Kind() == reflect.Ptr {
-		modelType = modelType.Elem()
-	}
-	modelValue := reflect.ValueOf(model)
-	if modelValue.Kind() == reflect.Ptr {
-		modelValue = modelValue.Elem()
-	}
-
-	if modelType.Kind() != reflect.Struct {
-		return nil
-	}
-
+// GetFieldMap returns a map of field names to their values for a struct
+func GetFieldMap(obj interface{}) map[string]interface{} {
 	fieldMap := make(map[string]interface{})
+	if obj == nil {
+		return fieldMap
+	}
 
-	// Extract field values from the model
-	for i := 0; i < modelType.NumField(); i++ {
-		field := modelType.Field(i)
-		fieldValue := modelValue.Field(i)
+	v := reflect.ValueOf(obj)
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return fieldMap
+		}
+		v = v.Elem()
+	}
 
-		// Skip invalid types
-		switch fieldValue.Kind() {
-		case reflect.Chan, reflect.Func, reflect.UnsafePointer, reflect.Complex64, reflect.Complex128:
+	if v.Kind() != reflect.Struct {
+		return fieldMap
+	}
+
+	t := v.Type()
+	for i := 0; i < v.NumField(); i++ {
+		field := t.Field(i)
+		if field.PkgPath != "" {
 			continue
 		}
 
-		// Get field name and check tag options
-		fieldName := field.Name
-		isAuto := false
-		isDefault := false
+		value := v.Field(i).Interface()
+		fieldMap[field.Name] = value
 
-		if tag := field.Tag.Get("gom"); tag != "" {
-			parts := strings.Split(tag, ",")
-			if parts[0] != "" {
-				fieldName = parts[0]
-			}
-
-			// Check tag options
-			for _, part := range parts[1:] {
-				switch part {
-				case "auto":
-					isAuto = true
-				case "default":
-					isDefault = true
-				}
-			}
-
-			// Skip auto-increment fields
-			if isAuto {
-				continue
-			}
-
-			// Skip zero value fields with default tag
-			if isDefault && fieldValue.IsZero() {
-				continue
+		tag := field.Tag.Get("json")
+		if tag != "" {
+			name := strings.Split(tag, ",")[0]
+			if name != "-" {
+				fieldMap[name] = value
 			}
 		}
-
-		if !fieldValue.IsValid() {
-			continue
-		}
-
-		// Handle different types
-		var value interface{}
-		switch fieldValue.Kind() {
-		case reflect.Struct:
-			if _, isTime := fieldValue.Interface().(time.Time); isTime {
-				value = fieldValue.Interface()
-			} else {
-				nestedMap := StructToMap(fieldValue.Interface())
-				if nestedMap != nil {
-					value = nestedMap
-				} else {
-					value = fieldValue.Interface()
-				}
-			}
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			value = int(fieldValue.Int())
-		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			value = int(fieldValue.Uint())
-		case reflect.Float32, reflect.Float64:
-			value = fieldValue.Float()
-		case reflect.String:
-			value = fieldValue.String()
-		case reflect.Bool:
-			value = fieldValue.Bool()
-		case reflect.Ptr, reflect.Interface:
-			if !fieldValue.IsNil() {
-				if fieldValue.Elem().Kind() == reflect.Struct {
-					nestedMap := StructToMap(fieldValue.Elem().Interface())
-					if nestedMap != nil {
-						value = nestedMap
-					} else {
-						value = fieldValue.Elem().Interface()
-					}
-				} else {
-					value = fieldValue.Elem().Interface()
-				}
-			} else {
-				value = nil
-			}
-		case reflect.Map:
-			if !fieldValue.IsNil() {
-				value = fieldValue.Interface()
-			} else {
-				value = nil
-			}
-		case reflect.Slice, reflect.Array:
-			if !fieldValue.IsNil() {
-				value = fieldValue.Interface()
-			} else {
-				value = nil
-			}
-		default:
-			// Try to convert custom types
-			if fieldValue.Type().Name() != "" {
-				switch fieldValue.Kind() {
-				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-					value = int(fieldValue.Int())
-				case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-					value = int(fieldValue.Uint())
-				case reflect.Float32, reflect.Float64:
-					value = fieldValue.Float()
-				case reflect.String:
-					value = fieldValue.String()
-				case reflect.Bool:
-					value = fieldValue.Bool()
-				default:
-					value = fieldValue.Interface()
-				}
-			} else {
-				value = fieldValue.Interface()
-			}
-		}
-
-		fieldMap[fieldName] = value
 	}
 
 	return fieldMap
+}
+
+// Global type converter instance
+var converter ITypeConverter = NewTypeConverter()
+
+// ConvertValue converts a value to the target type using the global type converter
+func ConvertValue(value interface{}, targetType reflect.Type) (interface{}, error) {
+	return converter.Convert(value, targetType)
+}
+
+// StructToMap converts a struct to a map[string]interface{} using gom tags
+func StructToMap(obj interface{}) (map[string]interface{}, error) {
+	if obj == nil {
+		return nil, errors.New("input object is nil")
+	}
+
+	val := reflect.ValueOf(obj)
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+	if val.Kind() != reflect.Struct {
+		return nil, errors.New("input object is not a struct")
+	}
+
+	result := make(map[string]interface{})
+	typ := val.Type()
+
+	// First, check if the struct has any gom tags
+	hasGomTags := false
+	for i := 0; i < typ.NumField(); i++ {
+		if tag := typ.Field(i).Tag.Get("gom"); tag != "" {
+			hasGomTags = true
+			break
+		}
+	}
+
+	// Now process all fields
+	for i := 0; i < val.NumField(); i++ {
+		field := val.Field(i)
+		fieldType := typ.Field(i)
+
+		// Skip unexported fields
+		if !fieldType.IsExported() {
+			continue
+		}
+
+		// Check for gom tag
+		tag := fieldType.Tag.Get("gom")
+		if tag != "" {
+			// If gom tag exists, use the tag name and include the field
+			parts := strings.Split(tag, ",")
+			fieldName := parts[0]
+			if fieldName == "" {
+				fieldName = fieldType.Name
+			}
+			result[fieldName] = field.Interface()
+		} else {
+			// If no gom tag:
+			// - For structs with gom tags, only include non-zero fields
+			// - For structs without any gom tags, include all fields
+			if !hasGomTags || !isZeroValue(field) {
+				result[fieldType.Name] = field.Interface()
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// isZeroValue checks if a reflect.Value is the zero value for its type
+func isZeroValue(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.String:
+		return v.String() == ""
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return v.Int() == 0
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return v.Uint() == 0
+	case reflect.Float32, reflect.Float64:
+		return v.Float() == 0
+	case reflect.Bool:
+		return !v.Bool()
+	case reflect.Slice, reflect.Map:
+		return v.IsNil() || v.Len() == 0
+	case reflect.Interface, reflect.Ptr:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
