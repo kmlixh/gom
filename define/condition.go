@@ -20,6 +20,12 @@ type Conditions []Condition
 
 // NewCondition creates a new condition
 func NewCondition(field string, op OpType, value interface{}) *Condition {
+	if field == "" {
+		return nil
+	}
+	if value == nil && op != OpIsNull && op != OpIsNotNull {
+		return nil
+	}
 	return &Condition{
 		Field: field,
 		Op:    op,

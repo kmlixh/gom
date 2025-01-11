@@ -9,8 +9,27 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"os"
 	"regexp"
 	"strings"
+	"time"
+
+	"golang.org/x/crypto/chacha20poly1305"
+)
+
+// EncryptionAlgorithm defines the encryption algorithm to use
+type EncryptionAlgorithm string
+
+const (
+	// AES256 uses AES-256 encryption
+	AES256 EncryptionAlgorithm = "AES256"
+	// AES192 uses AES-192 encryption
+	AES192 EncryptionAlgorithm = "AES192"
+	// AES128 uses AES-128 encryption
+	AES128 EncryptionAlgorithm = "AES128"
+	// ChaCha20Poly1305 uses ChaCha20-Poly1305 encryption
+	ChaCha20Poly1305 EncryptionAlgorithm = "ChaCha20Poly1305"
 )
 
 // Masker 定义了数据脱敏接口
@@ -182,8 +201,11 @@ func pkcs7Unpad(data []byte) ([]byte, error) {
 
 // SecurityManager 安全管理器，集成脱敏和加密功能
 type SecurityManager struct {
-	masker    Masker
-	encryptor Encryptor
+	masker            Masker
+	encryptor         Encryptor
+	keyRotationInfo   *KeyRotationInfo
+	oldEncryptor      Encryptor
+	keyRotationConfig *KeyRotationConfig
 }
 
 // NewSecurityManager 创建安全管理器
@@ -194,8 +216,11 @@ func NewSecurityManager(key []byte) (*SecurityManager, error) {
 	}
 
 	return &SecurityManager{
-		masker:    NewDefaultMasker(),
-		encryptor: encryptor,
+		masker:            NewDefaultMasker(),
+		encryptor:         encryptor,
+		keyRotationInfo:   nil,
+		oldEncryptor:      nil,
+		keyRotationConfig: nil,
 	}, nil
 }
 
@@ -287,4 +312,230 @@ func (dp *DataProcessor) UnprocessData(data map[string]interface{}) error {
 		}
 	}
 	return nil
+}
+
+// KeyRotationInfo stores information about key rotation
+type KeyRotationInfo struct {
+	LastRotation time.Time
+	KeyVersion   int
+	KeyID        string
+}
+
+// RotateKey performs key rotation based on the configured schedule
+func (sm *SecurityManager) RotateKey() error {
+	if sm.encryptor == nil {
+		return errors.New("encryptor not initialized")
+	}
+
+	// Check if key rotation is needed
+	if sm.keyRotationInfo == nil || time.Since(sm.keyRotationInfo.LastRotation) >= sm.keyRotationConfig.Interval {
+		// Generate new key
+		newKey := make([]byte, 32)
+		if _, err := rand.Read(newKey); err != nil {
+			return fmt.Errorf("failed to generate new key: %w", err)
+		}
+
+		// Create new encryptor with new key
+		newEncryptor, err := NewAESEncryptor(newKey)
+		if err != nil {
+			return fmt.Errorf("failed to create new encryptor: %w", err)
+		}
+
+		// Update key info
+		sm.keyRotationInfo = &KeyRotationInfo{
+			LastRotation: time.Now(),
+			KeyVersion:   sm.keyRotationInfo.KeyVersion + 1,
+			KeyID:        fmt.Sprintf("key-%d", sm.keyRotationInfo.KeyVersion+1),
+		}
+
+		// Store old encryptor for decryption of old data
+		sm.oldEncryptor = sm.encryptor
+		sm.encryptor = newEncryptor
+	}
+
+	return nil
+}
+
+// EncryptValue enhances encryption with ChaCha20-Poly1305 support
+func EncryptValue(value string, config *EncryptionConfig) (string, error) {
+	if config == nil {
+		return "", newDBError(ErrConfiguration, "encryptValue", nil, "encryption configuration is required")
+	}
+
+	key, err := getEncryptionKey(config)
+	if err != nil {
+		return "", newDBError(ErrConfiguration, "encryptValue", err, "failed to get encryption key")
+	}
+
+	var aead cipher.AEAD
+	switch config.Algorithm {
+	case ChaCha20Poly1305:
+		if len(key) != chacha20poly1305.KeySize {
+			return "", newDBError(ErrConfiguration, "encryptValue", nil, fmt.Sprintf("invalid key size for ChaCha20-Poly1305: must be %d bytes", chacha20poly1305.KeySize))
+		}
+		aead, err = chacha20poly1305.New(key)
+		if err != nil {
+			return "", newDBError(ErrConfiguration, "encryptValue", err, "failed to create ChaCha20-Poly1305")
+		}
+	case AES256, AES192, AES128:
+		var block cipher.Block
+		block, err = aes.NewCipher(key)
+		if err != nil {
+			return "", newDBError(ErrConfiguration, "encryptValue", err, "failed to create cipher")
+		}
+		aead, err = cipher.NewGCM(block)
+		if err != nil {
+			return "", newDBError(ErrConfiguration, "encryptValue", err, "failed to create GCM")
+		}
+	default:
+		return "", newDBError(ErrConfiguration, "encryptValue", nil, "unsupported encryption algorithm")
+	}
+
+	// Create nonce
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", newDBError(ErrConfiguration, "encryptValue", err, "failed to generate nonce")
+	}
+
+	// Encrypt and combine nonce with ciphertext
+	ciphertext := aead.Seal(nonce, nonce, []byte(value), nil)
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+// DecryptValue enhances decryption with ChaCha20-Poly1305 support
+func DecryptValue(encryptedValue string, config *EncryptionConfig) (string, error) {
+	if config == nil {
+		return "", newDBError(ErrConfiguration, "decryptValue", nil, "encryption configuration is required")
+	}
+
+	key, err := getEncryptionKey(config)
+	if err != nil {
+		return "", newDBError(ErrConfiguration, "decryptValue", err, "failed to get encryption key")
+	}
+
+	var aead cipher.AEAD
+	switch config.Algorithm {
+	case ChaCha20Poly1305:
+		if len(key) != chacha20poly1305.KeySize {
+			return "", newDBError(ErrConfiguration, "decryptValue", nil, fmt.Sprintf("invalid key size for ChaCha20-Poly1305: must be %d bytes", chacha20poly1305.KeySize))
+		}
+		aead, err = chacha20poly1305.New(key)
+		if err != nil {
+			return "", newDBError(ErrConfiguration, "decryptValue", err, "failed to create ChaCha20-Poly1305")
+		}
+	case AES256, AES192, AES128:
+		var block cipher.Block
+		block, err = aes.NewCipher(key)
+		if err != nil {
+			return "", newDBError(ErrConfiguration, "decryptValue", err, "failed to create cipher")
+		}
+		aead, err = cipher.NewGCM(block)
+		if err != nil {
+			return "", newDBError(ErrConfiguration, "decryptValue", err, "failed to create GCM")
+		}
+	default:
+		return "", newDBError(ErrConfiguration, "decryptValue", nil, "unsupported encryption algorithm")
+	}
+
+	// Decode base64
+	ciphertext, err := base64.StdEncoding.DecodeString(encryptedValue)
+	if err != nil {
+		return "", newDBError(ErrConfiguration, "decryptValue", err, "failed to decode base64")
+	}
+
+	// Extract nonce and decrypt
+	nonceSize := aead.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return "", newDBError(ErrConfiguration, "decryptValue", nil, "ciphertext too short")
+	}
+
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+	plaintext, err := aead.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", newDBError(ErrConfiguration, "decryptValue", err, "failed to decrypt")
+	}
+
+	return string(plaintext), nil
+}
+
+// ErrorCode represents error codes for security operations
+type ErrorCode string
+
+const (
+	ErrConfiguration ErrorCode = "CONFIGURATION_ERROR"
+	ErrEncryption    ErrorCode = "ENCRYPTION_ERROR"
+	ErrDecryption    ErrorCode = "DECRYPTION_ERROR"
+)
+
+// DBError represents a database operation error
+type DBError struct {
+	Code    ErrorCode
+	Op      string
+	Err     error
+	Message string
+}
+
+func (e *DBError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("%s: %s - %s (%v)", e.Code, e.Op, e.Message, e.Err)
+	}
+	return fmt.Sprintf("%s: %s - %s", e.Code, e.Op, e.Message)
+}
+
+func newDBError(code ErrorCode, op string, err error, message string) error {
+	return &DBError{
+		Code:    code,
+		Op:      op,
+		Err:     err,
+		Message: message,
+	}
+}
+
+// KeyRotationConfig defines the configuration for key rotation
+type KeyRotationConfig struct {
+	Interval    time.Duration
+	AutoRotate  bool
+	BackupCount int
+}
+
+// EncryptionConfig represents configuration for encryption operations
+type EncryptionConfig struct {
+	Algorithm       EncryptionAlgorithm
+	KeySource       string
+	KeySourceConfig map[string]string
+}
+
+// getEncryptionKey retrieves the encryption key from the configured source
+func getEncryptionKey(config *EncryptionConfig) ([]byte, error) {
+	if config == nil {
+		return nil, newDBError(ErrConfiguration, "getEncryptionKey", nil, "encryption configuration is required")
+	}
+
+	switch config.KeySource {
+	case "env":
+		keyName, ok := config.KeySourceConfig["key_name"]
+		if !ok {
+			return nil, newDBError(ErrConfiguration, "getEncryptionKey", nil, "key_name not specified for env source")
+		}
+		keyStr := os.Getenv(keyName)
+		if keyStr == "" {
+			return nil, newDBError(ErrConfiguration, "getEncryptionKey", nil, "encryption key not found in environment")
+		}
+		// Decode base64-encoded key
+		key, err := base64.StdEncoding.DecodeString(keyStr)
+		if err != nil {
+			return nil, newDBError(ErrConfiguration, "getEncryptionKey", err, "failed to decode base64 key")
+		}
+		return key, nil
+	case "file":
+		keyPath, ok := config.KeySourceConfig["key_path"]
+		if !ok {
+			return nil, newDBError(ErrConfiguration, "getEncryptionKey", nil, "key_path not specified for file source")
+		}
+		return ioutil.ReadFile(keyPath)
+	case "vault":
+		return nil, newDBError(ErrConfiguration, "getEncryptionKey", nil, "vault key source not implemented")
+	default:
+		return nil, newDBError(ErrConfiguration, "getEncryptionKey", nil, "unsupported key source")
+	}
 }

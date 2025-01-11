@@ -85,6 +85,7 @@ type Chain struct {
 	// Raw SQL fields
 	rawSQL string
 	args   []interface{}
+	err    error
 }
 
 // SensitiveType defines the type of sensitive data
@@ -184,7 +185,12 @@ func (c *Chain) Offset(count int) *Chain {
 
 // Where adds a where condition with custom operator
 func (c *Chain) Where(field string, op define.OpType, value interface{}) *Chain {
-	c.conds = append(c.conds, define.NewCondition(field, op, value))
+	cond := define.NewCondition(field, op, value)
+	if cond == nil {
+		c.err = fmt.Errorf("invalid condition: field=%s op=%v value=%v", field, op, value)
+		return c
+	}
+	c.conds = append(c.conds, cond)
 	return c
 }
 
@@ -2979,10 +2985,13 @@ func NewChain(db *DB, factory define.SQLFactory) *Chain {
 	}
 }
 
-// BuildSelect builds a SELECT query using the current chain state
+// BuildSelect builds a SELECT query
 func (c *Chain) BuildSelect() (string, []interface{}, error) {
+	if c.err != nil {
+		return "", nil, c.err
+	}
 	if c.tableName == "" {
-		return "", nil, errors.New("empty table name")
+		return "", nil, fmt.Errorf("empty table name")
 	}
 
 	// Use default fields if none specified

@@ -12,9 +12,69 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func setupBatchTestDB(t *testing.T) *DB {
+	config := testutils.DefaultMySQLConfig()
+	config.User = "root"
+	config.Password = "123456" // 使用正确的密码
+	opts := &define.DBOptions{
+		MaxOpenConns:    10,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: time.Hour,
+		ConnMaxIdleTime: 30 * time.Minute,
+		Debug:           true,
+	}
+	db, err := Open(config.Driver, config.DSN(), opts)
+	if err != nil {
+		t.Skipf("Skipping test due to database connection error: %v", err)
+		return nil
+	}
+
+	// Test database connection
+	if err := db.DB.Ping(); err != nil {
+		t.Skipf("Failed to ping database: %v", err)
+		return nil
+	}
+
+	// Drop table if exists to ensure clean state
+	_, err = db.DB.Exec("DROP TABLE IF EXISTS batchtestuser")
+	if err != nil {
+		t.Skipf("Failed to drop test table: %v", err)
+		return nil
+	}
+
+	createTableSQL := `
+		CREATE TABLE IF NOT EXISTS batchtestuser (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			name VARCHAR(255) NOT NULL,
+			age BIGINT,
+			email VARCHAR(255),
+			created_at DATETIME,
+			updated_at DATETIME,
+			is_active TINYINT(1) DEFAULT 1,
+			score DOUBLE DEFAULT 0.0
+		)
+	`
+	_, err = db.DB.Exec(createTableSQL)
+	if err != nil {
+		t.Errorf("Failed to create test table: %v", err)
+		db.Close()
+		return nil
+	}
+
+	// Clear test data
+	_, err = db.DB.Exec("TRUNCATE TABLE batchtestuser")
+	if err != nil {
+		t.Errorf("Failed to truncate test table: %v", err)
+		db.Close()
+		return nil
+	}
+
+	return db
+}
+
 func TestBatchOperations(t *testing.T) {
 	t.Run("MySQL", func(t *testing.T) {
-		db := setupTestDB(t)
+		db := setupBatchTestDB(t)
 		if db == nil {
 			t.Skip("Skipping MySQL test due to database connection error")
 			return
@@ -24,7 +84,7 @@ func TestBatchOperations(t *testing.T) {
 	})
 
 	t.Run("PostgreSQL", func(t *testing.T) {
-		db := setupTestDB(t)
+		db := setupBatchTestDB(t)
 		if db == nil {
 			t.Skip("Skipping PostgreSQL test due to database connection error")
 			return
@@ -98,7 +158,7 @@ func runBatchOperationsTest(t *testing.T, db *DB, tableName string) {
 
 func TestBatchInsert(t *testing.T) {
 	t.Run("MySQL", func(t *testing.T) {
-		db := setupTestDB(t)
+		db := setupBatchTestDB(t)
 		if db == nil {
 			t.Skip("Skipping MySQL test due to database connection error")
 			return
@@ -111,7 +171,7 @@ func TestBatchInsert(t *testing.T) {
 	})
 
 	t.Run("PostgreSQL", func(t *testing.T) {
-		db := setupTestDB(t)
+		db := setupBatchTestDB(t)
 		if db == nil {
 			t.Skip("Skipping PostgreSQL test due to database connection error")
 			return
@@ -153,7 +213,7 @@ func runBatchInsertTest(t *testing.T, db *DB) {
 
 func TestBatchUpdate(t *testing.T) {
 	t.Run("MySQL", func(t *testing.T) {
-		db := setupTestDB(t)
+		db := setupBatchTestDB(t)
 		if db == nil {
 			t.Skip("Skipping MySQL test due to database connection error")
 			return
@@ -166,7 +226,7 @@ func TestBatchUpdate(t *testing.T) {
 	})
 
 	t.Run("PostgreSQL", func(t *testing.T) {
-		db := setupTestDB(t)
+		db := setupBatchTestDB(t)
 		if db == nil {
 			t.Skip("Skipping PostgreSQL test due to database connection error")
 			return
@@ -218,7 +278,7 @@ func runBatchUpdateTest(t *testing.T, db *DB) {
 
 func TestBatchDelete(t *testing.T) {
 	t.Run("MySQL", func(t *testing.T) {
-		db := setupTestDB(t)
+		db := setupBatchTestDB(t)
 		if db == nil {
 			t.Skip("Skipping MySQL test due to database connection error")
 			return
@@ -231,7 +291,7 @@ func TestBatchDelete(t *testing.T) {
 	})
 
 	t.Run("PostgreSQL", func(t *testing.T) {
-		db := setupTestDB(t)
+		db := setupBatchTestDB(t)
 		if db == nil {
 			t.Skip("Skipping PostgreSQL test due to database connection error")
 			return
@@ -276,7 +336,7 @@ func runBatchDeleteTest(t *testing.T, db *DB) {
 
 func TestBatchTransaction(t *testing.T) {
 	t.Run("MySQL", func(t *testing.T) {
-		db := setupTestDB(t)
+		db := setupBatchTestDB(t)
 		if db == nil {
 			t.Skip("Skipping MySQL test due to database connection error")
 			return
@@ -289,7 +349,7 @@ func TestBatchTransaction(t *testing.T) {
 	})
 
 	t.Run("PostgreSQL", func(t *testing.T) {
-		db := setupTestDB(t)
+		db := setupBatchTestDB(t)
 		if db == nil {
 			t.Skip("Skipping PostgreSQL test due to database connection error")
 			return
@@ -337,7 +397,7 @@ func runBatchTransactionTest(t *testing.T, db *DB) {
 
 func TestBatchError(t *testing.T) {
 	t.Run("MySQL", func(t *testing.T) {
-		db := setupTestDB(t)
+		db := setupBatchTestDB(t)
 		if db == nil {
 			t.Skip("Skipping MySQL test due to database connection error")
 			return
@@ -350,7 +410,7 @@ func TestBatchError(t *testing.T) {
 	})
 
 	t.Run("PostgreSQL", func(t *testing.T) {
-		db := setupTestDB(t)
+		db := setupBatchTestDB(t)
 		if db == nil {
 			t.Skip("Skipping PostgreSQL test due to database connection error")
 			return
@@ -386,7 +446,7 @@ func runBatchErrorTest(t *testing.T, db *DB) {
 }
 
 func TestBatchOperationsEdgeCases(t *testing.T) {
-	db := setupTestDB(t)
+	db := setupBatchTestDB(t)
 	if db == nil {
 		t.Skip("Skipping test due to database connection error")
 		return

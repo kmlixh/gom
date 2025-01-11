@@ -47,20 +47,73 @@ func setupDB(driver, dsn string) *DB {
 		return nil
 	}
 
-	// Verify database connection by executing a simple query
-	var version string
-	if err := db.DB.QueryRow("SELECT VERSION()").Scan(&version); err != nil {
-		fmt.Printf("Failed to get database version: %v\n", err)
+	return db
+}
+
+func setupChainTestDB(t *testing.T) *DB {
+	config := testutils.DefaultMySQLConfig()
+	config.User = "root"
+	config.Password = "123456" // 使用正确的密码
+	opts := &define.DBOptions{
+		MaxOpenConns:    10,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: time.Hour,
+		ConnMaxIdleTime: 30 * time.Minute,
+		Debug:           true,
+	}
+	db, err := Open(config.Driver, config.DSN(), opts)
+	if err != nil {
+		t.Skipf("Skipping test due to database connection error: %v", err)
+		return nil
+	}
+
+	// Test database connection
+	if err := db.DB.Ping(); err != nil {
+		t.Skipf("Failed to ping database: %v", err)
+		return nil
+	}
+
+	// Drop table if exists to ensure clean state
+	_, err = db.DB.Exec("DROP TABLE IF EXISTS chaintestuser")
+	if err != nil {
+		t.Skipf("Failed to drop test table: %v", err)
+		return nil
+	}
+
+	createTableSQL := `
+		CREATE TABLE IF NOT EXISTS chaintestuser (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			name VARCHAR(255) NOT NULL,
+			age BIGINT,
+			email VARCHAR(255),
+			created_at DATETIME,
+			updated_at DATETIME,
+			is_active TINYINT(1) DEFAULT 1,
+			score DOUBLE DEFAULT 0.0
+		)
+	`
+	_, err = db.DB.Exec(createTableSQL)
+	if err != nil {
+		t.Errorf("Failed to create test table: %v", err)
 		db.Close()
 		return nil
 	}
-	fmt.Printf("Successfully connected to database version: %s\n", version)
+
+	// Clear test data
+	_, err = db.DB.Exec("TRUNCATE TABLE chaintestuser")
+	if err != nil {
+		t.Errorf("Failed to truncate test table: %v", err)
+		db.Close()
+		return nil
+	}
 
 	return db
 }
 
 func setupMySQLDB(t *testing.T) *DB {
 	config := testutils.DefaultMySQLConfig()
+	config.User = "root"
+	config.Password = "123456" // 使用正确的密码
 	db := setupDB(config.Driver, config.DSN())
 	if db == nil {
 		t.Fatalf("Failed to connect to MySQL with DSN: %s", config.DSN())
@@ -70,6 +123,8 @@ func setupMySQLDB(t *testing.T) *DB {
 
 func setupPostgreSQLDB(t *testing.T) *DB {
 	config := testutils.DefaultPostgresConfig()
+	config.User = "postgres"
+	config.Password = "123456" // 使用正确的密码
 	db := setupDB(config.Driver, config.DSN())
 	if db == nil {
 		t.Fatalf("Failed to connect to PostgreSQL with DSN: %s", config.DSN())

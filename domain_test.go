@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kmlixh/gom/v4/define"
+	"github.com/kmlixh/gom/v4/testutils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -40,10 +41,33 @@ func (d *Domain) TableName() string {
 	return "domains"
 }
 
+func setupDomainTestDB(t *testing.T) *DB {
+	config := testutils.DefaultMySQLConfig()
+	config.User = "root"
+	config.Password = "123456" // 使用正确的密码
+	opts := &define.DBOptions{
+		MaxOpenConns:    10,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: time.Hour,
+		ConnMaxIdleTime: 30 * time.Minute,
+		Debug:           true,
+	}
+	db, err := Open(config.Driver, config.DSN(), opts)
+	if err != nil {
+		t.Fatalf("Failed to connect to database: %v", err)
+	}
+
+	// Test database connection
+	if err := db.DB.Ping(); err != nil {
+		t.Fatalf("Failed to ping database: %v", err)
+	}
+
+	return db
+}
+
 func TestDomainMapping(t *testing.T) {
 	// 创建数据库连接
-	db, err := Open("mysql", "remote:123456@tcp(192.168.110.249:3306)/test?charset=utf8mb4&parseTime=True", nil)
-	assert.NoError(t, err)
+	db := setupDomainTestDB(t)
 	defer db.Close()
 
 	// 清理旧表
@@ -52,7 +76,7 @@ func TestDomainMapping(t *testing.T) {
 	db.DB.Exec("DROP TABLE IF EXISTS domains")
 
 	// 创建测试表
-	_, err = db.DB.Exec(`
+	_, err := db.DB.Exec(`
 		CREATE TABLE IF NOT EXISTS domains (
 			id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 			name VARCHAR(255) NOT NULL,
@@ -159,8 +183,7 @@ func TestDomainMapping(t *testing.T) {
 
 func TestDomainServiceRelation(t *testing.T) {
 	// 创建数据库连接
-	db, err := Open("mysql", "remote:123456@tcp(192.168.110.249:3306)/test?charset=utf8mb4&parseTime=True", nil)
-	assert.NoError(t, err)
+	db := setupDomainTestDB(t)
 	defer db.Close()
 
 	// 清理旧表
@@ -169,7 +192,7 @@ func TestDomainServiceRelation(t *testing.T) {
 	db.DB.Exec("DROP TABLE IF EXISTS domains")
 
 	// 创建测试表
-	_, err = db.DB.Exec(`
+	_, err := db.DB.Exec(`
 		CREATE TABLE IF NOT EXISTS domains (
 			id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 			name VARCHAR(255) NOT NULL,
@@ -274,8 +297,7 @@ func TestDomainServiceRelation(t *testing.T) {
 
 func TestDomainComplexOperations(t *testing.T) {
 	// 创建数据库连接
-	db, err := Open("mysql", "remote:123456@tcp(192.168.110.249:3306)/test?charset=utf8mb4&parseTime=True", nil)
-	assert.NoError(t, err)
+	db := setupDomainTestDB(t)
 	defer db.Close()
 
 	// 清理旧表
@@ -284,7 +306,7 @@ func TestDomainComplexOperations(t *testing.T) {
 	db.DB.Exec("DROP TABLE IF EXISTS domains")
 
 	// 创建测试表
-	_, err = db.DB.Exec(`
+	_, err := db.DB.Exec(`
 		CREATE TABLE IF NOT EXISTS domains (
 			id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 			name VARCHAR(255) NOT NULL,
@@ -440,8 +462,7 @@ func TestDomainComplexOperations(t *testing.T) {
 
 func TestDomainEdgeCases(t *testing.T) {
 	// 创建数据库连接
-	db, err := Open("mysql", "remote:123456@tcp(192.168.110.249:3306)/test?charset=utf8mb4&parseTime=True", nil)
-	assert.NoError(t, err)
+	db := setupDomainTestDB(t)
 	defer db.Close()
 
 	// 清理旧表
@@ -450,7 +471,7 @@ func TestDomainEdgeCases(t *testing.T) {
 	db.DB.Exec("DROP TABLE IF EXISTS domains")
 
 	// 创建测试表
-	_, err = db.DB.Exec(`
+	_, err := db.DB.Exec(`
 		CREATE TABLE IF NOT EXISTS domains (
 			id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 			name VARCHAR(255) NOT NULL,
