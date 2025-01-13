@@ -6,18 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kmlixh/gom/v4/define"
 	_ "github.com/kmlixh/gom/v4/factory/mysql"
 	_ "github.com/kmlixh/gom/v4/factory/postgres"
 	"github.com/stretchr/testify/assert"
 )
-
-func init() {
-	// 注册 MySQL 工厂
-	define.RegisterFactory("mysql", &mysql.MySqlFactory{})
-	// 注册 PostgreSQL 工厂
-	define.RegisterFactory("postgres", &postgres.PostgresFactory{})
-}
 
 // 测试用的模型结构
 type TestUser struct {
@@ -35,8 +27,8 @@ func (u TestUser) TableName() string {
 
 // 数据库连接配置
 var (
-	mysqlDSN    = "root:123456@tcp(192.168.110.249:3306)/test?charset=utf8mb4&parseTime=True&loc=Local"
-	postgresDSN = "postgres://postgres:yzy123@192.168.110.249:5432/test?sslmode=disable"
+	mysqlDSN    = "root:123456@tcp(10.0.1.5:3306)/test?charset=utf8mb4&parseTime=True&loc=Local"
+	postgresDSN = "postgres://postgres:123456@10.0.1.5:5432/test?sslmode=disable"
 )
 
 // 创建测试表的SQL语句
@@ -120,7 +112,8 @@ func testBasicCRUD(t *testing.T, db *Chain) {
 
 	// 测试查询
 	var queryUser TestUser
-	_, err = db.Table("test_users").First(&queryUser)
+	dd, err := db.Table("test_users").First(&queryUser)
+	assert.NotNil(t, dd)
 	assert.NoError(t, err)
 	assert.Equal(t, user.Name, queryUser.Name)
 	assert.Equal(t, user.Age, queryUser.Age)

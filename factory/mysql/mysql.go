@@ -94,6 +94,7 @@ func init() {
 }
 func InitFactory() {
 	define.RegisterFactory("mysql", &factory)
+	define.RegisterFactory("Mysql", &factory)
 	initKeywordMap()
 	funcMap = make(map[define.SqlType]define.SqlFunc)
 	funcMap[define.Query] = func(models ...define.TableModel) []define.SqlProto {
@@ -346,9 +347,10 @@ func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, erro
 		columnType := ""
 		columnKey := ""
 		extra := ""
-		er = rows.Scan(&columnName, &columnType, &columnKey, &extra)
+		comment := ""
+		er = rows.Scan(&columnName, &columnType, &columnKey, &extra, &comment)
 		if er == nil {
-			columns = append(columns, define.Column{ColumnName: columnName, ColumnTypeName: columnType, IsPrimary: columnKey == "PRI", IsPrimaryAuto: columnKey == "PRI" && extra == "auto_increment"})
+			columns = append(columns, define.Column{ColumnName: columnName, ColumnTypeName: columnType, IsPrimary: columnKey == "PRI", IsPrimaryAuto: columnKey == "PRI" && extra == "auto_increment", Comment: comment})
 		} else {
 			return nil, er
 		}

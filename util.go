@@ -182,10 +182,10 @@ func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, err
 			if len(columns) > 0 {
 				_, ok := colMap[key]
 				if ok {
-					newMap[key] = reflect.ValueOf(vs).FieldByName(column.FieldName).Interface()
+					newMap[key] = reflect.Indirect(reflect.ValueOf(vs)).FieldByName(column.FieldName).Interface()
 				}
 			} else {
-				val := reflect.ValueOf(vs).FieldByName(column.FieldName)
+				val := reflect.Indirect(reflect.ValueOf(vs)).FieldByName(column.FieldName)
 				if !val.IsZero() {
 					newMap[key] = val.Interface()
 				}

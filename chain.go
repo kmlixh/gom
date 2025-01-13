@@ -385,13 +385,11 @@ func (db *Chain) executeInside(vi []interface{}, customColumns ...string) (sql.R
 	}
 }
 func (db *Chain) ExecuteRaw(rawSql string, datas ...any) (sql.Result, error) {
-	db.cloneSelfIfDifferentGoRoutine()
 	return db.ExecuteStatement(rawSql, datas...)
 
 }
 
 func (db *Chain) ExecuteStatement(statement string, data ...any) (sql.Result, error) {
-	db.cloneSelfIfDifferentGoRoutine()
 	st, err := db.prepare(statement)
 	if err != nil {
 		return nil, err

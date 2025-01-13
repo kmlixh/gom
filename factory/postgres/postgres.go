@@ -100,7 +100,7 @@ func (m Factory) GetSqlTypeDefaultValue(sqlType string) any {
 	}
 }
 func (m Factory) OpenDb(dsn string) (*sql.DB, error) {
-	return sql.Open("pgx/v5", dsn)
+	return sql.Open("pgx", dsn)
 }
 
 var dbTableColsCache = make(map[string][]define.Column)
@@ -110,6 +110,7 @@ func init() {
 	InitFactory()
 }
 func InitFactory() {
+	define.RegisterFactory("postgres", &factory)
 	define.RegisterFactory("Postgres", &factory)
 	initKeywordMap()
 	funcMap = make(map[define.SqlType]define.SqlFunc)
@@ -153,7 +154,7 @@ func InitFactory() {
 		}
 		if model.Page() != nil {
 			idx, size := model.Page().Page()
-			datas = append(datas, idx, size)
+			datas = append(datas, size, idx)
 			sql += " LIMIT ? OFFSET ?"
 		}
 		sql += ";"
@@ -211,9 +212,10 @@ func InitFactory() {
 				i++
 			}
 			sql += ")"
-			valuesPattern += ");"
+			valuesPattern += ")"
 
 			sql += valuesPattern
+
 			result = append(result, define.SqlProto{pgSql(sql), datas})
 		}
 		return result
@@ -286,23 +288,46 @@ func (m Factory) GetTables(db *sql.DB) ([]string, error) {
 
 var colSql = `
 SELECT 
-    c.column_name AS "columnName",
-    c.data_type AS "dataType",
-    c.is_identity AS "columnKey",
-    COALESCE(c.identity_generation, 'NO') AS extra,
-    COALESCE(col_description(t.oid, a.attnum),'') AS comment
+    c.column_name AS columnName,
+    c.data_type AS dataType,
+    CASE 
+        WHEN EXISTS (
+            SELECT 1
+            FROM pg_constraint pc
+            JOIN pg_class t ON pc.conrelid = t.oid
+            JOIN pg_attribute a ON a.attnum = ANY(pc.conkey) AND a.attrelid = t.oid
+            WHERE 
+                pc.contype = 'p' 
+                AND t.relname = c.table_name
+                AND a.attname = c.column_name
+        ) THEN 'YES'
+        ELSE ''
+    END AS columnKey,
+    CASE 
+        WHEN c.column_default LIKE 'nextval%' THEN 'ALWAYS'
+        ELSE ''
+    END AS extra,
+    COALESCE(col_description(pg_class.oid, pg_attribute.attnum), '') AS comment
 FROM 
     information_schema.columns c
 JOIN 
-    pg_class t ON t.relname = c.table_name
+    pg_class 
+    ON pg_class.relname = c.table_name
+    AND pg_class.relnamespace = (
+        SELECT oid 
+        FROM pg_namespace 
+        WHERE nspname = c.table_schema
+    )
 JOIN 
-    pg_attribute a ON a.attrelid = t.oid AND a.attname = c.column_name
+    pg_attribute 
+    ON pg_attribute.attrelid = pg_class.oid 
+    AND pg_attribute.attname = c.column_name
 WHERE 
-    c.table_schema = $1  
-    AND c.table_name = $2
-    AND a.attnum > 0
+    c.table_schema = $1  -- 替换为 schema 名称
+    AND c.table_name = $2  -- 替换为表名称
 ORDER BY 
     c.ordinal_position;
+
 `
 
 func (m Factory) GetTableStruct(tableName string, db *sql.DB) (define.ITableStruct, error) {
@@ -404,7 +429,7 @@ func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, erro
 		columnKey := ""
 		extra := ""
 		comment := ""
-		er = rows.Scan(&columnName, &columnType, &columnKey, &extra)
+		er = rows.Scan(&columnName, &columnType, &columnKey, &extra, &comment)
 		if er == nil {
 			columns = append(columns, define.Column{ColumnName: columnName, ColumnTypeName: columnType, IsPrimary: columnKey == "YES", IsPrimaryAuto: columnKey == "YES" && extra == "ALWAYS", Comment: comment})
 		} else {
