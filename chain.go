@@ -2,11 +2,12 @@ package gom
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/kmlixh/gom/v4/define"
+	dberrors "github.com/kmlixh/gom/v4/errors"
 )
 
 type Chain struct {
@@ -21,6 +22,7 @@ type Chain struct {
 	orderBys *[]define.OrderBy
 	page     define.PageInfo
 	sqlType  define.SqlType
+	fields   []string // 允许操作的列名
 }
 
 func (db *Chain) Table(table string) *Chain {
@@ -134,6 +136,9 @@ func (db *Chain) Sum(columnName string) (int64, error) {
 
 func (db *Chain) Select(vs any, columns ...string) (interface{}, error) {
 	db.cloneSelfIfDifferentGoRoutine()
+	if len(columns) > 0 {
+		db.fields = columns
+	}
 	db.sqlType = define.Query
 	scanner, er := getDefaultScanner(vs, columns...)
 	if er != nil {
@@ -149,7 +154,7 @@ func (db *Chain) Select(vs any, columns ...string) (interface{}, error) {
 			if len(columns) > 0 {
 				for _, c := range columns {
 					if _, ok := colMap[c]; !ok {
-						return nil, errors.New(fmt.Sprintf("'%s' not exist in variable ", c))
+						return nil, dberrors.New(dberrors.ErrCodeValidation, "Select", fmt.Errorf("'%s' not exist in variable", c), nil)
 					}
 				}
 			}
@@ -163,6 +168,12 @@ func (db *Chain) Select(vs any, columns ...string) (interface{}, error) {
 			table = rawInfo.TableName
 		}
 		cnd := db.cnd
+
+		// 如果设置了允许的字段列表,则取交集
+		if len(db.fields) > 0 {
+			columns = ArrayIntersect(columns, db.fields)
+		}
+
 		model := &DefaultModel{
 			table:         table,
 			primaryKeys:   nil,
@@ -210,12 +221,12 @@ func (db *Chain) executeInside(vi []interface{}, customColumns ...string) (sql.R
 	}
 	if db.rawSql != nil && len(*db.rawSql) > 0 {
 		if vs != nil && len(vs) > 0 {
-			return nil, errors.New("when the RawSql is not nil or empty,data should be nil")
+			return nil, dberrors.New(dberrors.ErrCodeValidation, "executeInside", fmt.Errorf("when the RawSql is not nil or empty, data should be nil"), nil)
 		}
 		return db.ExecuteRaw(*db.rawSql, db.rawData...)
 	}
 	if len(vs) == 0 && db.table == nil && db.cnd == nil {
-		return nil, errors.New("there was nothing to do")
+		return nil, dberrors.New(dberrors.ErrCodeValidation, "executeInside", fmt.Errorf("there was nothing to do"), nil)
 	} else {
 		var vvs []define.TableModel
 		if vs != nil && len(vs) > 0 {
@@ -239,7 +250,7 @@ func (db *Chain) executeInside(vi []interface{}, customColumns ...string) (sql.R
 					dbColNames = append(dbColNames, dbCol.ColumnName)
 					dbColMap[dbCol.ColumnName] = dbCol
 					if _, ok := colMap[dbCol.ColumnName]; !ok && dbCol.IsPrimary {
-						return nil, errors.New(fmt.Sprintf("column '%s' not exist in variable ", dbCol.ColumnName))
+						return nil, dberrors.New(dberrors.ErrCodeValidation, "validateColumns", fmt.Errorf("column '%s' not exist in variable", dbCol.ColumnName), nil)
 					}
 					if dbCol.IsPrimary && !dbCol.IsPrimaryAuto {
 						primaryKey = append(primaryKey, dbCol.ColumnName)
@@ -252,10 +263,10 @@ func (db *Chain) executeInside(vi []interface{}, customColumns ...string) (sql.R
 				if len(columns) > 0 {
 					for _, c := range columns {
 						if _, ok := colMap[c]; !ok {
-							return nil, errors.New(fmt.Sprintf("'%s' not exist in variable ", c))
+							return nil, dberrors.New(dberrors.ErrCodeValidation, "validateColumns", fmt.Errorf("'%s' not exist in variable", c), nil)
 						}
 						if _, ok := dbColMap[c]; !ok {
-							return nil, errors.New(fmt.Sprintf("'%s' not exist in table '%s' ", c, table))
+							return nil, dberrors.New(dberrors.ErrCodeValidation, "validateColumns", fmt.Errorf("'%s' not exist in table '%s'", c, table), nil)
 						}
 					}
 				}
@@ -272,6 +283,11 @@ func (db *Chain) executeInside(vi []interface{}, customColumns ...string) (sql.R
 				}
 				columns = ArrayIntersect(dbColNames, dataCol)
 
+				// 如果设置了允许的字段列表,则取交集
+				if len(db.fields) > 0 {
+					columns = ArrayIntersect(columns, db.fields)
+				}
+
 				if db.sqlType == define.Update {
 					if cnd == nil {
 						if er != nil {
@@ -279,16 +295,16 @@ func (db *Chain) executeInside(vi []interface{}, customColumns ...string) (sql.R
 						}
 						prs := append(primaryKey, primaryAuto...)
 						if len(prs) == 0 {
-							return nil, errors.New("can't find primary Key")
+							return nil, dberrors.New(dberrors.ErrCodeValidation, "validatePrimaryKey", fmt.Errorf("can't find primary Key"), nil)
 						}
 						cndMap := make(map[string]interface{})
 						for _, key := range prs {
 							data, ok := dataMap[key]
 							if !ok {
-								return nil, errors.New(fmt.Sprintf("can't find data for primary Key '%s'", key))
+								return nil, dberrors.New(dberrors.ErrCodeValidation, "validatePrimaryKey", fmt.Errorf("can't find data for primary Key '%s'", key), nil)
 							}
 							if reflect.ValueOf(data).IsZero() {
-								return nil, errors.New(fmt.Sprintf("value of Key '%s' can't be nil or empty", key))
+								return nil, dberrors.New(dberrors.ErrCodeValidation, "validatePrimaryKey", fmt.Errorf("value of Key '%s' can't be nil or empty", key), nil)
 							}
 							cndMap[key] = data
 						}
@@ -296,7 +312,6 @@ func (db *Chain) executeInside(vi []interface{}, customColumns ...string) (sql.R
 					}
 
 					columns, _, _ = ArrayIntersect2(columns, append(primaryKey, primaryAuto...))
-
 				} else if db.sqlType == define.Delete && cnd == nil {
 					if er != nil {
 						return nil, er
@@ -323,7 +338,7 @@ func (db *Chain) executeInside(vi []interface{}, customColumns ...string) (sql.R
 				}
 
 				if db.sqlType == define.Update && cnd == nil {
-					return nil, errors.New("can't update Database without Conditions")
+					return nil, dberrors.New(dberrors.ErrCodeValidation, "executeInside", fmt.Errorf("can't update Database without Conditions"), nil)
 				}
 				vvs = append(vvs, dm)
 			}
@@ -453,7 +468,7 @@ func (db *Chain) query(statement string, data []interface{}, rowScanner define.I
 }
 func (db *Chain) Begin() error {
 	if db.tx != nil {
-		return errors.New(" there was a DoTransaction")
+		return dberrors.New(dberrors.ErrCodeTransaction, "Begin", fmt.Errorf("there was a transaction"), nil)
 	}
 	tx, err := db.db.Begin()
 	db.tx = tx
@@ -862,4 +877,285 @@ func (c *Chain) Or3Bool(b bool, rawExpresssion string, values ...interface{}) *C
 
 	c.cnd.Or3Bool(b, rawExpresssion, values...)
 	return c
+}
+
+// BatchOptions 批量操作配置
+type BatchOptions struct {
+	BatchSize int      // 每批处理的记录数
+	Columns   []string // 列名
+}
+
+// BatchInsert 批量插入
+func (c *Chain) BatchInsert(records []interface{}, options *BatchOptions) error {
+	if len(records) == 0 {
+		return nil
+	}
+
+	if options == nil {
+		options = &BatchOptions{
+			BatchSize: 1000, // 默认批次大小
+		}
+	}
+
+	// 分批处理
+	for i := 0; i < len(records); i += options.BatchSize {
+		end := i + options.BatchSize
+		if end > len(records) {
+			end = len(records)
+		}
+
+		batch := records[i:end]
+		if err := c.executeBatchInsert(batch, options.Columns); err != nil {
+			return dberrors.New(dberrors.ErrCodeExecution, "BatchInsert", err, map[string]interface{}{
+				"start": i,
+				"end":   end,
+			})
+		}
+	}
+
+	return nil
+}
+
+// executeBatchInsert 执行批量插入
+func (c *Chain) executeBatchInsert(batch []interface{}, columns []string) error {
+	if len(batch) == 0 {
+		return nil
+	}
+
+	// 如果没有指定列名，尝试从第一条记录获取
+	if len(columns) == 0 {
+		cols, err := c.getColumnsFromRecord(batch[0])
+		if err != nil {
+			return err
+		}
+		columns = cols
+	}
+
+	// 构建SQL语句
+	var (
+		placeholders []string
+		values       []interface{}
+	)
+
+	valueStr := fmt.Sprintf("(%s)", strings.Repeat("?,", len(columns)-1)+"?")
+	for _, record := range batch {
+		placeholders = append(placeholders, valueStr)
+		recordValues, err := c.extractValues(record, columns)
+		if err != nil {
+			return err
+		}
+		values = append(values, recordValues...)
+	}
+
+	query := fmt.Sprintf(
+		"INSERT INTO %s (%s) VALUES %s",
+		c.GetTable(),
+		strings.Join(columns, ","),
+		strings.Join(placeholders, ","),
+	)
+
+	// 执行SQL
+	_, err := c.ExecuteStatement(query, values...)
+	return err
+}
+
+// BatchUpdate 批量更新
+func (c *Chain) BatchUpdate(records []interface{}, keyColumns []string, options *BatchOptions) error {
+	if len(records) == 0 {
+		return nil
+	}
+
+	if options == nil {
+		options = &BatchOptions{
+			BatchSize: 1000, // 默认批次大小
+		}
+	}
+
+	// 分批处理
+	for i := 0; i < len(records); i += options.BatchSize {
+		end := i + options.BatchSize
+		if end > len(records) {
+			end = len(records)
+		}
+
+		batch := records[i:end]
+		if err := c.executeBatchUpdate(batch, keyColumns, options.Columns); err != nil {
+			return dberrors.New(dberrors.ErrCodeExecution, "BatchUpdate", err, map[string]interface{}{
+				"start": i,
+				"end":   end,
+			})
+		}
+	}
+
+	return nil
+}
+
+// executeBatchUpdate 执行批量更新
+func (c *Chain) executeBatchUpdate(batch []interface{}, keyColumns []string, columns []string) error {
+	if len(batch) == 0 {
+		return nil
+	}
+
+	// 如果没有指定列名，尝试从第一条记录获取
+	if len(columns) == 0 {
+		cols, err := c.getColumnsFromRecord(batch[0])
+		if err != nil {
+			return err
+		}
+		columns = cols
+	}
+
+	// 构建更新列
+	updateColumns := make([]string, 0)
+	for _, col := range columns {
+		isKey := false
+		for _, keyCol := range keyColumns {
+			if col == keyCol {
+				isKey = true
+				break
+			}
+		}
+		if !isKey {
+			updateColumns = append(updateColumns, col)
+		}
+	}
+
+	var (
+		cases  []string
+		values []interface{}
+	)
+
+	for _, record := range batch {
+		recordValues, err := c.extractValues(record, columns)
+		if err != nil {
+			return err
+		}
+		values = append(values, recordValues...)
+
+		// 构建WHEN条件
+		var whenConds []string
+		for _, keyCol := range keyColumns {
+			whenConds = append(whenConds, fmt.Sprintf("%s = ?", keyCol))
+		}
+		cases = append(cases, fmt.Sprintf("WHEN %s THEN ?", strings.Join(whenConds, " AND ")))
+	}
+
+	// 构建UPDATE语句
+	var setClauses []string
+	for _, col := range updateColumns {
+		setClauses = append(setClauses, fmt.Sprintf(
+			"%s = CASE %s END",
+			col,
+			strings.Join(cases, " "),
+		))
+	}
+
+	query := fmt.Sprintf(
+		"UPDATE %s SET %s WHERE %s IN (?)",
+		c.GetTable(),
+		strings.Join(setClauses, ", "),
+		strings.Join(keyColumns, ", "),
+	)
+
+	// 执行SQL
+	_, err := c.ExecuteStatement(query, values...)
+	return err
+}
+
+// getColumnsFromRecord 从记录中获取列名
+func (c *Chain) getColumnsFromRecord(record interface{}) ([]string, error) {
+	switch v := record.(type) {
+	case map[string]interface{}:
+		columns := make([]string, 0, len(v))
+		for col := range v {
+			columns = append(columns, col)
+		}
+		return columns, nil
+	default:
+		val := reflect.ValueOf(record)
+		if val.Kind() == reflect.Ptr {
+			val = val.Elem()
+		}
+
+		if val.Kind() != reflect.Struct {
+			return nil, dberrors.New(dberrors.ErrCodeValidation, "getColumnsFromRecord", fmt.Errorf("unsupported record type: %T", record), nil)
+		}
+
+		typ := val.Type()
+		columns := make([]string, 0, typ.NumField())
+		for i := 0; i < typ.NumField(); i++ {
+			field := typ.Field(i)
+			// 获取字段的tag
+			tag := field.Tag.Get("db")
+			if tag == "" {
+				tag = field.Tag.Get("json")
+			}
+			if tag == "" {
+				tag = field.Name
+			}
+			columns = append(columns, tag)
+		}
+		return columns, nil
+	}
+}
+
+// extractValues 从记录中提取值
+func (c *Chain) extractValues(record interface{}, columns []string) ([]interface{}, error) {
+	values := make([]interface{}, len(columns))
+
+	switch v := record.(type) {
+	case map[string]interface{}:
+		for i, col := range columns {
+			if val, ok := v[col]; !ok {
+				return nil, dberrors.New(dberrors.ErrCodeValidation, "extractValues", fmt.Errorf("column %s not found in record", col), nil)
+			} else {
+				values[i] = val
+			}
+		}
+	default:
+		val := reflect.ValueOf(record)
+		if val.Kind() == reflect.Ptr {
+			val = val.Elem()
+		}
+
+		if val.Kind() != reflect.Struct {
+			return nil, dberrors.New(dberrors.ErrCodeValidation, "extractValues", fmt.Errorf("unsupported record type: %T", record), nil)
+		}
+
+		for i, col := range columns {
+			field := val.FieldByName(col)
+			if !field.IsValid() {
+				return nil, dberrors.New(dberrors.ErrCodeValidation, "extractValues", fmt.Errorf("field %s not found in record", col), nil)
+			}
+			values[i] = field.Interface()
+		}
+	}
+
+	return values, nil
+}
+
+// Fields 设置允许操作的列名
+func (db *Chain) Fields(columns ...string) *Chain {
+	db.cloneSelfIfDifferentGoRoutine()
+	db.fields = columns
+	return db
+}
+
+// validateFields 验证列名是否在允许的范围内
+func (db *Chain) validateFields(columns []string) error {
+	if len(db.fields) == 0 {
+		return nil // 未设置fields时不做验证
+	}
+
+	allowedFields := make(map[string]bool)
+	for _, field := range db.fields {
+		allowedFields[field] = true
+	}
+
+	for _, col := range columns {
+		if !allowedFields[col] {
+			return dberrors.New(dberrors.ErrCodeValidation, "ValidateFields", fmt.Errorf("column '%s' is not allowed to operate", col), nil)
+		}
+	}
+	return nil
 }
