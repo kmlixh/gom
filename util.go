@@ -5,12 +5,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/kmlixh/gom/v3/define"
 	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/kmlixh/gom/v4/define"
 )
 
 var columnToFieldNameMapCache = make(map[reflect.Type]map[string]FieldInfo)
@@ -44,7 +45,7 @@ func GetColumns(v reflect.Value) ([]string, []string, []string, map[string]strin
 			}
 		}
 	}
-	if Debug {
+	if define.Debug {
 		fmt.Println("ColumnNames are:", columnNames)
 	}
 	return columnNames, primaryKeys, primaryAuto, columnIdxMap
@@ -138,7 +139,7 @@ func GetRawTableInfo(v any) RawMetaInfo {
 	}
 	isStruct = tt.Kind() == reflect.Struct
 
-	if Debug {
+	if define.Debug {
 		fmt.Println("Test GetRawTableInfo, result:", tt, isPtr, isSlice)
 	}
 	tableName := ""

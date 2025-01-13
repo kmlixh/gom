@@ -35,7 +35,7 @@ require github.com/kmlixh/gom/v2 v3.0.0
 或者
 
 ```shell
-go get github.com/kmlixh/gom/v3@v3.0.0
+go get github.com/kmlixh/gom/v4@v3.0.0
 ```
 
 ### 一个简单的CRUD示例

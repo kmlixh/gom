@@ -4,11 +4,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/kmlixh/gom/v3/define"
-	factory2 "github.com/kmlixh/gom/v3/factory"
 	"strings"
 	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/kmlixh/gom/v4/define"
 )
 
 type MyCndStruct struct {
@@ -110,7 +110,7 @@ func init() {
 	InitFactory()
 }
 func InitFactory() {
-	factory2.Register("Postgres", &factory)
+	define.RegisterFactory("Postgres", &factory)
 	initKeywordMap()
 	funcMap = make(map[define.SqlType]define.SqlFunc)
 	funcMap[define.Query] = func(models ...define.TableModel) []define.SqlProto {
@@ -367,7 +367,7 @@ WHERE
 			comment := ""
 			er = rows.Scan(&columnName, &columnType, &columnKey, &extra, &comment)
 			if er == nil {
-				cols = append(cols, define.Column{ColumnName: columnName, ColumnType: columnType, IsPrimary: columnKey == "YES", IsPrimaryAuto: columnKey == "YES" && extra == "ALWAYS", Comment: comment})
+				cols = append(cols, define.Column{ColumnName: columnName, ColumnTypeName: columnType, IsPrimary: columnKey == "YES", IsPrimaryAuto: columnKey == "YES" && extra == "ALWAYS", Comment: comment})
 			} else {
 				return nil, er
 			}
@@ -406,7 +406,7 @@ func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, erro
 		comment := ""
 		er = rows.Scan(&columnName, &columnType, &columnKey, &extra)
 		if er == nil {
-			columns = append(columns, define.Column{ColumnName: columnName, ColumnType: columnType, IsPrimary: columnKey == "YES", IsPrimaryAuto: columnKey == "YES" && extra == "ALWAYS", Comment: comment})
+			columns = append(columns, define.Column{ColumnName: columnName, ColumnTypeName: columnType, IsPrimary: columnKey == "YES", IsPrimaryAuto: columnKey == "YES" && extra == "ALWAYS", Comment: comment})
 		} else {
 			return nil, er
 		}

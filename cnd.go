@@ -1,6 +1,6 @@
 package gom
 
-import "github.com/kmlixh/gom/v3/define"
+import "github.com/kmlixh/gom/v4/define"
 
 type CndImpl struct {
 	payloads      int64

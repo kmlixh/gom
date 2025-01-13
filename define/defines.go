@@ -5,6 +5,8 @@ import (
 	"reflect"
 )
 
+var Debug bool
+
 type Linker int
 
 const (
@@ -188,12 +190,12 @@ func (t TableStruct) GetColumns() ([]Column, error) {
 }
 
 type Column struct {
-	QueryName     string       `json:"queryName"`
-	ColumnName    string       `json:"ColumnName"`
-	IsPrimary     bool         `json:"isPrimary"`
-	IsPrimaryAuto bool         `json:"isPrimaryAuto"` //If IsPrimary Key Auto Generate Or2 Not
-	TypeName      string       `json:"type"`
-	Type          reflect.Type `json:"-"`
-	ColumnValue   any          `json:"value"`
-	Comment       string       `json:"comment"`
+	QueryName      string       `json:"queryName"`
+	ColumnName     string       `json:"ColumnName"`
+	IsPrimary      bool         `json:"isPrimary"`
+	IsPrimaryAuto  bool         `json:"isPrimaryAuto"` //If IsPrimary Key Auto Generate Or2 Not
+	ColumnTypeName string       `json:"type"`
+	Type           reflect.Type `json:"-"`
+	ColumnValue    any          `json:"value"`
+	Comment        string       `json:"comment"`
 }

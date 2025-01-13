@@ -1,4 +1,4 @@
-module github.com/kmlixh/gom/v3
+module github.com/kmlixh/gom/v4
 
 go 1.20
 

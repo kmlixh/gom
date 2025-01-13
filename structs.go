@@ -4,8 +4,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/kmlixh/gom/v3/define"
 	"reflect"
+
+	"github.com/kmlixh/gom/v4/define"
 )
 
 type FieldInfo struct {

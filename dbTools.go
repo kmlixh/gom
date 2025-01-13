@@ -3,9 +3,10 @@ package gom
 import (
 	"errors"
 	"fmt"
-	"github.com/kmlixh/gom/v3/define"
 	"os"
 	"strings"
+
+	"github.com/kmlixh/gom/v4/define"
 )
 
 func GenDefaultStructFromDatabase(db *DB, packageName string, fileName string, tables ...string) error {
@@ -24,7 +25,7 @@ func GenDefaultStructFromDatabase(db *DB, packageName string, fileName string, t
 		}
 		f.WriteString(fmt.Sprintf("type %s struct {\r\n", UnderscoreToUpperCamelCase(tt)))
 		for _, col := range cols {
-			f.WriteString("\t" + UnderscoreToUpperCamelCase(col.ColumnName) + "\t\t" + getTypeOfColumn(col.ColumnType) + "\t\t" + getColumnTag(col) + "\r\n")
+			f.WriteString("\t" + UnderscoreToUpperCamelCase(col.ColumnName) + "\t\t" + getTypeOfColumn(col.ColumnTypeName) + "\t\t" + getColumnTag(col) + "\r\n")
 		}
 		f.WriteString("}\r\n")
 		f.WriteString(fmt.Sprintf("func (t %s)TableName() string {\r\n", UnderscoreToUpperCamelCase(tt)))

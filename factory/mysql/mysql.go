@@ -4,11 +4,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	_ "github.com/go-sql-driver/mysql"
-	"github.com/kmlixh/gom/v3/define"
-	factory2 "github.com/kmlixh/gom/v3/factory"
 	"strings"
 	"time"
+
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/kmlixh/gom/v4/define"
 )
 
 type MyCndStruct struct {
@@ -93,7 +93,7 @@ func init() {
 	InitFactory()
 }
 func InitFactory() {
-	factory2.Register("mysql", &factory)
+	define.RegisterFactory("mysql", &factory)
 	initKeywordMap()
 	funcMap = make(map[define.SqlType]define.SqlFunc)
 	funcMap[define.Query] = func(models ...define.TableModel) []define.SqlProto {
@@ -306,7 +306,7 @@ WHERE
 			comment := ""
 			er = rows.Scan(&columnName, &columnType, &columnKey, &extra, &comment)
 			if er == nil {
-				cols = append(cols, define.Column{ColumnName: columnName, TypeName: columnType, IsPrimary: columnKey == "PRI", IsPrimaryAuto: columnKey == "PRI" && extra == "auto_increment", ColumnValue: m.GetSqlTypeDefaultValue(columnType), Comment: comment})
+				cols = append(cols, define.Column{ColumnName: columnName, ColumnTypeName: columnType, IsPrimary: columnKey == "PRI", IsPrimaryAuto: columnKey == "PRI" && extra == "auto_increment", ColumnValue: m.GetSqlTypeDefaultValue(columnType), Comment: comment})
 			} else {
 				return nil, er
 			}
@@ -348,7 +348,7 @@ func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, erro
 		extra := ""
 		er = rows.Scan(&columnName, &columnType, &columnKey, &extra)
 		if er == nil {
-			columns = append(columns, define.Column{ColumnName: columnName, TypeName: columnType, IsPrimary: columnKey == "PRI", IsPrimaryAuto: columnKey == "PRI" && extra == "auto_increment"})
+			columns = append(columns, define.Column{ColumnName: columnName, ColumnTypeName: columnType, IsPrimary: columnKey == "PRI", IsPrimaryAuto: columnKey == "PRI" && extra == "auto_increment"})
 		} else {
 			return nil, er
 		}
