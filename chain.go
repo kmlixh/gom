@@ -3,11 +3,9 @@ package gom
 import (
 	"database/sql"
 	"fmt"
-	"reflect"
-	"strings"
-
 	"github.com/kmlixh/gom/v4/define"
 	dberrors "github.com/kmlixh/gom/v4/errors"
+	"reflect"
 )
 
 type Chain struct {
@@ -26,7 +24,6 @@ type Chain struct {
 }
 
 func (db *Chain) Table(table string) *Chain {
-	db.cloneSelfIfDifferentGoRoutine()
 	db.table = &table
 	return db
 }
@@ -37,7 +34,7 @@ func (c *Chain) GetTable() string {
 	return ""
 }
 func (db *Chain) Clone() *Chain {
-	return &Chain{id: getGrouteId(), factory: db.factory, db: db.db}
+	return &Chain{id: getGrouteId(), factory: db.factory, db: db.db, cnd: CndEmpty()}
 }
 func (db *Chain) cloneSelfIfDifferentGoRoutine() {
 	if db.id != getGrouteId() {
@@ -201,6 +198,10 @@ func (db *Chain) Insert(v interface{}, columns ...string) (sql.Result, error) {
 	return db.executeInside(ArrayOf(v), columns...)
 
 }
+func (db *Chain) Save(v interface{}, columns ...string) (sql.Result, error) {
+	return db.Insert(v, columns...)
+
+}
 func (db *Chain) Delete(vs ...interface{}) (sql.Result, error) {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.sqlType = define.Delete
@@ -260,6 +261,9 @@ func (db *Chain) executeInside(vi []interface{}, customColumns ...string) (sql.R
 					}
 				}
 				columns := customColumns
+				if len(db.fields) > 0 {
+					columns = db.fields
+				}
 				if len(columns) > 0 {
 					for _, c := range columns {
 						if _, ok := colMap[c]; !ok {
@@ -541,9 +545,10 @@ func (db *Chain) GetPage() (int64, int64) {
 func (db *Chain) CleanDb() *Chain {
 	db.table = nil
 	db.page = nil
+	db.fields = nil
 	db.orderBys = nil
 	db.rawSql = nil
-	db.cnd = nil
+	db.cnd = CndEmpty()
 	return db
 }
 func (c *Chain) Eq(field string, values interface{}) *Chain {
@@ -875,261 +880,6 @@ func (c *Chain) Or3Bool(b bool, rawExpresssion string, values ...interface{}) *C
 
 	c.cnd.Or3Bool(b, rawExpresssion, values...)
 	return c
-}
-
-// BatchOptions 批量操作配置
-type BatchOptions struct {
-	BatchSize int      // 每批处理的记录数
-	Columns   []string // 列名
-}
-
-// BatchInsert 批量插入
-func (c *Chain) BatchInsert(records []interface{}, options *BatchOptions) error {
-	if len(records) == 0 {
-		return nil
-	}
-
-	if options == nil {
-		options = &BatchOptions{
-			BatchSize: 1000, // 默认批次大小
-		}
-	}
-
-	// 分批处理
-	for i := 0; i < len(records); i += options.BatchSize {
-		end := i + options.BatchSize
-		if end > len(records) {
-			end = len(records)
-		}
-
-		batch := records[i:end]
-		if err := c.executeBatchInsert(batch, options.Columns); err != nil {
-			return dberrors.New(dberrors.ErrCodeExecution, "BatchInsert", err, map[string]interface{}{
-				"start": i,
-				"end":   end,
-			})
-		}
-	}
-
-	return nil
-}
-
-// executeBatchInsert 执行批量插入
-func (c *Chain) executeBatchInsert(batch []interface{}, columns []string) error {
-	if len(batch) == 0 {
-		return nil
-	}
-
-	// 如果没有指定列名，尝试从第一条记录获取
-	if len(columns) == 0 {
-		cols, err := c.getColumnsFromRecord(batch[0])
-		if err != nil {
-			return err
-		}
-		columns = cols
-	}
-
-	// 构建SQL语句
-	var (
-		placeholders []string
-		values       []interface{}
-	)
-
-	valueStr := fmt.Sprintf("(%s)", strings.Repeat("?,", len(columns)-1)+"?")
-	for _, record := range batch {
-		placeholders = append(placeholders, valueStr)
-		recordValues, err := c.extractValues(record, columns)
-		if err != nil {
-			return err
-		}
-		values = append(values, recordValues...)
-	}
-
-	query := fmt.Sprintf(
-		"INSERT INTO %s (%s) VALUES %s",
-		c.GetTable(),
-		strings.Join(columns, ","),
-		strings.Join(placeholders, ","),
-	)
-
-	// 执行SQL
-	_, err := c.ExecuteStatement(query, values...)
-	return err
-}
-
-// BatchUpdate 批量更新
-func (c *Chain) BatchUpdate(records []interface{}, keyColumns []string, options *BatchOptions) error {
-	if len(records) == 0 {
-		return nil
-	}
-
-	if options == nil {
-		options = &BatchOptions{
-			BatchSize: 1000, // 默认批次大小
-		}
-	}
-
-	// 分批处理
-	for i := 0; i < len(records); i += options.BatchSize {
-		end := i + options.BatchSize
-		if end > len(records) {
-			end = len(records)
-		}
-
-		batch := records[i:end]
-		if err := c.executeBatchUpdate(batch, keyColumns, options.Columns); err != nil {
-			return dberrors.New(dberrors.ErrCodeExecution, "BatchUpdate", err, map[string]interface{}{
-				"start": i,
-				"end":   end,
-			})
-		}
-	}
-
-	return nil
-}
-
-// executeBatchUpdate 执行批量更新
-func (c *Chain) executeBatchUpdate(batch []interface{}, keyColumns []string, columns []string) error {
-	if len(batch) == 0 {
-		return nil
-	}
-
-	// 如果没有指定列名，尝试从第一条记录获取
-	if len(columns) == 0 {
-		cols, err := c.getColumnsFromRecord(batch[0])
-		if err != nil {
-			return err
-		}
-		columns = cols
-	}
-
-	// 构建更新列
-	updateColumns := make([]string, 0)
-	for _, col := range columns {
-		isKey := false
-		for _, keyCol := range keyColumns {
-			if col == keyCol {
-				isKey = true
-				break
-			}
-		}
-		if !isKey {
-			updateColumns = append(updateColumns, col)
-		}
-	}
-
-	var (
-		cases  []string
-		values []interface{}
-	)
-
-	for _, record := range batch {
-		recordValues, err := c.extractValues(record, columns)
-		if err != nil {
-			return err
-		}
-		values = append(values, recordValues...)
-
-		// 构建WHEN条件
-		var whenConds []string
-		for _, keyCol := range keyColumns {
-			whenConds = append(whenConds, fmt.Sprintf("%s = ?", keyCol))
-		}
-		cases = append(cases, fmt.Sprintf("WHEN %s THEN ?", strings.Join(whenConds, " AND ")))
-	}
-
-	// 构建UPDATE语句
-	var setClauses []string
-	for _, col := range updateColumns {
-		setClauses = append(setClauses, fmt.Sprintf(
-			"%s = CASE %s END",
-			col,
-			strings.Join(cases, " "),
-		))
-	}
-
-	query := fmt.Sprintf(
-		"UPDATE %s SET %s WHERE %s IN (?)",
-		c.GetTable(),
-		strings.Join(setClauses, ", "),
-		strings.Join(keyColumns, ", "),
-	)
-
-	// 执行SQL
-	_, err := c.ExecuteStatement(query, values...)
-	return err
-}
-
-// getColumnsFromRecord 从记录中获取列名
-func (c *Chain) getColumnsFromRecord(record interface{}) ([]string, error) {
-	switch v := record.(type) {
-	case map[string]interface{}:
-		columns := make([]string, 0, len(v))
-		for col := range v {
-			columns = append(columns, col)
-		}
-		return columns, nil
-	default:
-		val := reflect.ValueOf(record)
-		if val.Kind() == reflect.Ptr {
-			val = val.Elem()
-		}
-
-		if val.Kind() != reflect.Struct {
-			return nil, dberrors.New(dberrors.ErrCodeValidation, "getColumnsFromRecord", fmt.Errorf("unsupported record type: %T", record), nil)
-		}
-
-		typ := val.Type()
-		columns := make([]string, 0, typ.NumField())
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
-			// 获取字段的tag
-			tag := field.Tag.Get("db")
-			if tag == "" {
-				tag = field.Tag.Get("json")
-			}
-			if tag == "" {
-				tag = field.Name
-			}
-			columns = append(columns, tag)
-		}
-		return columns, nil
-	}
-}
-
-// extractValues 从记录中提取值
-func (c *Chain) extractValues(record interface{}, columns []string) ([]interface{}, error) {
-	values := make([]interface{}, len(columns))
-
-	switch v := record.(type) {
-	case map[string]interface{}:
-		for i, col := range columns {
-			if val, ok := v[col]; !ok {
-				return nil, dberrors.New(dberrors.ErrCodeValidation, "extractValues", fmt.Errorf("column %s not found in record", col), nil)
-			} else {
-				values[i] = val
-			}
-		}
-	default:
-		val := reflect.ValueOf(record)
-		if val.Kind() == reflect.Ptr {
-			val = val.Elem()
-		}
-
-		if val.Kind() != reflect.Struct {
-			return nil, dberrors.New(dberrors.ErrCodeValidation, "extractValues", fmt.Errorf("unsupported record type: %T", record), nil)
-		}
-
-		for i, col := range columns {
-			field := val.FieldByName(col)
-			if !field.IsValid() {
-				return nil, dberrors.New(dberrors.ErrCodeValidation, "extractValues", fmt.Errorf("field %s not found in record", col), nil)
-			}
-			values[i] = field.Interface()
-		}
-	}
-
-	return values, nil
 }
 
 // Fields 设置允许操作的列名

@@ -35,7 +35,7 @@ func DefaultConfig(driverName, dsn string) *DBConfig {
 }
 
 // OpenWithConfig 使用配置打开数据库连接
-func OpenWithConfig(config *DBConfig) (*Chain, error) {
+func OpenWithConfig(config *DBConfig) (*DB, error) {
 	if config == nil {
 		return nil, errors.New("config cannot be nil")
 	}
@@ -61,22 +61,21 @@ func OpenWithConfig(config *DBConfig) (*Chain, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	return &Chain{
-		id:      getGrouteId(),
+	return &DB{
 		db:      db,
 		factory: factory,
 	}, nil
 }
 
 // Open 使用默认配置打开数据库连接
-func Open(driverName string, dsn string, debug bool) (*Chain, error) {
+func Open(driverName string, dsn string, debug bool) (*DB, error) {
 	config := DefaultConfig(driverName, dsn)
 	config.Debug = debug
 	return OpenWithConfig(config)
 }
 
 // OpenWithOptions 使用选项打开数据库连接
-func OpenWithOptions(driverName, dsn string, options ...func(*DBConfig)) (*Chain, error) {
+func OpenWithOptions(driverName, dsn string, options ...func(*DBConfig)) (*DB, error) {
 	config := DefaultConfig(driverName, dsn)
 	for _, option := range options {
 		option(config)
