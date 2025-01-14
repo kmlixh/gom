@@ -38,7 +38,22 @@ const (
 
 type OrderType int
 
+const (
+	_ OrderType = iota
+	Asc
+	Desc
+)
+
 type SqlType int
+
+const (
+	_ SqlType = iota
+	Query
+	Insert
+	Update
+	Delete
+)
+
 type Condition interface {
 	PayLoads() int64 //有效荷载，说明当前条件及其链式条件共有多少有多少个条件
 	Linker() Linker
@@ -117,20 +132,6 @@ type Condition interface {
 	Or3Bool(b bool, rawExpresssion string, values ...interface{}) Condition
 }
 
-const (
-	_ SqlType = iota
-	Query
-	Insert
-	Update
-	Delete
-)
-
-const (
-	_ OrderType = iota
-	Asc
-	Desc
-)
-
 type SqlProto struct {
 	PreparedSql string
 	Data        []interface{}
@@ -158,6 +159,7 @@ type SqlFactory interface {
 	GetCurrentSchema(db *sql.DB) (string, error)
 	GetColumns(tableName string, db *sql.DB) ([]Column, error)
 	GetSqlFunc(sqlType SqlType) SqlFunc
+	Execute(db *sql.DB, sqlType SqlType, model ...TableModel)
 	ConditionToSql(preTag bool, condition Condition) (string, []interface{})
 	GetTableStruct(tableName string, db *sql.DB) (ITableStruct, error)
 	GetSqlTypeDefaultValue(sqlType string) any

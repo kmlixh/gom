@@ -330,6 +330,10 @@ ORDER BY
 
 `
 
+func (f Factory) Execute(db *sql.DB, sqlType define.SqlType, model ...define.TableModel) {
+	//TODO implement me
+	panic("implement me")
+}
 func (m Factory) GetTableStruct(tableName string, db *sql.DB) (define.ITableStruct, error) {
 	var tableStruct define.TableStruct
 	if table, ok := dbTableCache[tableName]; ok {

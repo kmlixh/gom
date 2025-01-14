@@ -27,8 +27,8 @@ func (u TestUser) TableName() string {
 
 // 数据库连接配置
 var (
-	mysqlDSN    = "root:123456@tcp(192.168.110.249:3306)/test?charset=utf8mb4&parseTime=True&loc=Local"
-	postgresDSN = "postgres://postgres:yzy123@192.168.110.249:5432/test?sslmode=disable"
+	mysqlDSN    = "root:123456@tcp(10.0.1.5:3306)/test?charset=utf8mb4&parseTime=True&loc=Local"
+	postgresDSN = "postgres://postgres:123456@10.0.1.5:5432/test?sslmode=disable"
 )
 
 // 创建测试表的SQL语句
