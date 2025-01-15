@@ -163,7 +163,7 @@ type SqlFactory interface {
 	GetCurrentSchema(db *sql.DB) (string, error)
 	GetColumns(tableName string, db *sql.DB) ([]Column, error)
 	GetSqlFunc(sqlType SqlType) SqlFunc
-	Execute(db *sql.DB, sqlType SqlType, statement *sql.Stmt, data []interface{}, rowScanner IRowScanner) (interface{}, error)
+	Execute(db *sql.DB, sqlType SqlType, statement *sql.Stmt, data []interface{}, rowScanner IRowScanner) Result
 	ConditionToSql(preTag bool, condition Condition) (string, []interface{})
 	GetTableStruct(tableName string, db *sql.DB) (ITableStruct, error)
 	GetSqlTypeDefaultValue(sqlType string) any
@@ -204,4 +204,20 @@ type Column struct {
 	Type           reflect.Type `json:"-"`
 	ColumnValue    any          `json:"value"`
 	Comment        string       `json:"comment"`
+}
+
+type Result interface {
+	LastInsertId() int64
+	RowsAffected() int64
+	Data() interface{}
+	Error() error
+}
+
+type RawMetaInfo struct {
+	reflect.Type
+	TableName string
+	IsSlice   bool
+	IsPtr     bool
+	IsStruct  bool
+	RawData   reflect.Value
 }

@@ -89,7 +89,7 @@ func getColumnNameAndTypeFromField(field reflect.StructField) (string, int) {
 	}
 }
 
-func getDefaultsColumnFieldMap(rawType reflect.Type) (map[string]FieldInfo, []string) {
+func GetDefaultsColumnFieldMap(rawType reflect.Type) (map[string]FieldInfo, []string) {
 	columns := make([]string, 0)
 	columnMap := make(map[string]FieldInfo)
 	cc, ok := columnToFieldNameMapCache[rawType]
@@ -114,7 +114,7 @@ func getDefaultsColumnFieldMap(rawType reflect.Type) (map[string]FieldInfo, []st
 	return columnMap, columns
 }
 
-func GetRawTableInfo(v any) RawMetaInfo {
+func GetRawTableInfo(v any) define.RawMetaInfo {
 	var tt reflect.Type
 	var rawData any
 	if _, ok := v.(reflect.Type); ok {
@@ -154,7 +154,7 @@ func GetRawTableInfo(v any) RawMetaInfo {
 	if rawData == nil {
 		rawData = reflect.Indirect(reflect.ValueOf(v))
 	}
-	return RawMetaInfo{tt, tableName, isSlice, isPtr, isStruct, rawData.(reflect.Value)}
+	return define.RawMetaInfo{Type: tt, TableName: tableName, IsSlice: isSlice, IsPtr: isPtr, IsStruct: isStruct, RawData: rawData.(reflect.Value)}
 }
 
 func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, error) {
@@ -177,7 +177,7 @@ func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, err
 			return nil, errors.New(fmt.Sprintf("[%s] was a \"empty struct\",it has no field or All fields has been ignored", rawInfo.Type.Name()))
 		}
 		newMap := make(map[string]interface{})
-		cMap, _ := getDefaultsColumnFieldMap(rawInfo.Type)
+		cMap, _ := GetDefaultsColumnFieldMap(rawInfo.Type)
 		for key, column := range cMap {
 			if len(columns) > 0 {
 				_, ok := colMap[key]
@@ -289,7 +289,7 @@ func getGrouteId() int64 {
 
 func ScannerResultToStruct(t reflect.Type, scanners []interface{}, columnNames []string) reflect.Value {
 	v := reflect.Indirect(reflect.New(t))
-	colsMap, _ := getDefaultsColumnFieldMap(t)
+	colsMap, _ := GetDefaultsColumnFieldMap(t)
 	for i, name := range columnNames {
 		if _, ok := scanners[i].(EmptyScanner); !ok { //不能时空扫描器
 			val, er := scanners[i].(IScanner).Value()

@@ -330,7 +330,7 @@ ORDER BY
 
 `
 
-func (f *Factory) Execute(db *sql.DB, sqlType define.SqlType, statement *sql.Stmt, data []interface{}, rowScanner define.IRowScanner) (interface{}, error) {
+func (f *Factory) Execute(db *sql.DB, sqlType define.SqlType, statement *sql.Stmt, data []interface{}, rowScanner define.IRowScanner) define.Result {
 	st, err := db.prepare(statement)
 	if err != nil {
 		return nil, err

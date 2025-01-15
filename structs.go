@@ -21,29 +21,27 @@ type OrderByImpl struct {
 	name      string
 	orderType define.OrderType
 }
-type CommonSqlResult struct {
-	lastInsertId int64
-	rowsAffected int64
-	error
-}
-type RawMetaInfo struct {
-	reflect.Type
-	TableName string
-	IsSlice   bool
-	IsPtr     bool
-	IsStruct  bool
-	RawData   reflect.Value
+type ResultImpl struct {
 }
 
-func (c CommonSqlResult) LastInsertId() (int64, error) {
-	if c.lastInsertId == 0 {
-		return 0, errors.New("")
-	}
-	return c.lastInsertId, c.error
+func (r ResultImpl) LastInsertId() int64 {
+	//TODO implement me
+	panic("implement me")
 }
 
-func (c CommonSqlResult) RowsAffected() (int64, error) {
-	return c.rowsAffected, c.error
+func (r ResultImpl) RowsAffected() int64 {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (r ResultImpl) Data() interface{} {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (r ResultImpl) Error() error {
+	//TODO implement me
+	panic("implement me")
 }
 
 func MakeOrderBy(name string, orderType define.OrderType) define.OrderBy {
@@ -83,10 +81,10 @@ type DefaultScanner struct {
 	columnMap map[string]FieldInfo
 }
 
-func getDefaultScanner(v interface{}, columns ...string) (define.IRowScanner, error) {
+func GetDefaultScanner(v interface{}, columns ...string) (define.IRowScanner, error) {
 	r := GetRawTableInfo(v)
 	if r.IsStruct {
-		colMap, cols := getDefaultsColumnFieldMap(r.Type)
+		colMap, cols := GetDefaultsColumnFieldMap(r.Type)
 		if len(columns) > 0 {
 			_, cc, right := ArrayIntersect2(cols, columns)
 			if len(right) > 0 {

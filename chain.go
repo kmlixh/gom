@@ -104,11 +104,11 @@ func (db *Chain) Count(columnName string) (int64, error) {
 		}
 	}
 	var count int64 = 0
-	scanners, er := getDefaultScanner(&count)
+	scanners, er := GetDefaultScanner(&count)
 	if er != nil {
 		return 0, er
 	}
-	_, er = db.excute(statements, data, scanners)
+	_, er = db.excute(define.Query, statements, data, scanners)
 
 	return count, er
 }
@@ -122,11 +122,11 @@ func (db *Chain) Sum(columnName string) (int64, error) {
 		statements = statements + " WHERE " + cndString
 	}
 	var count int64 = 0
-	scanners, er := getDefaultScanner(&count)
+	scanners, er := GetDefaultScanner(&count)
 	if er != nil {
 		return 0, er
 	}
-	_, er = db.excute(statements, data, scanners)
+	_, er = db.excute(define.Query, statements, data, scanners)
 
 	return count, er
 }
@@ -137,17 +137,17 @@ func (db *Chain) Select(vs any, columns ...string) (interface{}, error) {
 		db.fields = columns
 	}
 	db.sqlType = define.Query
-	scanner, er := getDefaultScanner(vs, columns...)
+	scanner, er := GetDefaultScanner(vs, columns...)
 	if er != nil {
 		return 0, er
 	}
 	if db.rawSql != nil && len(*db.rawSql) > 0 {
-		return db.excute(*db.rawSql, db.rawData, scanner)
+		return db.excute(define.Query, *db.rawSql, db.rawData, scanner)
 	} else {
 		rawInfo := GetRawTableInfo(vs)
 		if rawInfo.IsStruct {
 			//检查列缺失
-			colMap, cols := getDefaultsColumnFieldMap(rawInfo.Type)
+			colMap, cols := GetDefaultsColumnFieldMap(rawInfo.Type)
 			if len(columns) > 0 {
 				for _, c := range columns {
 					if _, ok := colMap[c]; !ok {
@@ -185,7 +185,7 @@ func (db *Chain) Select(vs any, columns ...string) (interface{}, error) {
 		if er != nil {
 			return nil, er
 		}
-		return db.excute(sqlProtos[0].PreparedSql, sqlProtos[0].Data, scanner)
+		return db.excute(define.Query, sqlProtos[0].PreparedSql, sqlProtos[0].Data, scanner)
 	}
 }
 func (db *Chain) First(vs interface{}) (interface{}, error) {
@@ -212,10 +212,10 @@ func (db *Chain) Delete(vs ...interface{}) (sql.Result, error) {
 func (db *Chain) Update(v interface{}, columns ...string) (sql.Result, error) {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.sqlType = define.Update
-	return db.executeInside(ArrayOf(v), columns...)
+	return db.executeInside(define.Update, ArrayOf(v), columns...)
 }
 
-func (db *Chain) executeInside(vi []interface{}, customColumns ...string) (sql.Result, error) {
+func (db *Chain) executeInside(sqlType define.SqlType, vi []interface{}, customColumns ...string) (define.Result, error) {
 	var vs []interface{}
 	if vi != nil && len(vi) > 0 {
 		vs = append(vs, UnZipSlice(vi)...)
@@ -238,7 +238,7 @@ func (db *Chain) executeInside(vi []interface{}, customColumns ...string) (sql.R
 					table = rawInfo.TableName
 				}
 				//检查列缺失
-				colMap, _ := getDefaultsColumnFieldMap(rawInfo.Type)
+				colMap, _ := GetDefaultsColumnFieldMap(rawInfo.Type)
 				dbCols, er := db.factory.GetColumns(table, db.db)
 				if er != nil {
 					return nil, er
@@ -369,12 +369,12 @@ func (db *Chain) executeInside(vi []interface{}, customColumns ...string) (sql.R
 			}
 			rs, er := db.ExecuteStatement(sqlProto.PreparedSql, sqlProto.Data...)
 			if er != nil {
-				return CommonSqlResult{0, 0, er}, nil
+				return define.Result{0, 0, nil, er}, nil
 			}
-			cs, err := rs.RowsAffected()
+			cs, err := rs.RowsAffected
 			if cs == 1 && len(sqlProtos) == len(vvs) && db.sqlType == define.Insert {
 				//
-				id, er := rs.LastInsertId()
+				id, er := rs.LastInsertId
 				if er == nil {
 					lastInsertId = id
 				}
@@ -384,33 +384,13 @@ func (db *Chain) executeInside(vi []interface{}, customColumns ...string) (sql.R
 			}
 			count += cs
 		}
-		db.CleanDb()
-		return CommonSqlResult{lastInsertId, count, nil}, nil
+		defer db.CleanDb()
+		return define.Result{LastInsertId: lastInsertId, RowsAffected: count}, nil
 	}
 }
-func (db *Chain) ExecuteRaw(rawSql string, datas ...any) (sql.Result, error) {
-	return db.ExecuteStatement(rawSql, datas...)
+func (db *Chain) ExecuteRaw(rawSql string, datas ...any) define.Result {
+	return db.excute(define.Update, rawSql, datas, nil)
 
-}
-
-func (db *Chain) ExecuteStatement(statement string, data ...any) (sql.Result, error) {
-	st, err := db.prepare(statement)
-	if err != nil {
-		return nil, err
-	}
-	rs, er := st.Exec(data...)
-	if er != nil && db.IsInTransaction() {
-		//如果是在事务中，则直接panic整个事务，从而使事务可以回滚尽早回滚事务，避免发生错误的Commit
-		db.Rollback()
-	}
-	defer func() {
-		panics := recover()
-		if panics != nil && db.IsInTransaction() {
-			db.Rollback()
-			db.CleanDb()
-		}
-	}()
-	return rs, er
 }
 
 func (db *Chain) prepare(query string) (*sql.Stmt, error) {
@@ -431,7 +411,7 @@ func (db *Chain) GetCondition() define.Condition {
 	return nil
 }
 
-func (db *Chain) excute(sqlType define.SqlType, statement string, data []interface{}, rowScanner define.IRowScanner) (interface{}, error) {
+func (db *Chain) excute(sqlType define.SqlType, statement string, data []interface{}, rowScanner define.IRowScanner) define.Result {
 	if define.Debug {
 		fmt.Println("executeTableModel excute,PreparedSql:", statement, "data was:", data)
 	}
@@ -444,29 +424,8 @@ func (db *Chain) excute(sqlType define.SqlType, statement string, data []interfa
 			st.Close()
 		}
 	}(st, err)
-	if err != nil {
-		return nil, err
-	}
-	rows, errs := st.Query(data...)
-	if errs != nil {
-		return nil, errs
-	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			fmt.Println(err)
-		}
-		result := recover()
-		if result != nil {
-			er, ok := result.(error)
-			if ok {
-				fmt.Println(er)
-			}
-			db.Rollback()
-		}
-		db.CleanDb()
-	}(rows)
-	return rowScanner.Scan(rows)
+	return db.factory.Execute(db.db, sqlType, st, data, rowScanner)
+
 }
 func (db *Chain) Begin() error {
 	if db.tx != nil {
