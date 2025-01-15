@@ -108,7 +108,7 @@ func (db *Chain) Count(columnName string) (int64, error) {
 	if er != nil {
 		return 0, er
 	}
-	_, er = db.query(statements, data, scanners)
+	_, er = db.excute(statements, data, scanners)
 
 	return count, er
 }
@@ -126,7 +126,7 @@ func (db *Chain) Sum(columnName string) (int64, error) {
 	if er != nil {
 		return 0, er
 	}
-	_, er = db.query(statements, data, scanners)
+	_, er = db.excute(statements, data, scanners)
 
 	return count, er
 }
@@ -142,7 +142,7 @@ func (db *Chain) Select(vs any, columns ...string) (interface{}, error) {
 		return 0, er
 	}
 	if db.rawSql != nil && len(*db.rawSql) > 0 {
-		return db.query(*db.rawSql, db.rawData, scanner)
+		return db.excute(*db.rawSql, db.rawData, scanner)
 	} else {
 		rawInfo := GetRawTableInfo(vs)
 		if rawInfo.IsStruct {
@@ -185,7 +185,7 @@ func (db *Chain) Select(vs any, columns ...string) (interface{}, error) {
 		if er != nil {
 			return nil, er
 		}
-		return db.query(sqlProtos[0].PreparedSql, sqlProtos[0].Data, scanner)
+		return db.excute(sqlProtos[0].PreparedSql, sqlProtos[0].Data, scanner)
 	}
 }
 func (db *Chain) First(vs interface{}) (interface{}, error) {
@@ -431,9 +431,9 @@ func (db *Chain) GetCondition() define.Condition {
 	return nil
 }
 
-func (db *Chain) query(statement string, data []interface{}, rowScanner define.IRowScanner) (interface{}, error) {
+func (db *Chain) excute(sqlType define.SqlType, statement string, data []interface{}, rowScanner define.IRowScanner) (interface{}, error) {
 	if define.Debug {
-		fmt.Println("executeTableModel query,PreparedSql:", statement, "data was:", data)
+		fmt.Println("executeTableModel excute,PreparedSql:", statement, "data was:", data)
 	}
 	st, err := db.prepare(statement)
 	if err != nil {

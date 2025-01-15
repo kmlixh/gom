@@ -248,7 +248,7 @@ func (m Factory) GetTables(db *sql.DB) ([]string, error) {
 
 var columnSql = "select COLUMN_NAME as columnName,DATA_TYPE as dataType,COLUMN_KEY as columnKey,EXTRA as extra, IFNULL(COLUMN_COMMENT,'') as comment from information_schema.columns  where table_schema=?  and table_name= ? order by ordinal_position;"
 
-func (f Factory) Execute(db *sql.DB, sqlType define.SqlType, model ...define.TableModel) {
+func (f Factory) Execute(db *sql.DB, sqlType define.SqlType, statement *sql.Stmt, data []interface{}, rowScanner define.IRowScanner) (interface{}, error) {
 	//TODO implement me
 	panic("implement me")
 }

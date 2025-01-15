@@ -140,6 +140,10 @@ type OrderBy interface {
 	Name() string
 	Type() OrderType
 }
+type GroupBy interface {
+	Name() string
+	Type() OrderType
+}
 type PageInfo interface {
 	Page() (int64, int64)
 }
@@ -159,7 +163,7 @@ type SqlFactory interface {
 	GetCurrentSchema(db *sql.DB) (string, error)
 	GetColumns(tableName string, db *sql.DB) ([]Column, error)
 	GetSqlFunc(sqlType SqlType) SqlFunc
-	Execute(db *sql.DB, sqlType SqlType, model ...TableModel)
+	Execute(db *sql.DB, sqlType SqlType, statement *sql.Stmt, data []interface{}, rowScanner IRowScanner) (interface{}, error)
 	ConditionToSql(preTag bool, condition Condition) (string, []interface{})
 	GetTableStruct(tableName string, db *sql.DB) (ITableStruct, error)
 	GetSqlTypeDefaultValue(sqlType string) any

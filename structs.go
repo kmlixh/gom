@@ -141,7 +141,7 @@ func (d DefaultScanner) Scan(rows *sql.Rows) (interface{}, error) {
 				return nil, er
 			}
 			if len(columns) != len(scanners) {
-				return nil, errors.New("ColumnNames of query not compatible with input")
+				return nil, errors.New("ColumnNames of excute not compatible with input")
 			}
 			err := rows.Scan(scanners...)
 			if err != nil {
