@@ -70,16 +70,16 @@ func setupTestDB(t *testing.T, driver string, dsn string, createTableSQL string)
 		if sql == "" {
 			continue
 		}
-		_, err = db.Chain().ExecuteRaw(sql)
-		assert.NoError(t, err)
+		rs := db.Chain().Raw(nil, sql)
+		assert.NoError(t, rs.Error())
 	}
 
 	return db.Chain()
 }
 
 func cleanupTestDB(t *testing.T, db *Chain) {
-	_, err := db.ExecuteRaw("DROP TABLE IF EXISTS test_users")
-	assert.NoError(t, err)
+	rs := db.Raw(nil, "DROP TABLE IF EXISTS test_users")
+	assert.NoError(t, rs.Error())
 }
 
 // 基本CRUD操作测试
@@ -106,32 +106,31 @@ func testBasicCRUD(t *testing.T, db *Chain) {
 		Age:   25,
 		Email: "test@example.com",
 	}
-	result, err := db.Insert(&user)
-	assert.NoError(t, err)
+	result := db.Insert(&user)
+	assert.NoError(t, result.Error())
 	assert.NotNil(t, result)
 
 	// 测试查询
 	var queryUser TestUser
-	dd, err := db.Table("test_users").First(&queryUser)
+	dd := db.Table("test_users").First(&queryUser)
 	assert.NotNil(t, dd)
-	assert.NoError(t, err)
+	assert.NoError(t, dd.Error())
 	assert.Equal(t, user.Name, queryUser.Name)
 	assert.Equal(t, user.Age, queryUser.Age)
 	assert.Equal(t, user.Email, queryUser.Email)
 
 	// 测试更新
 	queryUser.Age = 26
-	result, err = db.Update(&queryUser)
-	assert.NoError(t, err)
-	affected, err := result.RowsAffected()
-	assert.NoError(t, err)
+	result = db.Update(&queryUser)
+	assert.NoError(t, result.Error())
+	affected := result.RowsAffected()
+	assert.NoError(t, result.Error())
 	assert.Equal(t, int64(1), affected)
 
 	// 测试删除
-	result, err = db.Delete(&queryUser)
-	assert.NoError(t, err)
-	affected, err = result.RowsAffected()
-	assert.NoError(t, err)
+	result = db.Delete(&queryUser)
+	assert.NoError(t, result.Error())
+	affected = result.RowsAffected()
 	assert.Equal(t, int64(1), affected)
 }
 
@@ -161,28 +160,28 @@ func testConditions(t *testing.T, chain *Chain) {
 	}
 
 	for _, user := range users {
-		_, err := chain.Insert(&user)
-		assert.NoError(t, err)
+		rs := chain.Insert(&user)
+		assert.NoError(t, rs.Error())
 	}
 
 	// 测试Eq条件
 	var result []TestUser
-	_, err := chain.Table("test_users").Eq("age", 25).Select(&result)
-	assert.NoError(t, err)
+	rs := chain.Table("test_users").Eq("age", 25).Select(&result)
+	assert.NoError(t, rs.Error())
 	assert.Equal(t, 1, len(result))
 	assert.Equal(t, "User2", result[0].Name)
 
 	// 测试Gt条件
 	result = nil
-	_, err = chain.Table("test_users").Gt("age", 25).Select(&result)
-	assert.NoError(t, err)
+	rs = chain.Table("test_users").Gt("age", 25).Select(&result)
+	assert.NoError(t, rs.Error())
 	assert.Equal(t, 1, len(result))
 	assert.Equal(t, "User3", result[0].Name)
 
 	// 测试Like条件
 	result = nil
-	_, err = chain.Table("test_users").Like("name", "User%").Select(&result)
-	assert.NoError(t, err)
+	rs = chain.Table("test_users").Like("name", "User%").Select(&result)
+	assert.NoError(t, rs.Error())
 	assert.Equal(t, 3, len(result))
 }
 
@@ -205,46 +204,46 @@ func TestTransaction(t *testing.T) {
 
 func testTransaction(t *testing.T, db *Chain) {
 	// 测试成功的事务
-	_, err := db.DoTransaction(func(tx *Chain) (interface{}, error) {
+	_, er := db.DoTransaction(func(tx *Chain) (interface{}, error) {
 		user1 := TestUser{Name: "TxUser1", Age: 20, Email: "tx1@example.com"}
 		user2 := TestUser{Name: "TxUser2", Age: 25, Email: "tx2@example.com"}
 
-		_, err := tx.Insert(&user1)
-		if err != nil {
-			return nil, err
+		rs := tx.Insert(&user1)
+		if rs.Error() != nil {
+			return nil, rs.Error()
 		}
 
-		_, err = tx.Insert(&user2)
-		if err != nil {
-			return nil, err
+		rs = tx.Insert(&user2)
+		if rs.Error() != nil {
+			return nil, rs.Error()
 		}
 
 		return nil, nil
 	})
-	assert.NoError(t, err)
+	assert.NoError(t, er)
 
 	// 验证事务结果
 	var count int64
-	count, err = db.Table("test_users").Count("id")
-	assert.NoError(t, err)
+	rsz := db.Table("test_users").Count("id")
+	assert.NoError(t, rsz.Error())
 	assert.Equal(t, int64(2), count)
 
 	// 测试失败的事务
-	_, err = db.DoTransaction(func(tx *Chain) (interface{}, error) {
+	_, er = db.DoTransaction(func(tx *Chain) (interface{}, error) {
 		user := TestUser{Name: "TxUser3", Age: 30, Email: "tx3@example.com"}
-		_, err := tx.Insert(&user)
-		if err != nil {
-			return nil, err
+		rs := tx.Insert(&user)
+		if rs.Error() != nil {
+			return nil, rs.Error()
 		}
 
 		return nil, fmt.Errorf("rollback test")
 	})
-	assert.Error(t, err)
+	assert.Error(t, er)
 
 	// 验证回滚结果
-	count, err = db.Table("test_users").Count("id")
-	assert.NoError(t, err)
-	assert.Equal(t, int64(2), count)
+	counts := db.Table("test_users").Count("id")
+	assert.NoError(t, counts.Error())
+	assert.Equal(t, int64(2), counts.Data())
 }
 
 // 批量操作测试
@@ -286,13 +285,13 @@ func testFields(t *testing.T, db *Chain) {
 		Age:   30,
 		Email: "fields@example.com",
 	}
-	_, err := db.Insert(&user)
-	assert.NoError(t, err)
+	rs := db.Insert(&user)
+	assert.NoError(t, rs.Error())
 
 	// 测试Fields限制查询字段
 	var result TestUser
-	_, err = db.Table("test_users").Fields("name", "age").First(&result)
-	assert.NoError(t, err)
+	rs = db.Table("test_users").Fields("name", "age").First(&result)
+	assert.NoError(t, rs.Error())
 	assert.NotEmpty(t, result.Name)
 	assert.NotZero(t, result.Age)
 	assert.Empty(t, result.Email) // email字段未包含在Fields中
@@ -301,13 +300,13 @@ func testFields(t *testing.T, db *Chain) {
 	result.Name = "Updated Name"
 	result.Age = 31
 	result.Email = "updated@example.com"
-	_, err = db.Fields("name").Update(&result)
-	assert.NoError(t, err)
+	rs = db.Fields("name").Update(&result)
+	assert.NoError(t, rs.Error())
 
 	// 验证只有name字段被更新
 	var updated TestUser
-	_, err = db.Table("test_users").First(&updated)
-	assert.NoError(t, err)
+	rs = db.Table("test_users").First(&updated)
+	assert.NoError(t, rs.Error())
 	assert.Equal(t, "Updated Name", updated.Name)
 	assert.Equal(t, 30, updated.Age)                     // age未被更新
 	assert.Equal(t, "fields@example.com", updated.Email) // email未被更新

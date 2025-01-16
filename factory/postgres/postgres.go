@@ -159,7 +159,11 @@ func InitFactory() {
 		}
 		sql += ";"
 		var result []define.SqlProto
-		result = append(result, define.SqlProto{PreparedSql: pgSql(sql), Data: datas})
+		scanner, er := define.GetDefaultScanner(model.Model(), model.Columns()...)
+		if er != nil {
+			panic(er)
+		}
+		result = append(result, define.SqlProto{PreparedSql: pgSql(sql), Data: datas, Scanner: scanner})
 		return result
 	}
 	funcMap[define.Update] = func(models ...define.TableModel) []define.SqlProto {
@@ -188,7 +192,7 @@ func InitFactory() {
 				sql += " WHERE " + cndString
 				datas = append(datas, cndData...)
 			}
-			result = append(result, define.SqlProto{pgSql(sql), datas})
+			result = append(result, define.SqlProto{pgSql(sql), datas, nil})
 		}
 
 		return result
@@ -216,7 +220,7 @@ func InitFactory() {
 
 			sql += valuesPattern
 
-			result = append(result, define.SqlProto{pgSql(sql), datas})
+			result = append(result, define.SqlProto{pgSql(sql), datas, nil})
 		}
 		return result
 	}
@@ -231,7 +235,7 @@ func InitFactory() {
 				sql += " WHERE " + cndString
 				datas = append(datas, cndData...)
 			}
-			result = append(result, define.SqlProto{pgSql(sql), datas})
+			result = append(result, define.SqlProto{pgSql(sql), datas, nil})
 		}
 		return result
 	}
@@ -330,40 +334,6 @@ ORDER BY
 
 `
 
-func (f *Factory) Execute(db *sql.DB, sqlType define.SqlType, statement *sql.Stmt, data []interface{}, rowScanner define.IRowScanner) define.Result {
-	st, err := db.prepare(statement)
-	if err != nil {
-		return nil, err
-	}
-	defer func(st *sql.Stmt, err error) {
-		if err == nil {
-			st.Close()
-		}
-	}(st, err)
-	if err != nil {
-		return nil, err
-	}
-	rows, errs := st.Query(data...)
-	if errs != nil {
-		return nil, errs
-	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			fmt.Println(err)
-		}
-		result := recover()
-		if result != nil {
-			er, ok := result.(error)
-			if ok {
-				fmt.Println(er)
-			}
-			db.Rollback()
-		}
-		db.CleanDb()
-	}(rows)
-	return rowScanner.Scan(rows)
-}
 func (m Factory) GetTableStruct(tableName string, db *sql.DB) (define.ITableStruct, error) {
 	var tableStruct define.TableStruct
 	if table, ok := dbTableCache[tableName]; ok {

@@ -23,12 +23,12 @@ func GenDefaultStructFromDatabase(db *DB, packageName string, fileName string, t
 		if er != nil {
 			return er
 		}
-		f.WriteString(fmt.Sprintf("type %s struct {\r\n", UnderscoreToUpperCamelCase(tt)))
+		f.WriteString(fmt.Sprintf("type %s struct {\r\n", define.UnderscoreToUpperCamelCase(tt)))
 		for _, col := range cols {
-			f.WriteString("\t" + UnderscoreToUpperCamelCase(col.ColumnName) + "\t\t" + getTypeOfColumn(col.ColumnTypeName) + "\t\t" + getColumnTag(col) + "\r\n")
+			f.WriteString("\t" + define.UnderscoreToUpperCamelCase(col.ColumnName) + "\t\t" + getTypeOfColumn(col.ColumnTypeName) + "\t\t" + getColumnTag(col) + "\r\n")
 		}
 		f.WriteString("}\r\n")
-		f.WriteString(fmt.Sprintf("func (t %s)TableName() string {\r\n", UnderscoreToUpperCamelCase(tt)))
+		f.WriteString(fmt.Sprintf("func (t %s)TableName() string {\r\n", define.UnderscoreToUpperCamelCase(tt)))
 		f.WriteString(fmt.Sprintf("return \"%s\"", tt))
 		f.WriteString("}\r\n")
 

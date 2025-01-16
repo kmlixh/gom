@@ -142,7 +142,11 @@ func InitFactory() {
 		}
 		sql += ";"
 		var result []define.SqlProto
-		result = append(result, define.SqlProto{PreparedSql: sql, Data: datas})
+		scanner, er := define.GetDefaultScanner(model.Model(), model.Columns()...)
+		if er != nil {
+			panic(er)
+		}
+		result = append(result, define.SqlProto{PreparedSql: sql, Data: datas, Scanner: scanner})
 		return result
 	}
 	funcMap[define.Update] = func(models ...define.TableModel) []define.SqlProto {
@@ -171,7 +175,7 @@ func InitFactory() {
 				datas = append(datas, dds...)
 				sql += " WHERE " + conditionSql + ";"
 			}
-			result = append(result, define.SqlProto{sql, datas})
+			result = append(result, define.SqlProto{sql, datas, nil})
 		}
 
 		return result
@@ -197,7 +201,7 @@ func InitFactory() {
 			sql += ")"
 			valuesPattern += ");"
 			sql += valuesPattern
-			result = append(result, define.SqlProto{sql, datas})
+			result = append(result, define.SqlProto{sql, datas, nil})
 		}
 		return result
 	}
@@ -213,7 +217,7 @@ func InitFactory() {
 				datas = append(datas, dds...)
 				sql += " WHERE " + conditionSql + ";"
 			}
-			result = append(result, define.SqlProto{sql, datas})
+			result = append(result, define.SqlProto{sql, datas, nil})
 		}
 		return result
 	}
@@ -247,29 +251,6 @@ func (m Factory) GetTables(db *sql.DB) ([]string, error) {
 }
 
 var columnSql = "select COLUMN_NAME as columnName,DATA_TYPE as dataType,COLUMN_KEY as columnKey,EXTRA as extra, IFNULL(COLUMN_COMMENT,'') as comment from information_schema.columns  where table_schema=?  and table_name= ? order by ordinal_position;"
-
-func (f Factory) Execute(db *sql.DB, sqlType define.SqlType, st *sql.Stmt, data []interface{}, rowScanner define.IRowScanner) define.Result {
-	rows, errs := st.Query(data...)
-	if errs != nil {
-		return nil, errs
-	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			fmt.Println(err)
-		}
-		result := recover()
-		if result != nil {
-			er, ok := result.(error)
-			if ok {
-				fmt.Println(er)
-			}
-			db.Rollback()
-		}
-		db.CleanDb()
-	}(rows)
-	return rowScanner.Scan(rows)
-}
 
 func (m Factory) GetTableStruct(tableName string, db *sql.DB) (define.ITableStruct, error) {
 	var tableStruct define.TableStruct

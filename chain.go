@@ -6,6 +6,9 @@ import (
 	"github.com/kmlixh/gom/v4/define"
 	dberrors "github.com/kmlixh/gom/v4/errors"
 	"reflect"
+	"runtime"
+	"strconv"
+	"strings"
 )
 
 type Chain struct {
@@ -19,7 +22,6 @@ type Chain struct {
 	tx       *sql.Tx
 	orderBys *[]define.OrderBy
 	page     define.PageInfo
-	sqlType  define.SqlType
 	fields   []string // 允许操作的列名
 }
 
@@ -34,7 +36,7 @@ func (c *Chain) GetTable() string {
 	return ""
 }
 func (db *Chain) Clone() *Chain {
-	return &Chain{id: getGrouteId(), factory: db.factory, db: db.db, cnd: CndEmpty()}
+	return &Chain{id: getGrouteId(), factory: db.factory, db: db.db, cnd: define.CndEmpty()}
 }
 func (db *Chain) cloneSelfIfDifferentGoRoutine() {
 	if db.id != getGrouteId() {
@@ -44,7 +46,7 @@ func (db *Chain) cloneSelfIfDifferentGoRoutine() {
 func (db *Chain) RawSql(sql string, datas ...any) *Chain {
 	db.cloneSelfIfDifferentGoRoutine()
 	db.rawSql = &sql
-	var temp = UnZipSlice(datas)
+	var temp = define.UnZipSlice(datas)
 	db.rawData = temp
 	return db
 }
@@ -78,7 +80,7 @@ func (db *Chain) OrderByDesc(field string) *Chain {
 
 func (db *Chain) Where2(sql string, patches ...interface{}) *Chain {
 	db.cloneSelfIfDifferentGoRoutine()
-	return db.Where(CndRaw(sql, patches...))
+	return db.Where(define.CndRaw(sql, patches...))
 }
 func (db *Chain) Where(cnd define.Condition) *Chain {
 	db.cloneSelfIfDifferentGoRoutine()
@@ -93,7 +95,7 @@ func (db *Chain) Page(page int64, pageSize int64) *Chain {
 	return db
 }
 
-func (db *Chain) Count(columnName string) (int64, error) {
+func (db *Chain) Count(columnName string) define.Result {
 	statements := fmt.Sprintf("select count(%s) as count from %s", columnName, db.GetTable())
 	var data []interface{}
 	if db.cnd != nil && db.cnd.PayLoads() > 0 {
@@ -104,16 +106,16 @@ func (db *Chain) Count(columnName string) (int64, error) {
 		}
 	}
 	var count int64 = 0
-	scanners, er := GetDefaultScanner(&count)
+	scanners, er := define.GetDefaultScanner(&count)
 	if er != nil {
-		return 0, er
+		return define.ErrorResult(er)
 	}
-	_, er = db.excute(define.Query, statements, data, scanners)
+	result := db.execute(define.NewSqlProto(statements, data, scanners))
 
-	return count, er
+	return result
 }
 
-func (db *Chain) Sum(columnName string) (int64, error) {
+func (db *Chain) Sum(columnName string) define.Result {
 	statements := fmt.Sprintf("select SUM(`%s`) as count from `%s`", columnName, db.GetTable())
 	var data []interface{}
 	if db.cnd != nil && db.cnd.PayLoads() > 0 {
@@ -122,36 +124,34 @@ func (db *Chain) Sum(columnName string) (int64, error) {
 		statements = statements + " WHERE " + cndString
 	}
 	var count int64 = 0
-	scanners, er := GetDefaultScanner(&count)
+	scanners, er := define.GetDefaultScanner(&count)
 	if er != nil {
-		return 0, er
+		return define.ErrorResult(er)
 	}
-	_, er = db.excute(define.Query, statements, data, scanners)
-
-	return count, er
+	result := db.execute(define.NewSqlProto(statements, data, scanners))
+	return result
 }
 
-func (db *Chain) Select(vs any, columns ...string) (interface{}, error) {
+func (db *Chain) Select(vs any, columns ...string) define.Result {
 	db.cloneSelfIfDifferentGoRoutine()
 	if len(columns) > 0 {
 		db.fields = columns
 	}
-	db.sqlType = define.Query
-	scanner, er := GetDefaultScanner(vs, columns...)
+	scanner, er := define.GetDefaultScanner(vs, columns...)
 	if er != nil {
-		return 0, er
+		return define.ErrorResult(er)
 	}
 	if db.rawSql != nil && len(*db.rawSql) > 0 {
-		return db.excute(define.Query, *db.rawSql, db.rawData, scanner)
+		return db.execute(define.NewSqlProto(*db.rawSql, db.rawData, scanner))
 	} else {
-		rawInfo := GetRawTableInfo(vs)
+		rawInfo := define.GetRawTableInfo(vs)
 		if rawInfo.IsStruct {
 			//检查列缺失
-			colMap, cols := GetDefaultsColumnFieldMap(rawInfo.Type)
+			colMap, cols := define.GetDefaultsColumnFieldMap(rawInfo.Type)
 			if len(columns) > 0 {
 				for _, c := range columns {
 					if _, ok := colMap[c]; !ok {
-						return nil, dberrors.New(dberrors.ErrCodeValidation, "Select", fmt.Errorf("'%s' not exist in variable", c), nil)
+						return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "Select", fmt.Errorf("'%s' not exist in variable", c), nil))
 					}
 				}
 			}
@@ -168,7 +168,7 @@ func (db *Chain) Select(vs any, columns ...string) (interface{}, error) {
 
 		// 如果设置了允许的字段列表,则取交集
 		if len(db.fields) > 0 {
-			columns = ArrayIntersect(columns, db.fields)
+			columns = define.ArrayIntersect(columns, db.fields)
 		}
 
 		model := &DefaultModel{
@@ -183,65 +183,62 @@ func (db *Chain) Select(vs any, columns ...string) (interface{}, error) {
 		selectFunc := db.factory.GetSqlFunc(define.Query)
 		sqlProtos := selectFunc(model)
 		if er != nil {
-			return nil, er
+			return define.ErrorResult(er)
 		}
-		return db.excute(define.Query, sqlProtos[0].PreparedSql, sqlProtos[0].Data, scanner)
+		return db.execute(sqlProtos[0])
 	}
 }
-func (db *Chain) First(vs interface{}) (interface{}, error) {
+func (db *Chain) First(vs interface{}) define.Result {
 	db.cloneSelfIfDifferentGoRoutine()
 	return db.Page(0, 1).Select(vs)
 }
-func (db *Chain) Insert(v interface{}, columns ...string) (sql.Result, error) {
+func (db *Chain) Insert(v interface{}, columns ...string) define.Result {
 	db.cloneSelfIfDifferentGoRoutine()
-	db.sqlType = define.Insert
-	return db.executeInside(ArrayOf(v), columns...)
+	return db.executeInside(define.Insert, define.ArrayOf(v), columns...)
 
 }
-func (db *Chain) Save(v interface{}, columns ...string) (sql.Result, error) {
+func (db *Chain) Save(v interface{}, columns ...string) define.Result {
 	return db.Insert(v, columns...)
 
 }
-func (db *Chain) Delete(vs ...interface{}) (sql.Result, error) {
+func (db *Chain) Delete(vs ...interface{}) define.Result {
 	db.cloneSelfIfDifferentGoRoutine()
-	db.sqlType = define.Delete
-	return db.executeInside(vs)
+	return db.executeInside(define.Delete, vs)
 
 }
 
-func (db *Chain) Update(v interface{}, columns ...string) (sql.Result, error) {
+func (db *Chain) Update(v interface{}, columns ...string) define.Result {
 	db.cloneSelfIfDifferentGoRoutine()
-	db.sqlType = define.Update
-	return db.executeInside(define.Update, ArrayOf(v), columns...)
+	return db.executeInside(define.Update, define.ArrayOf(v), columns...)
 }
 
-func (db *Chain) executeInside(sqlType define.SqlType, vi []interface{}, customColumns ...string) (define.Result, error) {
+func (db *Chain) executeInside(sqlType define.SqlType, vi []interface{}, customColumns ...string) define.Result {
 	var vs []interface{}
 	if vi != nil && len(vi) > 0 {
-		vs = append(vs, UnZipSlice(vi)...)
+		vs = append(vs, define.UnZipSlice(vi)...)
 	}
 	if db.rawSql != nil && len(*db.rawSql) > 0 {
 		if vs != nil && len(vs) > 0 {
-			return nil, dberrors.New(dberrors.ErrCodeValidation, "executeInside", fmt.Errorf("when the RawSql is not nil or empty, data should be nil"), nil)
+			return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "executeInside", fmt.Errorf("when the RawSql is not nil or empty, data should be nil"), nil))
 		}
-		return db.ExecuteRaw(*db.rawSql, db.rawData...)
+		return db.Raw(nil, *db.rawSql, db.rawData...)
 	}
 	if len(vs) == 0 && db.table == nil && db.cnd == nil {
-		return nil, dberrors.New(dberrors.ErrCodeValidation, "executeInside", fmt.Errorf("there was nothing to do"), nil)
+		return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "executeInside", fmt.Errorf("there was nothing to do"), nil))
 	} else {
 		var vvs []define.TableModel
 		if vs != nil && len(vs) > 0 {
 			for _, v := range vs {
-				rawInfo := GetRawTableInfo(v)
+				rawInfo := define.GetRawTableInfo(v)
 				table := db.GetTable()
 				if len(table) == 0 {
 					table = rawInfo.TableName
 				}
 				//检查列缺失
-				colMap, _ := GetDefaultsColumnFieldMap(rawInfo.Type)
+				colMap, _ := define.GetDefaultsColumnFieldMap(rawInfo.Type)
 				dbCols, er := db.factory.GetColumns(table, db.db)
 				if er != nil {
-					return nil, er
+					return define.ErrorResult(er)
 				}
 				primaryKey := make([]string, 0)
 				primaryAuto := make([]string, 0)
@@ -251,7 +248,7 @@ func (db *Chain) executeInside(sqlType define.SqlType, vi []interface{}, customC
 					dbColNames = append(dbColNames, dbCol.ColumnName)
 					dbColMap[dbCol.ColumnName] = dbCol
 					if _, ok := colMap[dbCol.ColumnName]; !ok && dbCol.IsPrimary {
-						return nil, dberrors.New(dberrors.ErrCodeValidation, "validateColumns", fmt.Errorf("column '%s' not exist in variable", dbCol.ColumnName), nil)
+						return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "validateColumns", fmt.Errorf("column '%s' not exist in variable", dbCol.ColumnName), nil))
 					}
 					if dbCol.IsPrimary && !dbCol.IsPrimaryAuto {
 						primaryKey = append(primaryKey, dbCol.ColumnName)
@@ -267,10 +264,10 @@ func (db *Chain) executeInside(sqlType define.SqlType, vi []interface{}, customC
 				if len(columns) > 0 {
 					for _, c := range columns {
 						if _, ok := colMap[c]; !ok {
-							return nil, dberrors.New(dberrors.ErrCodeValidation, "validateColumns", fmt.Errorf("'%s' not exist in variable", c), nil)
+							return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "validateColumns", fmt.Errorf("'%s' not exist in variable", c), nil))
 						}
 						if _, ok := dbColMap[c]; !ok {
-							return nil, dberrors.New(dberrors.ErrCodeValidation, "validateColumns", fmt.Errorf("'%s' not exist in table '%s'", c, table), nil)
+							return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "validateColumns", fmt.Errorf("'%s' not exist in table '%s'", c, table), nil))
 						}
 					}
 				}
@@ -280,54 +277,51 @@ func (db *Chain) executeInside(sqlType define.SqlType, vi []interface{}, customC
 				}
 				var cnd define.Condition
 				cnd = db.GetCondition()
-				dataMap, er := StructToMap(v, columns...)
+				dataMap, er := define.StructToMap(v, columns...)
+				if er != nil {
+					return define.ErrorResult(er)
+				}
 				dataCol := make([]string, 0)
 				for key, _ := range dataMap {
 					dataCol = append(dataCol, key)
 				}
-				columns = ArrayIntersect(dbColNames, dataCol)
+				columns = define.ArrayIntersect(dbColNames, dataCol)
 
 				// 如果设置了允许的字段列表,则取交集
 				if len(db.fields) > 0 {
-					columns = ArrayIntersect(columns, db.fields)
+					columns = define.ArrayIntersect(columns, db.fields)
 				}
 
-				if db.sqlType == define.Update {
+				if sqlType == define.Update {
 					if cnd == nil {
-						if er != nil {
-							return nil, er
-						}
 						prs := append(primaryKey, primaryAuto...)
 						if len(prs) == 0 {
-							return nil, dberrors.New(dberrors.ErrCodeValidation, "validatePrimaryKey", fmt.Errorf("can't find primary Key"), nil)
+							return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "validatePrimaryKey", fmt.Errorf("can't find primary Key"), nil))
 						}
 						cndMap := make(map[string]interface{})
 						for _, key := range prs {
 							data, ok := dataMap[key]
 							if !ok {
-								return nil, dberrors.New(dberrors.ErrCodeValidation, "validatePrimaryKey", fmt.Errorf("can't find data for primary Key '%s'", key), nil)
+								return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "validatePrimaryKey", fmt.Errorf("can't find data for primary Key '%s'", key), nil))
 							}
 							if reflect.ValueOf(data).IsZero() {
-								return nil, dberrors.New(dberrors.ErrCodeValidation, "validatePrimaryKey", fmt.Errorf("value of Key '%s' can't be nil or empty", key), nil)
+								return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "validatePrimaryKey", fmt.Errorf("value of Key '%s' can't be nil or empty", key), nil))
 							}
 							cndMap[key] = data
 						}
-						cnd = MapToCondition(cndMap)
+						cnd = define.MapToCondition(cndMap)
 					}
 
-					columns, _, _ = ArrayIntersect2(columns, append(primaryKey, primaryAuto...))
-				} else if db.sqlType == define.Delete && cnd == nil {
-					if er != nil {
-						return nil, er
-					}
-					cnd = MapToCondition(dataMap)
+					columns, _, _ = define.ArrayIntersect2(columns, append(primaryKey, primaryAuto...))
+				} else if sqlType == define.Delete && cnd == nil {
+					cnd = define.MapToCondition(dataMap)
 					columns = make([]string, 0)
 				}
 
-				if db.sqlType == define.Insert {
-					columns = ArrayIntersect(dbColNames, columns)
+				if sqlType == define.Insert {
+					columns = define.ArrayIntersect(dbColNames, columns)
 					if len(primaryAuto) > 0 {
-						columns, _, _ = ArrayIntersect2(columns, primaryAuto)
+						columns, _, _ = define.ArrayIntersect2(columns, primaryAuto)
 					}
 				}
 
@@ -341,12 +335,12 @@ func (db *Chain) executeInside(sqlType define.SqlType, vi []interface{}, customC
 					page:          db.GetPageInfo(),
 				}
 
-				if db.sqlType == define.Update && cnd == nil {
-					return nil, dberrors.New(dberrors.ErrCodeValidation, "executeInside", fmt.Errorf("can't update Database without Conditions"), nil)
+				if sqlType == define.Update && cnd == nil {
+					return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "executeInside", fmt.Errorf("can't update Database without Conditions"), nil))
 				}
 				vvs = append(vvs, dm)
 			}
-		} else if db.sqlType == define.Delete && db.GetTable() != "" && db.GetCondition() != nil {
+		} else if sqlType == define.Delete && db.GetTable() != "" && db.GetCondition() != nil {
 			dm := &DefaultModel{
 				table:         db.GetTable(),
 				primaryKeys:   nil,
@@ -359,7 +353,7 @@ func (db *Chain) executeInside(sqlType define.SqlType, vi []interface{}, customC
 			vvs = append(vvs, dm)
 		}
 		var lastInsertId = int64(0)
-		genFunc := db.factory.GetSqlFunc(db.sqlType)
+		genFunc := db.factory.GetSqlFunc(sqlType)
 		//此处应当判断是否已经在事物中，如果不在事务中才开启事物
 		count := int64(0)
 		sqlProtos := genFunc(vvs...)
@@ -367,30 +361,24 @@ func (db *Chain) executeInside(sqlType define.SqlType, vi []interface{}, customC
 			if define.Debug {
 				fmt.Println(sqlProto)
 			}
-			rs, er := db.ExecuteStatement(sqlProto.PreparedSql, sqlProto.Data...)
-			if er != nil {
-				return define.Result{0, 0, nil, er}, nil
+			rs := db.execute(sqlProto)
+			if rs.Error() != nil {
+				return rs
 			}
-			cs, err := rs.RowsAffected
-			if cs == 1 && len(sqlProtos) == len(vvs) && db.sqlType == define.Insert {
+			cs := rs.RowsAffected()
+			if cs == 1 && len(sqlProtos) == len(vvs) && sqlType == define.Insert {
 				//
-				id, er := rs.LastInsertId
-				if er == nil {
-					lastInsertId = id
-				}
-			}
-			if err != nil {
-				return nil, err
+				id := rs.LastInsertId()
+				lastInsertId = id
 			}
 			count += cs
 		}
 		defer db.CleanDb()
-		return define.Result{LastInsertId: lastInsertId, RowsAffected: count}, nil
+		return define.NewResult(lastInsertId, count, nil, nil)
 	}
 }
-func (db *Chain) ExecuteRaw(rawSql string, datas ...any) define.Result {
-	return db.excute(define.Update, rawSql, datas, nil)
-
+func (db *Chain) Raw(scanner define.IRowScanner, rawSql string, datas ...any) define.Result {
+	return db.execute(define.NewSqlProto(rawSql, datas, scanner))
 }
 
 func (db *Chain) prepare(query string) (*sql.Stmt, error) {
@@ -411,21 +399,51 @@ func (db *Chain) GetCondition() define.Condition {
 	return nil
 }
 
-func (db *Chain) excute(sqlType define.SqlType, statement string, data []interface{}, rowScanner define.IRowScanner) define.Result {
-	if define.Debug {
-		fmt.Println("executeTableModel excute,PreparedSql:", statement, "data was:", data)
-	}
-	st, err := db.prepare(statement)
-	if err != nil {
-		return nil, err
-	}
+func (db *Chain) execute(sqlProto define.SqlProto) define.Result {
+	st, err := db.db.Prepare(sqlProto.PreparedSql)
 	defer func(st *sql.Stmt, err error) {
 		if err == nil {
 			st.Close()
 		}
 	}(st, err)
-	return db.factory.Execute(db.db, sqlType, st, data, rowScanner)
+	if err != nil {
+		return define.ErrorResult(err)
+	}
+	if sqlProto.Scanner != nil {
+		rows, errs := st.Query(sqlProto.Data...)
+		if errs != nil {
+			return define.ErrorResult(errs)
+		}
+		defer func(rows *sql.Rows) {
+			err := rows.Close()
+			if err != nil {
+				fmt.Println(err)
+			}
+			result := recover()
+			if result != nil {
+				er, ok := result.(error)
+				if ok {
+					fmt.Println(er)
+				}
+			}
 
+		}(rows)
+		dd, er := sqlProto.Scanner.Scan(rows)
+		return define.NewResult(-1, -1, dd, er)
+	}
+	rs, er := st.Exec(sqlProto.Data...)
+	if er != nil {
+		return define.ErrorResult(er)
+	}
+	lastInsertId, er := rs.LastInsertId()
+	if er != nil {
+		return define.ErrorResult(er)
+	}
+	rowsEffect, er := rs.RowsAffected()
+	if er != nil {
+		return define.ErrorResult(er)
+	}
+	return define.NewResult(lastInsertId, rowsEffect, nil, nil)
 }
 func (db *Chain) Begin() error {
 	if db.tx != nil {
@@ -507,7 +525,7 @@ func (db *Chain) CleanDb() *Chain {
 	db.fields = nil
 	db.orderBys = nil
 	db.rawSql = nil
-	db.cnd = CndEmpty()
+	db.cnd = define.CndEmpty()
 	return db
 }
 func (c *Chain) Eq(field string, values interface{}) *Chain {
@@ -865,4 +883,19 @@ func (db *Chain) validateFields(columns []string) error {
 		}
 	}
 	return nil
+}
+func getGrouteId() int64 {
+	var (
+		buf [64]byte
+		n   = runtime.Stack(buf[:], false)
+		stk = strings.TrimPrefix(string(buf[:n]), "goroutine ")
+	)
+
+	idField := strings.Fields(stk)[0]
+	id, err := strconv.Atoi(idField)
+	if err != nil {
+		panic(fmt.Errorf("can not get goroutine id: %v", err))
+	}
+
+	return int64(id)
 }

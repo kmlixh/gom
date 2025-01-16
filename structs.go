@@ -1,47 +1,12 @@
 package gom
 
 import (
-	"database/sql"
-	"errors"
-	"fmt"
-	"reflect"
-
 	"github.com/kmlixh/gom/v4/define"
 )
-
-type FieldInfo struct {
-	FieldName string
-	FieldType reflect.Type
-}
-type ITableName interface {
-	TableName() string
-}
 
 type OrderByImpl struct {
 	name      string
 	orderType define.OrderType
-}
-type ResultImpl struct {
-}
-
-func (r ResultImpl) LastInsertId() int64 {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (r ResultImpl) RowsAffected() int64 {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (r ResultImpl) Data() interface{} {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (r ResultImpl) Error() error {
-	//TODO implement me
-	panic("implement me")
 }
 
 func MakeOrderBy(name string, orderType define.OrderType) define.OrderBy {
@@ -76,119 +41,6 @@ type CountResult struct {
 	Error error
 }
 
-type DefaultScanner struct {
-	RawMetaInfo
-	columnMap map[string]FieldInfo
-}
-
-func GetDefaultScanner(v interface{}, columns ...string) (define.IRowScanner, error) {
-	r := GetRawTableInfo(v)
-	if r.IsStruct {
-		colMap, cols := GetDefaultsColumnFieldMap(r.Type)
-		if len(columns) > 0 {
-			_, cc, right := ArrayIntersect2(cols, columns)
-			if len(right) > 0 {
-				return nil, errors.New(fmt.Sprintf("ColumnNames [%s] not compatible", fmt.Sprint(right)))
-			}
-			cols = cc
-		}
-		for _, col := range cols {
-			_, ok := colMap[col]
-			if !ok {
-				return nil, errors.New(fmt.Sprintf("column %s not compatible", col))
-			}
-		}
-		return DefaultScanner{r, colMap}, nil
-	} else {
-		//说明对象是简单类型，直接取类型即可
-		return DefaultScanner{
-			r,
-			nil,
-		}, nil
-	}
-}
-func (d DefaultScanner) getScanners(columns ...string) ([]any, error) {
-	scanners := make([]any, 0)
-	if d.IsStruct {
-		for _, col := range columns {
-			f, ok := d.columnMap[col]
-			if !ok {
-				return nil, errors.New(fmt.Sprintf("column [%s] is not compatible", col))
-			}
-			scanners = append(scanners, GetIScannerOfSimple(reflect.New(f.FieldType).Elem().Interface()))
-		}
-	} else {
-		scanners = append(scanners, GetIScannerOfSimple(reflect.New(d.Type).Elem().Interface()))
-	}
-	return scanners, nil
-}
-
-func (d DefaultScanner) Scan(rows *sql.Rows) (interface{}, error) {
-	columns, es := rows.Columns()
-	if es != nil {
-		return nil, es
-	}
-	if d.columnMap == nil && len(columns) > 1 {
-		return nil, errors.New("ColumnNames were too many")
-	}
-	results := d.RawMetaInfo.RawData
-	if d.IsSlice {
-		for rows.Next() {
-			scanners, er := d.getScanners(columns...)
-			if er != nil {
-				return nil, er
-			}
-			if len(columns) != len(scanners) {
-				return nil, errors.New("ColumnNames of excute not compatible with input")
-			}
-			err := rows.Scan(scanners...)
-			if err != nil {
-				panic(err)
-			}
-			var val reflect.Value
-			if d.IsStruct {
-				val = ScannerResultToStruct(d.RawMetaInfo.Type, scanners, columns)
-			} else {
-				vv, er := (scanners[0].(IScanner)).Value()
-				if er != nil {
-					panic(er)
-				}
-				val = reflect.ValueOf(vv)
-			}
-			results.Set(reflect.Append(results, val))
-		}
-	} else {
-		if rows.Next() {
-			scanners, er := d.getScanners(columns...)
-			if er != nil {
-				return nil, er
-			}
-			er = rows.Scan(scanners...)
-			if er != nil {
-				panic(er)
-			}
-			var val reflect.Value
-			if d.IsStruct {
-				val = ScannerResultToStruct(d.RawMetaInfo.Type, scanners, columns)
-			} else {
-				vv, er := (scanners[0].(IScanner)).Value()
-				if er != nil {
-					panic(er)
-				}
-				if vv != nil {
-					val = reflect.ValueOf(vv)
-				} else {
-					val = reflect.New(d.RawMetaInfo.Type).Elem()
-				}
-
-			}
-			results.Set(val)
-		}
-	}
-	return results.Interface(), nil
-
-}
-
 type DefaultModel struct {
 	table          string
 	primaryKeys    []string
@@ -199,6 +51,11 @@ type DefaultModel struct {
 	condition      define.Condition
 	orderBys       []define.OrderBy
 	page           define.PageInfo
+	target         interface{}
+}
+
+func (d *DefaultModel) Model() interface{} {
+	return d.target
 }
 
 func (d *DefaultModel) SetColumns(columns []string) error {
@@ -252,10 +109,4 @@ func (d DefaultModel) Clone() define.TableModel {
 		orderBys:      d.orderBys,
 		page:          d.page,
 	}
-}
-
-type Record struct {
-	Index   int64          `json:"index"`
-	DataMap map[string]any `json:"dataMap"`
-	Columns []string       `json:"columns"`
 }

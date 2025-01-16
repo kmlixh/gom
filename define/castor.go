@@ -1,4 +1,4 @@
-package gom
+package define
 
 import (
 	"strings"

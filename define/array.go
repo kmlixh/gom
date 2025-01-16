@@ -1,4 +1,4 @@
-package gom
+package define
 
 func ArrayOf(i ...interface{}) []interface{} {
 	return i
