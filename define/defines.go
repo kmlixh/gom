@@ -275,6 +275,7 @@ type RawMetaInfo struct {
 	IsSlice   bool
 	IsPtr     bool
 	IsStruct  bool
+	IsMap     bool
 	RawData   reflect.Value
 }
 
@@ -411,7 +412,7 @@ func GetRawTableInfo(v any) RawMetaInfo {
 	} else {
 		tt = reflect.TypeOf(v)
 	}
-
+	isMap := false
 	isStruct := false
 	isPtr := false
 	isSlice := false
@@ -424,7 +425,7 @@ func GetRawTableInfo(v any) RawMetaInfo {
 		isSlice = true
 	}
 	isStruct = tt.Kind() == reflect.Struct
-
+	isMap = tt.Kind() == reflect.Map
 	if Debug {
 		fmt.Println("Test GetRawTableInfo, result:", tt, isPtr, isSlice)
 	}
@@ -440,7 +441,7 @@ func GetRawTableInfo(v any) RawMetaInfo {
 	if rawData == nil {
 		rawData = reflect.Indirect(reflect.ValueOf(v))
 	}
-	return RawMetaInfo{Type: tt, TableName: tableName, IsSlice: isSlice, IsPtr: isPtr, IsStruct: isStruct, RawData: rawData.(reflect.Value)}
+	return RawMetaInfo{Type: tt, TableName: tableName, IsSlice: isSlice, IsPtr: isPtr, IsStruct: isStruct, IsMap: isMap, RawData: rawData.(reflect.Value)}
 }
 
 func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, error) {

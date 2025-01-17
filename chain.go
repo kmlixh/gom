@@ -2,6 +2,7 @@ package gom
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/kmlixh/gom/v4/define"
 	dberrors "github.com/kmlixh/gom/v4/errors"
@@ -23,6 +24,7 @@ type Chain struct {
 	orderBys *[]define.OrderBy
 	page     define.PageInfo
 	fields   []string // 允许操作的列名
+	rawMeta  any
 }
 
 func (db *Chain) Table(table string) *Chain {
@@ -84,7 +86,7 @@ func (db *Chain) Where2(sql string, patches ...interface{}) *Chain {
 }
 func (db *Chain) Where(cnd define.Condition) *Chain {
 	db.cloneSelfIfDifferentGoRoutine()
-	db.cnd = cnd
+	db.cnd.And2(cnd)
 	return db
 }
 
@@ -131,13 +133,30 @@ func (db *Chain) Sum(columnName string) define.Result {
 	result := db.execute(define.NewSqlProto(statements, data, scanners))
 	return result
 }
-
-func (db *Chain) Select(vs any, columns ...string) define.Result {
-	db.cloneSelfIfDifferentGoRoutine()
-	if len(columns) > 0 {
-		db.fields = columns
+func (db *Chain) From(vs any) *Chain {
+	if _, ok := vs.(string); ok {
+		db.Table(vs.(string))
+	} else {
+		db.rawMeta = vs
 	}
-	scanner, er := define.GetDefaultScanner(vs, columns...)
+	return db
+
+}
+
+func (db *Chain) Select(vt ...any) define.Result {
+	db.cloneSelfIfDifferentGoRoutine()
+	var vs any
+	if len(vt) > 1 {
+		return define.ErrorResult(errors.New("data can't large then one"))
+	} else if len(vt) == 1 {
+		vs = vt[0]
+	} else if db.rawMeta != nil {
+		vs = db.rawMeta
+	} else if db.table != nil && len(*db.table) > 0 {
+		temp := make([]map[string]any, 0)
+		vs = &temp
+	}
+	scanner, er := define.GetDefaultScanner(vs, db.fields...)
 	if er != nil {
 		return define.ErrorResult(er)
 	}
@@ -148,15 +167,17 @@ func (db *Chain) Select(vs any, columns ...string) define.Result {
 		if rawInfo.IsStruct {
 			//检查列缺失
 			colMap, cols := define.GetDefaultsColumnFieldMap(rawInfo.Type)
-			if len(columns) > 0 {
-				for _, c := range columns {
+			if len(db.fields) > 0 {
+				for _, c := range db.fields {
 					if _, ok := colMap[c]; !ok {
 						return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "Select", fmt.Errorf("'%s' not exist in variable", c), nil))
 					}
 				}
 			}
-			if columns == nil || len(columns) == 0 {
-				columns = cols
+			if db.fields == nil || len(db.fields) == 0 {
+				db.fields = cols
+			} else {
+				db.fields = define.ArrayIntersect(db.fields, cols)
 			}
 		}
 
@@ -166,15 +187,10 @@ func (db *Chain) Select(vs any, columns ...string) define.Result {
 		}
 		cnd := db.cnd
 
-		// 如果设置了允许的字段列表,则取交集
-		if len(db.fields) > 0 {
-			columns = define.ArrayIntersect(columns, db.fields)
-		}
-
 		model := &DefaultModel{
 			table:         table,
 			primaryKeys:   nil,
-			columns:       columns,
+			columns:       db.fields,
 			columnDataMap: nil,
 			condition:     cnd,
 			orderBys:      db.GetOrderBys(),
@@ -194,12 +210,12 @@ func (db *Chain) First(vs interface{}) define.Result {
 	db.cloneSelfIfDifferentGoRoutine()
 	return db.Page(0, 1).Select(vs)
 }
-func (db *Chain) Insert(v interface{}, columns ...string) define.Result {
+func (db *Chain) Insert(v interface{}) define.Result {
 	db.cloneSelfIfDifferentGoRoutine()
-	return db.executeInside(define.Insert, define.ArrayOf(v), columns...)
+	return db.executeInside(define.Insert, define.ArrayOf(v))
 }
-func (db *Chain) Save(v interface{}, columns ...string) define.Result {
-	return db.Insert(v, columns...)
+func (db *Chain) Save(v interface{}) define.Result {
+	return db.Insert(v)
 
 }
 func (db *Chain) Delete(vs ...interface{}) define.Result {
@@ -208,12 +224,12 @@ func (db *Chain) Delete(vs ...interface{}) define.Result {
 
 }
 
-func (db *Chain) Update(v interface{}, columns ...string) define.Result {
+func (db *Chain) Update(v interface{}) define.Result {
 	db.cloneSelfIfDifferentGoRoutine()
-	return db.executeInside(define.Update, define.ArrayOf(v), columns...)
+	return db.executeInside(define.Update, define.ArrayOf(v))
 }
 
-func (db *Chain) executeInside(sqlType define.SqlType, vi []interface{}, customColumns ...string) define.Result {
+func (db *Chain) executeInside(sqlType define.SqlType, vi []interface{}) define.Result {
 	var vs []interface{}
 	if vi != nil && len(vi) > 0 {
 		vs = append(vs, define.UnZipSlice(vi)...)
@@ -259,9 +275,6 @@ func (db *Chain) executeInside(sqlType define.SqlType, vi []interface{}, customC
 					}
 				}
 				columns := db.fields
-				if len(customColumns) > 0 {
-					columns = customColumns
-				}
 				if len(columns) > 0 {
 					for _, c := range columns {
 						if _, ok := colMap[c]; !ok {
