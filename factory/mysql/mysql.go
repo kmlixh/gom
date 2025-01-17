@@ -324,7 +324,9 @@ WHERE
 }
 
 func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, error) {
-
+	if cols, ok := dbTableColsCache[tableName]; ok {
+		return cols, nil
+	}
 	dbSql := "SELECT DATABASE() as db;"
 	rows, er := db.Query(dbSql)
 	if er != nil {
@@ -337,9 +339,6 @@ func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, erro
 	er = rows.Scan(&dbName)
 	if er != nil {
 		return nil, errors.New(fmt.Sprintf("column of table %s was empty", tableName))
-	}
-	if cols, ok := dbTableColsCache[dbName+"-"+tableName]; ok {
-		return cols, nil
 	}
 	rows, er = db.Query(columnSql, dbName, tableName)
 	if er != nil {

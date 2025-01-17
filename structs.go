@@ -66,6 +66,9 @@ func (d *DefaultModel) SetColumns(columns []string) error {
 func (d DefaultModel) PrimaryKeys() []string {
 	return d.primaryKeys
 }
+func (d DefaultModel) PrimaryAutos() []string {
+	return d.primaryAuto
+}
 
 func (d DefaultModel) Table() string {
 	return d.table

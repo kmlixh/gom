@@ -179,12 +179,14 @@ func (db *Chain) Select(vs any, columns ...string) define.Result {
 			condition:     cnd,
 			orderBys:      db.GetOrderBys(),
 			page:          db.GetPageInfo(),
+			target:        vs,
 		}
 		selectFunc := db.factory.GetSqlFunc(define.Query)
 		sqlProtos := selectFunc(model)
 		if er != nil {
 			return define.ErrorResult(er)
 		}
+		defer db.CleanDb()
 		return db.execute(sqlProtos[0])
 	}
 }
@@ -195,7 +197,6 @@ func (db *Chain) First(vs interface{}) define.Result {
 func (db *Chain) Insert(v interface{}, columns ...string) define.Result {
 	db.cloneSelfIfDifferentGoRoutine()
 	return db.executeInside(define.Insert, define.ArrayOf(v), columns...)
-
 }
 func (db *Chain) Save(v interface{}, columns ...string) define.Result {
 	return db.Insert(v, columns...)
@@ -257,9 +258,9 @@ func (db *Chain) executeInside(sqlType define.SqlType, vi []interface{}, customC
 						primaryAuto = append(primaryAuto, dbCol.ColumnName)
 					}
 				}
-				columns := customColumns
-				if len(db.fields) > 0 {
-					columns = db.fields
+				columns := db.fields
+				if len(customColumns) > 0 {
+					columns = customColumns
 				}
 				if len(columns) > 0 {
 					for _, c := range columns {
@@ -328,11 +329,13 @@ func (db *Chain) executeInside(sqlType define.SqlType, vi []interface{}, customC
 				dm := &DefaultModel{
 					table:         table,
 					primaryKeys:   append(primaryKey, primaryAuto...),
+					primaryAuto:   primaryAuto,
 					columns:       columns,
 					columnDataMap: dataMap,
 					condition:     cnd,
 					orderBys:      db.GetOrderBys(),
 					page:          db.GetPageInfo(),
+					target:        v,
 				}
 
 				if sqlType == define.Update && cnd == nil {
@@ -400,7 +403,17 @@ func (db *Chain) GetCondition() define.Condition {
 }
 
 func (db *Chain) execute(sqlProto define.SqlProto) define.Result {
-	st, err := db.db.Prepare(sqlProto.PreparedSql)
+	if define.Debug {
+		fmt.Println("execute sql:", sqlProto.PreparedSql, "data:", sqlProto.Data)
+	}
+	var err error
+	var st *sql.Stmt
+	if db.tx != nil {
+		st, err = db.tx.Prepare(sqlProto.PreparedSql)
+	} else {
+		st, err = db.db.Prepare(sqlProto.PreparedSql)
+	}
+
 	defer func(st *sql.Stmt, err error) {
 		if err == nil {
 			st.Close()
@@ -428,22 +441,19 @@ func (db *Chain) execute(sqlProto define.SqlProto) define.Result {
 			}
 
 		}(rows)
-		dd, er := sqlProto.Scanner.Scan(rows)
-		return define.NewResult(-1, -1, dd, er)
+
+		result := sqlProto.Scanner.Scan(rows)
+		return result
+	} else {
+		rs, er := st.Exec(sqlProto.Data...)
+		if er != nil {
+			return define.ErrorResult(er)
+		}
+		lastInsertId, _ := rs.LastInsertId()
+		rowsEffect, _ := rs.RowsAffected()
+		defer db.CleanDb()
+		return define.NewResult(lastInsertId, rowsEffect, nil, nil)
 	}
-	rs, er := st.Exec(sqlProto.Data...)
-	if er != nil {
-		return define.ErrorResult(er)
-	}
-	lastInsertId, er := rs.LastInsertId()
-	if er != nil {
-		return define.ErrorResult(er)
-	}
-	rowsEffect, er := rs.RowsAffected()
-	if er != nil {
-		return define.ErrorResult(er)
-	}
-	return define.NewResult(lastInsertId, rowsEffect, nil, nil)
 }
 func (db *Chain) Begin() error {
 	if db.tx != nil {

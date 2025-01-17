@@ -76,9 +76,16 @@ func GetDefaultsColumnFieldMap(rawType reflect.Type) (map[string]FieldInfo, []st
 	return columnMap, columns
 }
 
-func ScannerResultToStruct(t reflect.Type, scanners []interface{}, columnNames []string) reflect.Value {
-	v := reflect.Indirect(reflect.New(t))
-	colsMap, _ := GetDefaultsColumnFieldMap(t)
+func ScannerResultToStruct(rawMeta RawMetaInfo, index int64, scanners []interface{}, columnNames []string) reflect.Value {
+	v := rawMeta.RawData
+	if rawMeta.IsSlice {
+		if int64(v.Len()-1) >= index {
+			v = v.Index(int(index))
+		} else {
+			v = reflect.Indirect(reflect.New(rawMeta.Type))
+		}
+	}
+	colsMap, _ := GetDefaultsColumnFieldMap(rawMeta.Type)
 	for i, name := range columnNames {
 		if _, ok := scanners[i].(EmptyScanner); !ok { //不能时空扫描器
 			val, er := scanners[i].(IScanner).Value()

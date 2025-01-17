@@ -25,10 +25,14 @@ func (u TestUser) TableName() string {
 	return "test_users"
 }
 
+var ip = "192.168.110.249"
+
+//var ip = "10.0.1.5"
+
 // 数据库连接配置
 var (
-	mysqlDSN    = "root:123456@tcp(10.0.1.5:3306)/test?charset=utf8mb4&parseTime=True&loc=Local"
-	postgresDSN = "postgres://postgres:123456@10.0.1.5:5432/test?sslmode=disable"
+	mysqlDSN    = "root:123456@tcp(" + ip + ":3306)/test?charset=utf8mb4&parseTime=True&loc=Local"
+	postgresDSN = "postgres://postgres:yzy123@" + ip + ":5432/test?sslmode=disable"
 )
 
 // 创建测试表的SQL语句
@@ -172,7 +176,7 @@ func testConditions(t *testing.T, chain *Chain) {
 	assert.Equal(t, "User2", result[0].Name)
 
 	// 测试Gt条件
-	result = nil
+	result = make([]TestUser, 0)
 	rs = chain.Table("test_users").Gt("age", 25).Select(&result)
 	assert.NoError(t, rs.Error())
 	assert.Equal(t, 1, len(result))
@@ -203,6 +207,7 @@ func TestTransaction(t *testing.T) {
 }
 
 func testTransaction(t *testing.T, db *Chain) {
+
 	// 测试成功的事务
 	_, er := db.DoTransaction(func(tx *Chain) (interface{}, error) {
 		user1 := TestUser{Name: "TxUser1", Age: 20, Email: "tx1@example.com"}
@@ -225,6 +230,7 @@ func testTransaction(t *testing.T, db *Chain) {
 	// 验证事务结果
 	var count int64
 	rsz := db.Table("test_users").Count("id")
+	count = rsz.Data().(int64)
 	assert.NoError(t, rsz.Error())
 	assert.Equal(t, int64(2), count)
 

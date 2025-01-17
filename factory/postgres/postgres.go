@@ -217,10 +217,17 @@ func InitFactory() {
 			}
 			sql += ")"
 			valuesPattern += ")"
-
+			var scanner define.IRowScanner = nil
+			var er error
 			sql += valuesPattern
-
-			result = append(result, define.SqlProto{pgSql(sql), datas, nil})
+			if len(model.PrimaryAutos()) > 0 {
+				sql += " RETURNING (" + strings.Join(model.PrimaryAutos(), ",") + ");"
+				scanner, er = define.GetDefaultScanner(model.Model(), model.PrimaryAutos()...)
+				if er != nil {
+					panic(er)
+				}
+			}
+			result = append(result, define.SqlProto{pgSql(sql), datas, scanner})
 		}
 		return result
 	}
@@ -409,6 +416,9 @@ WHERE
 	return tableStruct, nil
 }
 func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, error) {
+	if cols, ok := dbTableColsCache[tableName]; ok {
+		return cols, nil
+	}
 	dbSql := "SELECT CURRENT_SCHEMA;"
 	rows, er := db.Query(dbSql)
 	if er != nil {
@@ -421,9 +431,6 @@ func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, erro
 	er = rows.Scan(&dbName)
 	if er != nil {
 		return nil, errors.New(fmt.Sprintf("column of table %s was empty", tableName))
-	}
-	if cols, ok := dbTableColsCache[tableName]; ok {
-		return cols, nil
 	}
 	rows, er = db.Query(colSql, dbName, tableName)
 	columns := make([]define.Column, 0)

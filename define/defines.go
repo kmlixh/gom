@@ -166,6 +166,7 @@ type PageInfo interface {
 type TableModel interface {
 	Table() string
 	PrimaryKeys() []string
+	PrimaryAutos() []string
 	Columns() []string
 	ColumnDataMap() map[string]interface{}
 	Condition() Condition
@@ -182,7 +183,6 @@ type SqlFactory interface {
 	GetSqlFunc(sqlType SqlType) SqlFunc
 	ConditionToSql(preTag bool, condition Condition) (string, []interface{})
 	GetTableStruct(tableName string, db *sql.DB) (ITableStruct, error)
-	GetSqlTypeDefaultValue(sqlType string) any
 }
 type ITableStruct interface {
 	GetTableName() string
@@ -190,7 +190,7 @@ type ITableStruct interface {
 	GetColumns() ([]Column, error)
 }
 type IRowScanner interface {
-	Scan(rows *sql.Rows) (interface{}, error)
+	Scan(rows *sql.Rows) Result
 }
 
 type TableStruct struct {
@@ -332,45 +332,47 @@ func (d DefaultScanner) GetScanners(columns ...string) ([]any, error) {
 	return scanners, nil
 }
 
-func (d DefaultScanner) Scan(rows *sql.Rows) (interface{}, error) {
+func (d DefaultScanner) Scan(rows *sql.Rows) Result {
+	count := int64(0)
 	columns, es := rows.Columns()
 	if es != nil {
-		return nil, es
+		return ErrorResult(es)
 	}
 	if d.columnMap == nil && len(columns) > 1 {
-		return nil, errors.New("ColumnNames were too many")
+		return ErrorResult(errors.New("ColumnNames were too many"))
 	}
 	results := d.RawMetaInfo.RawData
 	if d.IsSlice {
 		for rows.Next() {
 			scanners, er := d.GetScanners(columns...)
 			if er != nil {
-				return nil, er
+				return ErrorResult(es)
 			}
 			if len(columns) != len(scanners) {
-				return nil, errors.New("ColumnNames of excute not compatible with input")
+				return ErrorResult(errors.New("ColumnNames of excute not compatible with input"))
 			}
 			err := rows.Scan(scanners...)
 			if err != nil {
-				panic(err)
+				return ErrorResult(err)
 			}
 			var val reflect.Value
 			if d.IsStruct {
-				val = ScannerResultToStruct(d.RawMetaInfo.Type, scanners, columns)
+				val = ScannerResultToStruct(d.RawMetaInfo, count, scanners, columns)
 			} else {
 				vv, er := (scanners[0].(IScanner)).Value()
 				if er != nil {
-					panic(er)
+					return ErrorResult(er)
 				}
 				val = reflect.ValueOf(vv)
 			}
 			results.Set(reflect.Append(results, val))
+			count++
 		}
 	} else {
 		if rows.Next() {
 			scanners, er := d.GetScanners(columns...)
 			if er != nil {
-				return nil, er
+				return ErrorResult(er)
 			}
 			er = rows.Scan(scanners...)
 			if er != nil {
@@ -378,7 +380,7 @@ func (d DefaultScanner) Scan(rows *sql.Rows) (interface{}, error) {
 			}
 			var val reflect.Value
 			if d.IsStruct {
-				val = ScannerResultToStruct(d.RawMetaInfo.Type, scanners, columns)
+				val = ScannerResultToStruct(d.RawMetaInfo, count, scanners, columns)
 			} else {
 				vv, er := (scanners[0].(IScanner)).Value()
 				if er != nil {
@@ -392,9 +394,10 @@ func (d DefaultScanner) Scan(rows *sql.Rows) (interface{}, error) {
 
 			}
 			results.Set(val)
+			count++
 		}
 	}
-	return results.Interface(), nil
+	return NewResult(0, count, results.Interface(), nil)
 
 }
 func GetRawTableInfo(v any) RawMetaInfo {
