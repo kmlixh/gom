@@ -342,13 +342,14 @@ func (d DefaultScanner) Scan(rows *sql.Rows) Result {
 	if d.columnMap == nil && len(columns) > 1 {
 		return ErrorResult(errors.New("ColumnNames were too many"))
 	}
+	scanners, er := d.GetScanners(columns...)
+	if er != nil {
+		return ErrorResult(er)
+	}
 	results := d.RawMetaInfo.RawData
 	if d.IsSlice {
 		for rows.Next() {
-			scanners, er := d.GetScanners(columns...)
-			if er != nil {
-				return ErrorResult(es)
-			}
+
 			if len(columns) != len(scanners) {
 				return ErrorResult(errors.New("ColumnNames of excute not compatible with input"))
 			}
@@ -371,10 +372,7 @@ func (d DefaultScanner) Scan(rows *sql.Rows) Result {
 		}
 	} else {
 		if rows.Next() {
-			scanners, er := d.GetScanners(columns...)
-			if er != nil {
-				return ErrorResult(er)
-			}
+
 			er = rows.Scan(scanners...)
 			if er != nil {
 				panic(er)
