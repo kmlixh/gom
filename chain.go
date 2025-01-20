@@ -23,6 +23,7 @@ type Chain struct {
 	tx       *sql.Tx
 	orderBys *[]define.OrderBy
 	page     define.PageInfo
+	setData  map[string]any
 	fields   []string // 允许操作的列名
 	rawMeta  any
 }
@@ -142,6 +143,10 @@ func (db *Chain) From(vs any) *Chain {
 	return db
 
 }
+func (db *Chain) Set(name string, val string) *Chain {
+	db.setData[name] = val
+	return db
+}
 
 func (db *Chain) Select(vt ...any) define.Result {
 	db.cloneSelfIfDifferentGoRoutine()
@@ -206,15 +211,15 @@ func (db *Chain) Select(vt ...any) define.Result {
 		return db.execute(sqlProtos[0])
 	}
 }
-func (db *Chain) First(vs interface{}) define.Result {
+func (db *Chain) First(vs ...interface{}) define.Result {
 	db.cloneSelfIfDifferentGoRoutine()
 	return db.Page(0, 1).Select(vs)
 }
-func (db *Chain) Insert(v interface{}) define.Result {
+func (db *Chain) Insert(v ...interface{}) define.Result {
 	db.cloneSelfIfDifferentGoRoutine()
 	return db.executeInside(define.Insert, define.ArrayOf(v))
 }
-func (db *Chain) Save(v interface{}) define.Result {
+func (db *Chain) Save(v ...interface{}) define.Result {
 	return db.Insert(v)
 
 }
@@ -224,7 +229,7 @@ func (db *Chain) Delete(vs ...interface{}) define.Result {
 
 }
 
-func (db *Chain) Update(v interface{}) define.Result {
+func (db *Chain) Update(v ...interface{}) define.Result {
 	db.cloneSelfIfDifferentGoRoutine()
 	return db.executeInside(define.Update, define.ArrayOf(v))
 }
@@ -234,6 +239,10 @@ func (db *Chain) executeInside(sqlType define.SqlType, vi []interface{}) define.
 	if vi != nil && len(vi) > 0 {
 		vs = append(vs, define.UnZipSlice(vi)...)
 	}
+	if len(vs) > 1 {
+		return define.ErrorResult(errors.New(""))
+	}
+
 	if db.rawSql != nil && len(*db.rawSql) > 0 {
 		if vs != nil && len(vs) > 0 {
 			return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "executeInside", fmt.Errorf("when the RawSql is not nil or empty, data should be nil"), nil))
