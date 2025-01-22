@@ -44,7 +44,7 @@ func (d *Domain) TableName() string {
 func setupDomainTestDB(t *testing.T) *DB {
 	config := testutils.DefaultMySQLConfig()
 	config.User = "root"
-	config.Password = "123456" // 使用正确的密码
+	// 使用正确的密码
 	opts := &define.DBOptions{
 		MaxOpenConns:    10,
 		MaxIdleConns:    5,

@@ -14,8 +14,7 @@ import (
 
 func setupPostgreSQLTestDB(t *testing.T) *DB {
 	config := testutils.DefaultPostgresConfig()
-	config.User = "postgres"
-	config.Password = "123456"
+
 	opts := &define.DBOptions{
 		MaxOpenConns:    10,
 		MaxIdleConns:    5,
@@ -57,8 +56,7 @@ func cleanupPostgreSQLTestDB(t *testing.T, db *DB) {
 
 func TestPostgreSQLDBConnection(t *testing.T) {
 	config := testutils.DefaultPostgresConfig()
-	config.User = "postgres"
-	config.Password = "123456"
+
 	db, err := sql.Open("pgx", config.DSN())
 	if err != nil {
 		t.Skipf("Skipping PostgreSQL test: %v", err)

@@ -53,7 +53,7 @@ func setupDB(driver, dsn string) *DB {
 func setupChainTestDB(t *testing.T) *DB {
 	config := testutils.DefaultMySQLConfig()
 	config.User = "root"
-	config.Password = "123456" // 使用正确的密码
+	// 使用正确的密码
 	opts := &define.DBOptions{
 		MaxOpenConns:    10,
 		MaxIdleConns:    5,
@@ -112,8 +112,6 @@ func setupChainTestDB(t *testing.T) *DB {
 
 func setupMySQLDB(t *testing.T) *DB {
 	config := testutils.DefaultMySQLConfig()
-	config.User = "root"
-	config.Password = "123456" // 使用正确的密码
 	db := setupDB(config.Driver, config.DSN())
 	if db == nil {
 		t.Fatalf("Failed to connect to MySQL with DSN: %s", config.DSN())
@@ -123,8 +121,6 @@ func setupMySQLDB(t *testing.T) *DB {
 
 func setupPostgreSQLDB(t *testing.T) *DB {
 	config := testutils.DefaultPostgresConfig()
-	config.User = "postgres"
-	config.Password = "123456" // 使用正确的密码
 	db := setupDB(config.Driver, config.DSN())
 	if db == nil {
 		t.Fatalf("Failed to connect to PostgreSQL with DSN: %s", config.DSN())

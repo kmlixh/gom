@@ -14,7 +14,7 @@ import (
 func setupFromTestDB(t *testing.T) *DB {
 	config := testutils.DefaultMySQLConfig()
 	config.User = "root"
-	config.Password = "123456"
+
 	opts := &define.DBOptions{
 		MaxOpenConns:    10,
 		MaxIdleConns:    5,

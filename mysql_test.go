@@ -14,7 +14,7 @@ import (
 func setupMySQLTestDB(t *testing.T) *DB {
 	config := testutils.DefaultMySQLConfig()
 	config.User = "root"
-	config.Password = "123456"
+
 	opts := &define.DBOptions{
 		MaxOpenConns:    10,
 		MaxIdleConns:    5,
@@ -57,7 +57,7 @@ func cleanupMySQLTestDB(t *testing.T, db *DB) {
 func TestMySQLDBConnection(t *testing.T) {
 	config := testutils.DefaultMySQLConfig()
 	config.User = "root"
-	config.Password = "123456"
+
 	db, err := sql.Open("mysql", config.DSN())
 	if err != nil {
 		t.Skipf("Skipping MySQL test: %v", err)
