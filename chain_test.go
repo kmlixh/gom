@@ -1,319 +1,349 @@
 package gom
 
 import (
+	"errors"
 	"fmt"
-	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	_ "github.com/kmlixh/gom/v4/factory/mysql"
-	_ "github.com/kmlixh/gom/v4/factory/postgres"
+	"github.com/kmlixh/gom/v4/define"
+	"github.com/kmlixh/gom/v4/testutils"
 	"github.com/stretchr/testify/assert"
 )
 
-// 测试用的模型结构
-type TestUser struct {
-	Id        int64     `db:"id" gom:"@,id"`
-	Name      string    `db:"name" gom:"#,name"`
-	Age       int       `db:"age" gom:"#,age"`
-	Email     string    `db:"email" gom:"#,email"`
-	CreatedAt time.Time `db:"created_at" gom:"#,created_at"`
-	UpdatedAt time.Time `db:"updated_at" gom:"#,updated_at"`
-}
-
-func (u TestUser) TableName() string {
-	return "test_users"
-}
-
-var ip = "192.168.110.249"
-
-//var ip = "10.0.1.5"
-
-// 数据库连接配置
 var (
-	mysqlDSN    = "root:123456@tcp(" + ip + ":3306)/test?charset=utf8mb4&parseTime=True&loc=Local"
-	postgresDSN = "postgres://postgres:yzy123@" + ip + ":5432/test?sslmode=disable"
+	ErrTest = errors.New("test error")
 )
 
-// 创建测试表的SQL语句
-var (
-	mysqlCreateTableSQL = `
-	DROP TABLE IF EXISTS test_users;
-	CREATE TABLE test_users (
-		id BIGINT PRIMARY KEY AUTO_INCREMENT,
-		name VARCHAR(100) NOT NULL,
-		age INT NOT NULL,
-		email VARCHAR(100) NOT NULL,
-		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-	`
+// TestModel represents a test model for database operations
+type TestModel struct {
+	ID        int64     `gom:"id,@,auto"`
+	Name      string    `gom:"name,notnull"`
+	Age       int       `gom:"age,notnull"`
+	CreatedAt time.Time `gom:"created_at,notnull,default"`
+}
 
-	postgresCreateTableSQL = `
-	DROP TABLE IF EXISTS test_users;
-	CREATE TABLE test_users (
-		id BIGSERIAL PRIMARY KEY,
-		name VARCHAR(100) NOT NULL,
-		age INT NOT NULL,
-		email VARCHAR(100) NOT NULL,
-		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-	);
-	`
-)
+// setupDB creates a new database connection with the given driver and DSN
+func setupDB(driver, dsn string) *DB {
+	fmt.Printf("Attempting to connect to database with driver %s and DSN %s\n", driver, dsn)
+	opts := &define.DBOptions{
+		MaxOpenConns:    10,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: time.Hour,
+		ConnMaxIdleTime: 30 * time.Minute,
+		Debug:           true,
+	}
+	db, err := Open(driver, dsn, opts)
+	if err != nil {
+		fmt.Printf("Failed to open database connection: %v\n", err)
+		return nil
+	}
 
-// 测试辅助函数
-func setupTestDB(t *testing.T, driver string, dsn string, createTableSQL string) *Chain {
-	db, err := Open(driver, dsn, true)
+	// Ping database to ensure connection is valid
+	if err := db.DB.Ping(); err != nil {
+		fmt.Printf("Failed to ping database: %v\n", err)
+		db.Close()
+		return nil
+	}
+
+	return db
+}
+
+func setupChainTestDB(t *testing.T) *DB {
+	config := testutils.DefaultMySQLConfig()
+	config.User = "root"
+	// 使用正确的密码
+	opts := &define.DBOptions{
+		MaxOpenConns:    10,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: time.Hour,
+		ConnMaxIdleTime: 30 * time.Minute,
+		Debug:           true,
+	}
+	db, err := Open(config.Driver, config.DSN(), opts)
+	if err != nil {
+		t.Skipf("Skipping test due to database connection error: %v", err)
+		return nil
+	}
+
+	// Test database connection
+	if err := db.DB.Ping(); err != nil {
+		t.Skipf("Failed to ping database: %v", err)
+		return nil
+	}
+
+	// Drop table if exists to ensure clean state
+	_, err = db.DB.Exec("DROP TABLE IF EXISTS chaintestuser")
+	if err != nil {
+		t.Skipf("Failed to drop test table: %v", err)
+		return nil
+	}
+
+	createTableSQL := `
+		CREATE TABLE IF NOT EXISTS chaintestuser (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			name VARCHAR(255) NOT NULL,
+			age BIGINT,
+			email VARCHAR(255),
+			created_at DATETIME,
+			updated_at DATETIME,
+			is_active TINYINT(1) DEFAULT 1,
+			score DOUBLE DEFAULT 0.0
+		)
+	`
+	_, err = db.DB.Exec(createTableSQL)
+	if err != nil {
+		t.Errorf("Failed to create test table: %v", err)
+		db.Close()
+		return nil
+	}
+
+	// Clear test data
+	_, err = db.DB.Exec("TRUNCATE TABLE chaintestuser")
+	if err != nil {
+		t.Errorf("Failed to truncate test table: %v", err)
+		db.Close()
+		return nil
+	}
+
+	return db
+}
+
+func setupMySQLDB(t *testing.T) *DB {
+	config := testutils.DefaultMySQLConfig()
+	db := setupDB(config.Driver, config.DSN())
+	if db == nil {
+		t.Fatalf("Failed to connect to MySQL with DSN: %s", config.DSN())
+	}
+	return db
+}
+
+func setupPostgreSQLDB(t *testing.T) *DB {
+	config := testutils.DefaultPostgresConfig()
+	db := setupDB(config.Driver, config.DSN())
+	if db == nil {
+		t.Fatalf("Failed to connect to PostgreSQL with DSN: %s", config.DSN())
+	}
+	return db
+}
+
+func TestChainOperations(t *testing.T) {
+	t.Run("MySQL", func(t *testing.T) {
+		db := setupMySQLDB(t)
+		if db == nil {
+			t.Skip("Skipping MySQL test due to database connection error")
+			return
+		}
+		defer db.Close()
+
+		// Drop table if exists and create test table
+		_, err := db.DB.Exec("DROP TABLE IF EXISTS tests")
+		assert.NoError(t, err)
+
+		err = db.Chain().CreateTable(&TestModel{})
+		assert.NoError(t, err)
+		defer func() {
+			_, err := db.DB.Exec("DROP TABLE IF EXISTS tests")
+			if err != nil {
+				t.Logf("Failed to drop table: %v", err)
+			}
+		}()
+
+		runChainOperationsTest(t, db)
+	})
+
+	t.Run("PostgreSQL", func(t *testing.T) {
+		db := setupPostgreSQLDB(t)
+		if db == nil {
+			t.Skip("Skipping PostgreSQL test due to database connection error")
+			return
+		}
+		defer db.Close()
+
+		// Drop table if exists and create test table
+		_, err := db.DB.Exec("DROP TABLE IF EXISTS tests")
+		assert.NoError(t, err)
+
+		err = db.Chain().CreateTable(&TestModel{})
+		assert.NoError(t, err)
+		defer func() {
+			_, err := db.DB.Exec("DROP TABLE IF EXISTS tests")
+			if err != nil {
+				t.Logf("Failed to drop table: %v", err)
+			}
+		}()
+
+		runChainOperationsTest(t, db)
+	})
+}
+
+func runChainOperationsTest(t *testing.T, db *DB) {
+	tableName := "tests"
+
+	// Drop table if exists
+	_, err := db.DB.Exec("DROP TABLE IF EXISTS " + tableName)
 	assert.NoError(t, err)
-	assert.NotNil(t, db)
 
-	// 创建测试表
-	for _, sql := range strings.Split(createTableSQL, ";") {
-		sql = strings.TrimSpace(sql)
-		if sql == "" {
-			continue
+	// Create test table
+	var createTableSQL string
+	if db.Factory.GetType() == "postgres" {
+		createTableSQL = `CREATE TABLE tests (
+			id BIGSERIAL PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			age INTEGER NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`
+	} else {
+		createTableSQL = `CREATE TABLE tests (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			age INTEGER NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`
+	}
+	_, err = db.DB.Exec(createTableSQL)
+	assert.NoError(t, err)
+
+	// Verify table creation
+	var tableExists bool
+	if db.Factory.GetType() == "postgres" {
+		err = db.DB.QueryRow("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)", tableName).Scan(&tableExists)
+	} else {
+		err = db.DB.QueryRow("SELECT COUNT(*) > 0 FROM information_schema.tables WHERE table_name = ?", tableName).Scan(&tableExists)
+	}
+	assert.NoError(t, err)
+	assert.True(t, tableExists, "Table should exist after creation")
+
+	// Test Insert
+	chain := db.Chain().Table(tableName)
+	result := chain.Values(map[string]interface{}{
+		"name":       "John",
+		"age":        30,
+		"created_at": time.Now(),
+	}).Save()
+	assert.NoError(t, result.Error)
+	fmt.Printf("Insert result: ID=%d, Affected=%d\n", result.ID, result.Affected)
+
+	// Verify the insert using direct SQL
+	var name string
+	var age int
+	var queryErr error
+	if db.Factory.GetType() == "postgres" {
+		var count int64
+		queryErr = db.DB.QueryRow("SELECT COUNT(*) FROM tests").Scan(&count)
+		assert.NoError(t, queryErr)
+		fmt.Printf("Total records in table: %d\n", count)
+
+		queryErr = db.DB.QueryRow("SELECT name, age FROM tests WHERE id = $1", result.ID).Scan(&name, &age)
+	} else {
+		var count int64
+		queryErr = db.DB.QueryRow("SELECT COUNT(*) FROM tests").Scan(&count)
+		assert.NoError(t, queryErr)
+		fmt.Printf("Total records in table: %d\n", count)
+
+		queryErr = db.DB.QueryRow("SELECT name, age FROM tests WHERE id = ?", result.ID).Scan(&name, &age)
+	}
+	assert.NoError(t, queryErr)
+	assert.Equal(t, "John", name)
+	assert.Equal(t, 30, age)
+
+	// Test Select
+	var users []struct {
+		ID        int64     `gom:"id"`
+		Name      string    `gom:"name"`
+		Age       int       `gom:"age"`
+		CreatedAt time.Time `gom:"created_at"`
+	}
+	err = db.Chain().Table(tableName).Where("id", define.OpEq, result.ID).List(&users).Error
+	assert.NoError(t, err)
+	if assert.NotEmpty(t, users, "Expected users to be non-empty") {
+		assert.Equal(t, "John", users[0].Name)
+		assert.Equal(t, 30, users[0].Age)
+	}
+
+	// Test Update
+	updateResult := db.Chain().Table(tableName).Where("id", define.OpEq, result.ID).
+		Values(map[string]interface{}{"age": 31}).Save()
+	assert.NoError(t, updateResult.Error)
+
+	// Verify update
+	users = nil
+	err = db.Chain().Table(tableName).Where("id", define.OpEq, result.ID).List(&users).Error
+	assert.NoError(t, err)
+	if assert.NotEmpty(t, users, "Expected users to be non-empty after update") {
+		assert.Equal(t, 31, users[0].Age)
+	}
+
+	// Test Count
+	count, err := db.Chain().Table(tableName).Count()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), count)
+
+	// Test Delete
+	deleteResult := db.Chain().Table(tableName).Where("id", define.OpEq, result.ID).Delete()
+	assert.NoError(t, deleteResult.Error)
+
+	// Verify delete
+	count, err = db.Chain().Table(tableName).Count()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(0), count)
+
+	// Clean up
+	_, err = db.DB.Exec("DROP TABLE IF EXISTS " + tableName)
+	assert.NoError(t, err)
+}
+
+func TestChainConcurrentOperations(t *testing.T) {
+	t.Run("Concurrent Chain Operations", func(t *testing.T) {
+		db := setupMySQLDB(t)
+		factory := &define.MockSQLFactory{}
+		chain := NewChain(db, factory)
+		var wg sync.WaitGroup
+		numGoroutines := 10
+
+		wg.Add(numGoroutines)
+		for i := 0; i < numGoroutines; i++ {
+			go func(id int) {
+				defer wg.Done()
+				// 测试并发添加条件
+				chain.Where("id", define.OpEq, id)
+				chain.And("status", define.OpEq, "active")
+				chain.Or("type", define.OpEq, "test")
+			}(i)
 		}
-		rs := db.Chain().Raw(nil, sql)
-		assert.NoError(t, rs.Error())
-	}
+		wg.Wait()
 
-	return db.Chain()
-}
-
-func cleanupTestDB(t *testing.T, db *Chain) {
-	rs := db.Raw(nil, "DROP TABLE IF EXISTS test_users")
-	assert.NoError(t, rs.Error())
-}
-
-// 基本CRUD操作测试
-func TestBasicCRUD(t *testing.T) {
-	// MySQL测试
-	t.Run("mysql", func(t *testing.T) {
-		db := setupTestDB(t, "mysql", mysqlDSN, mysqlCreateTableSQL)
-		defer cleanupTestDB(t, db)
-		testBasicCRUD(t, db)
-	})
-
-	// PostgreSQL测试
-	t.Run("postgres", func(t *testing.T) {
-		db := setupTestDB(t, "postgres", postgresDSN, postgresCreateTableSQL)
-		defer cleanupTestDB(t, db)
-		testBasicCRUD(t, db)
+		// 验证并发操作后的链状态
+		assert.NotNil(t, chain)
+		assert.NotEmpty(t, chain.conds)
 	})
 }
 
-func testBasicCRUD(t *testing.T, db *Chain) {
-	// 测试插入
-	user := TestUser{
-		Name:  "Test User",
-		Age:   25,
-		Email: "test@example.com",
-	}
-	result := db.Insert(&user)
-	assert.NoError(t, result.Error())
-	assert.NotNil(t, result)
+func TestChainErrorHandling(t *testing.T) {
+	t.Run("Invalid SQL Generation", func(t *testing.T) {
+		db := setupMySQLDB(t)
+		factory := &define.MockSQLFactory{}
+		chain := NewChain(db, factory)
+		chain.Table("") // 空表名
 
-	// 测试查询
-	var queryUser TestUser
-	dd := db.Table("test_users").First(&queryUser)
-	assert.NotNil(t, dd)
-	assert.NoError(t, dd.Error())
-	assert.Equal(t, user.Name, queryUser.Name)
-	assert.Equal(t, user.Age, queryUser.Age)
-	assert.Equal(t, user.Email, queryUser.Email)
-
-	// 测试更新
-	queryUser.Age = 26
-	result = db.Update(&queryUser)
-	assert.NoError(t, result.Error())
-	affected := result.RowsAffected()
-	assert.NoError(t, result.Error())
-	assert.Equal(t, int64(1), affected)
-
-	// 测试删除
-	result = db.Delete(&queryUser)
-	assert.NoError(t, result.Error())
-	affected = result.RowsAffected()
-	assert.Equal(t, int64(1), affected)
-}
-
-// 条件查询测试
-func TestConditions(t *testing.T) {
-	// MySQL测试
-	t.Run("MySQL", func(t *testing.T) {
-		db := setupTestDB(t, "mysql", mysqlDSN, mysqlCreateTableSQL)
-		defer cleanupTestDB(t, db)
-		testConditions(t, db)
+		sql, args, err := chain.BuildSelect()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "empty table name")
+		assert.Empty(t, sql)
+		assert.Empty(t, args)
 	})
 
-	// PostgreSQL测试
-	t.Run("PostgreSQL", func(t *testing.T) {
-		db := setupTestDB(t, "postgres", postgresDSN, postgresCreateTableSQL)
-		defer cleanupTestDB(t, db)
-		testConditions(t, db)
+	t.Run("Invalid Condition Values", func(t *testing.T) {
+		db := setupMySQLDB(t)
+		factory := &define.MockSQLFactory{}
+		chain := NewChain(db, factory)
+		chain.Table("test_table")
+		chain.Where("id", define.OpEq, nil) // 无效的参数值
+
+		sql, args, err := chain.BuildSelect()
+		assert.Error(t, err)
+		assert.Empty(t, sql)
+		assert.Empty(t, args)
 	})
-}
-
-func testConditions(t *testing.T, chain *Chain) {
-	// 插入测试数据
-	users := []TestUser{
-		{Name: "User1", Age: 20, Email: "user1@example.com"},
-		{Name: "User2", Age: 25, Email: "user2@example.com"},
-		{Name: "User3", Age: 30, Email: "user3@example.com"},
-	}
-
-	for _, user := range users {
-		rs := chain.Insert(&user)
-		assert.NoError(t, rs.Error())
-	}
-
-	// 测试Eq条件
-	var result []TestUser
-	rs := chain.Table("test_users").Eq("age", 25).Select(&result)
-	assert.NoError(t, rs.Error())
-	assert.Equal(t, 1, len(result))
-	assert.Equal(t, "User2", result[0].Name)
-
-	// 测试Gt条件
-	result = make([]TestUser, 0)
-	rs = chain.Table("test_users").Gt("age", 25).Select(&result)
-	assert.NoError(t, rs.Error())
-	assert.Equal(t, 1, len(result))
-	assert.Equal(t, "User3", result[0].Name)
-
-	// 测试Like条件
-	result = nil
-	rs = chain.Table("test_users").Like("name", "User%").Select(&result)
-	assert.NoError(t, rs.Error())
-	assert.Equal(t, 3, len(result))
-}
-
-// 事务测试
-func TestTransaction(t *testing.T) {
-	// MySQL测试
-	t.Run("MySQL", func(t *testing.T) {
-		db := setupTestDB(t, "mysql", mysqlDSN, mysqlCreateTableSQL)
-		defer cleanupTestDB(t, db)
-		testTransaction(t, db)
-	})
-
-	// PostgreSQL测试
-	t.Run("PostgreSQL", func(t *testing.T) {
-		db := setupTestDB(t, "postgres", postgresDSN, postgresCreateTableSQL)
-		defer cleanupTestDB(t, db)
-		testTransaction(t, db)
-	})
-}
-
-func testTransaction(t *testing.T, db *Chain) {
-
-	// 测试成功的事务
-	_, er := db.DoTransaction(func(tx *Chain) (interface{}, error) {
-		user1 := TestUser{Name: "TxUser1", Age: 20, Email: "tx1@example.com"}
-		user2 := TestUser{Name: "TxUser2", Age: 25, Email: "tx2@example.com"}
-
-		rs := tx.Insert(&user1)
-		if rs.Error() != nil {
-			return nil, rs.Error()
-		}
-
-		rs = tx.Insert(&user2)
-		if rs.Error() != nil {
-			return nil, rs.Error()
-		}
-
-		return nil, nil
-	})
-	assert.NoError(t, er)
-
-	// 验证事务结果
-	var count int64
-	rsz := db.Table("test_users").Count("id")
-	count = rsz.Data().(int64)
-	assert.NoError(t, rsz.Error())
-	assert.Equal(t, int64(2), count)
-
-	// 测试失败的事务
-	_, er = db.DoTransaction(func(tx *Chain) (interface{}, error) {
-		user := TestUser{Name: "TxUser3", Age: 30, Email: "tx3@example.com"}
-		rs := tx.Insert(&user)
-		if rs.Error() != nil {
-			return nil, rs.Error()
-		}
-
-		return nil, fmt.Errorf("rollback test")
-	})
-	assert.Error(t, er)
-
-	// 验证回滚结果
-	counts := db.Table("test_users").Count("id")
-	assert.NoError(t, counts.Error())
-	assert.Equal(t, int64(2), counts.Data())
-}
-
-// 批量操作测试
-func TestBatchOperations(t *testing.T) {
-	// MySQL测试
-	t.Run("MySQL", func(t *testing.T) {
-		db := setupTestDB(t, "mysql", mysqlDSN, mysqlCreateTableSQL)
-		defer cleanupTestDB(t, db)
-	})
-
-	// PostgreSQL测试
-	t.Run("PostgreSQL", func(t *testing.T) {
-		db := setupTestDB(t, "postgres", postgresDSN, postgresCreateTableSQL)
-		defer cleanupTestDB(t, db)
-	})
-}
-
-// Fields方法测试
-func TestFields(t *testing.T) {
-	// MySQL测试
-	t.Run("MySQL", func(t *testing.T) {
-		db := setupTestDB(t, "mysql", mysqlDSN, mysqlCreateTableSQL)
-		defer cleanupTestDB(t, db)
-		testFields(t, db)
-	})
-
-	// PostgreSQL测试
-	t.Run("PostgreSQL", func(t *testing.T) {
-		db := setupTestDB(t, "postgres", postgresDSN, postgresCreateTableSQL)
-		defer cleanupTestDB(t, db)
-		testFields(t, db)
-	})
-}
-
-func testFields(t *testing.T, db *Chain) {
-	// 插入测试数据
-	user := TestUser{
-		Name:  "Fields Test",
-		Age:   30,
-		Email: "fields@example.com",
-	}
-	rs := db.Insert(&user)
-	assert.NoError(t, rs.Error())
-
-	// 测试Fields限制查询字段
-	var result TestUser
-	rs = db.Table("test_users").Fields("name", "age").First(&result)
-	assert.NoError(t, rs.Error())
-	assert.NotEmpty(t, result.Name)
-	assert.NotZero(t, result.Age)
-	assert.Empty(t, result.Email) // email字段未包含在Fields中
-
-	// 测试Fields限制更新字段
-	result.Name = "Updated Name"
-	result.Age = 31
-	result.Email = "updated@example.com"
-	rs = db.Fields("name").Update(&result)
-	assert.NoError(t, rs.Error())
-
-	// 验证只有name字段被更新
-	var updated TestUser
-	rs = db.Table("test_users").First(&updated)
-	assert.NoError(t, rs.Error())
-	assert.Equal(t, "Updated Name", updated.Name)
-	assert.Equal(t, 30, updated.Age)                     // age未被更新
-	assert.Equal(t, "fields@example.com", updated.Email) // email未被更新
 }

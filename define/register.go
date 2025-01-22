@@ -1,26 +1,35 @@
 package define
 
 import (
+	"fmt"
 	"sync"
 )
 
 var (
-	mux       sync.RWMutex
-	factories = make(map[string]SqlFactory)
+	factoryMutex sync.RWMutex
+	factories    = make(map[string]SQLFactory)
 )
 
-func RegisterFactory(name string, inter SqlFactory) {
-	mux.Lock()
-	defer mux.Unlock()
-	if inter == nil {
-		panic("PreparedSql: RegisterFactory driver is nil")
-	}
-	if _, dup := factories[name]; dup {
-		return
-	}
-	factories[name] = inter
+// RegisterFactory registers a SQL factory for a specific driver
+func RegisterFactory(driver string, factory SQLFactory) {
+	factoryMutex.Lock()
+	defer factoryMutex.Unlock()
+	factories[driver] = factory
 }
-func GetFactory(name string) (SqlFactory, bool) {
-	data, ok := factories[name]
-	return data, ok
+
+// GetFactory returns the SQL factory for a specific driver
+func GetFactory(driver string) (SQLFactory, error) {
+	factoryMutex.RLock()
+	defer factoryMutex.RUnlock()
+	if factory, ok := factories[driver]; ok {
+		return factory, nil
+	}
+	return nil, fmt.Errorf("no factory registered for driver: %s", driver)
+}
+
+// UnregisterFactory removes a SQL factory for a specific driver
+func UnregisterFactory(driver string) {
+	factoryMutex.Lock()
+	defer factoryMutex.Unlock()
+	delete(factories, driver)
 }
