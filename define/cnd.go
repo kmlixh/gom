@@ -508,6 +508,9 @@ func (c *CndImpl) Or3Bool(b bool, rawExpresssion string, values ...interface{}) 
 	c.items = append(c.items, cc)
 	return c
 }
+func (c *CndImpl) IsEmpty() bool {
+	return len(c.items) == 0 && c.payloads == 0 && c.field == "" && len(c.items) == 0 && c.operation == 0
+}
 
 func CndEq(field string, value interface{}) Condition {
 	return Cnd(field, Eq, value)

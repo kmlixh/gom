@@ -4,12 +4,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/kmlixh/gom/v4/define"
-	dberrors "github.com/kmlixh/gom/v4/errors"
 	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/kmlixh/gom/v4/define"
+	dberrors "github.com/kmlixh/gom/v4/errors"
 )
 
 type Chain struct {
@@ -23,7 +24,7 @@ type Chain struct {
 	tx       *sql.Tx
 	orderBys *[]define.OrderBy
 	page     define.PageInfo
-	setData  map[string]any
+	dataMap  map[string]any
 	fields   []string // 允许操作的列名
 	rawMeta  any
 }
@@ -143,8 +144,8 @@ func (db *Chain) From(vs any) *Chain {
 	return db
 
 }
-func (db *Chain) Set(name string, val string) *Chain {
-	db.setData[name] = val
+func (db *Chain) Set(name string, val interface{}) *Chain {
+	db.dataMap[name] = val
 	return db
 }
 
@@ -217,103 +218,145 @@ func (db *Chain) First(vs ...interface{}) define.Result {
 }
 func (db *Chain) Insert(v ...interface{}) define.Result {
 	db.cloneSelfIfDifferentGoRoutine()
-	return db.executeInside(define.Insert, define.ArrayOf(v))
+	v = define.UnZipSlice(v)
+	if len(v) > 1 {
+		return define.ErrorResult(errors.New("data can't large then one"))
+	}
+	if len(v) == 1 {
+		db.rawMeta = v[0]
+	}
+	return db.executeInside(define.Insert)
 }
 func (db *Chain) Save(v ...interface{}) define.Result {
-	return db.Insert(v)
+	return db.Insert(v...)
 
 }
-func (db *Chain) Delete(vs ...interface{}) define.Result {
+func (db *Chain) Delete(v ...interface{}) define.Result {
 	db.cloneSelfIfDifferentGoRoutine()
-	return db.executeInside(define.Delete, vs)
+	v = define.UnZipSlice(v)
+	if len(v) > 1 {
+		return define.ErrorResult(errors.New("data can't large then one"))
+	}
+	if len(v) == 1 {
+		db.rawMeta = v[0]
+	}
+	return db.executeInside(define.Delete)
 
 }
 
 func (db *Chain) Update(v ...interface{}) define.Result {
 	db.cloneSelfIfDifferentGoRoutine()
-	return db.executeInside(define.Update, define.ArrayOf(v))
+	v = define.UnZipSlice(v)
+	if len(v) > 1 {
+		return define.ErrorResult(errors.New("data can't large then one"))
+	}
+	if len(v) == 1 {
+		db.rawMeta = v[0]
+	}
+	return db.executeInside(define.Update)
 }
 
-func (db *Chain) executeInside(sqlType define.SqlType, vi []interface{}) define.Result {
-	var vs []interface{}
-	if vi != nil && len(vi) > 0 {
-		vs = append(vs, define.UnZipSlice(vi)...)
-	}
-	if len(vs) > 1 {
-		return define.ErrorResult(errors.New(""))
-	}
-
+func (db *Chain) executeInside(sqlType define.SqlType) define.Result {
 	if db.rawSql != nil && len(*db.rawSql) > 0 {
-		if vs != nil && len(vs) > 0 {
+		if db.rawMeta != nil {
 			return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "executeInside", fmt.Errorf("when the RawSql is not nil or empty, data should be nil"), nil))
 		}
 		return db.Raw(nil, *db.rawSql, db.rawData...)
 	}
+	if sqlType != define.Query {
+		if db.rawMeta == nil && len(db.dataMap) == 0 {
+			return define.ErrorResult(errors.New("data was null"))
+		} else if len(db.dataMap) == 0 && db.rawMeta != nil {
+			dataMap, er := define.StructToMap(db.rawMeta)
+			if er != nil {
+				return define.ErrorResult(er)
+			}
+			db.dataMap = dataMap
+		}
+	}
+	table := db.GetTable()
+	rawInfo := define.GetRawTableInfo(db.rawMeta)
+	if len(table) == 0 {
+		if db.rawMeta == nil {
+			return define.ErrorResult(errors.New("can't get table Name"))
+		}
+		table = rawInfo.TableName
+	}
+	colMap, _ := define.GetDefaultsColumnFieldMap(rawInfo.Type)
+	dbCols, er := db.factory.GetColumns(table, db.db)
+	if er != nil {
+		return define.ErrorResult(er)
+	}
+	primaryKey := make([]string, 0)
+	primaryAuto := make([]string, 0)
+	dbColMap := make(map[string]define.Column)
+	dbColNames := make([]string, 0)
+	for _, dbCol := range dbCols {
+		dbColNames = append(dbColNames, dbCol.ColumnName)
+		dbColMap[dbCol.ColumnName] = dbCol
+		if _, ok := colMap[dbCol.ColumnName]; !ok && dbCol.IsPrimary {
+			return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "validateColumns", fmt.Errorf("column '%s' not exist in variable", dbCol.ColumnName), nil))
+		}
+		if dbCol.IsPrimary && !dbCol.IsPrimaryAuto {
+			primaryKey = append(primaryKey, dbCol.ColumnName)
+		}
+		if dbCol.IsPrimaryAuto {
+			primaryAuto = append(primaryAuto, dbCol.ColumnName)
+		}
+	}
+	columns := db.fields
+	if len(columns) > 0 {
+		for _, c := range columns {
+			if _, ok := colMap[c]; !ok {
+				return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "validateColumns", fmt.Errorf("'%s' not exist in variable", c), nil))
+			}
+			if _, ok := dbColMap[c]; !ok {
+				return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "validateColumns", fmt.Errorf("'%s' not exist in table '%s'", c, table), nil))
+			}
+		}
+	}
+	if len(columns) > 0 {
+		columns = append(primaryKey, append(primaryAuto, columns...)...)
+	}
+	var cnd define.Condition
+	cnd = db.GetCondition()
+	if er != nil {
+		return define.ErrorResult(er)
+	}
+	dataCol := make([]string, 0)
+	for key, _ := range db.dataMap {
+		dataCol = append(dataCol, key)
+	}
+	columns = define.ArrayIntersect(dbColNames, dataCol)
+
+	// 如果设置了允许的字段列表,则取交集
+	if len(db.fields) > 0 {
+		columns = define.ArrayIntersect(columns, db.fields)
+	}
+	if db.cnd.IsEmpty() {
+		db.cnd = define.MapToCondition(db.dataMap)
+	}
+
+	dm := &DefaultModel{
+		table:         table,
+		primaryKeys:   append(primaryKey, primaryAuto...),
+		primaryAuto:   primaryAuto,
+		columns:       columns,
+		columnDataMap: db.dataMap,
+		condition:     cnd,
+		orderBys:      db.GetOrderBys(),
+		page:          db.GetPageInfo(),
+		target:        db.rawMeta,
+	}
+
 	if len(vs) == 0 && db.table == nil && db.cnd == nil {
 		return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "executeInside", fmt.Errorf("there was nothing to do"), nil))
 	} else {
 		var vvs []define.TableModel
 		if vs != nil && len(vs) > 0 {
 			for _, v := range vs {
-				rawInfo := define.GetRawTableInfo(v)
-				table := db.GetTable()
-				if len(table) == 0 {
-					table = rawInfo.TableName
-				}
+
 				//检查列缺失
-				colMap, _ := define.GetDefaultsColumnFieldMap(rawInfo.Type)
-				dbCols, er := db.factory.GetColumns(table, db.db)
-				if er != nil {
-					return define.ErrorResult(er)
-				}
-				primaryKey := make([]string, 0)
-				primaryAuto := make([]string, 0)
-				dbColMap := make(map[string]define.Column)
-				dbColNames := make([]string, 0)
-				for _, dbCol := range dbCols {
-					dbColNames = append(dbColNames, dbCol.ColumnName)
-					dbColMap[dbCol.ColumnName] = dbCol
-					if _, ok := colMap[dbCol.ColumnName]; !ok && dbCol.IsPrimary {
-						return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "validateColumns", fmt.Errorf("column '%s' not exist in variable", dbCol.ColumnName), nil))
-					}
-					if dbCol.IsPrimary && !dbCol.IsPrimaryAuto {
-						primaryKey = append(primaryKey, dbCol.ColumnName)
-					}
-					if dbCol.IsPrimaryAuto {
-						primaryAuto = append(primaryAuto, dbCol.ColumnName)
-					}
-				}
-				columns := db.fields
-				if len(columns) > 0 {
-					for _, c := range columns {
-						if _, ok := colMap[c]; !ok {
-							return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "validateColumns", fmt.Errorf("'%s' not exist in variable", c), nil))
-						}
-						if _, ok := dbColMap[c]; !ok {
-							return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "validateColumns", fmt.Errorf("'%s' not exist in table '%s'", c, table), nil))
-						}
-					}
-				}
-
-				if len(columns) > 0 {
-					columns = append(primaryKey, append(primaryAuto, columns...)...)
-				}
-				var cnd define.Condition
-				cnd = db.GetCondition()
-				dataMap, er := define.StructToMap(v, columns...)
-				if er != nil {
-					return define.ErrorResult(er)
-				}
-				dataCol := make([]string, 0)
-				for key, _ := range dataMap {
-					dataCol = append(dataCol, key)
-				}
-				columns = define.ArrayIntersect(dbColNames, dataCol)
-
-				// 如果设置了允许的字段列表,则取交集
-				if len(db.fields) > 0 {
-					columns = define.ArrayIntersect(columns, db.fields)
-				}
 
 				if sqlType == define.Update {
 					if cnd == nil {
@@ -346,18 +389,6 @@ func (db *Chain) executeInside(sqlType define.SqlType, vi []interface{}) define.
 					if len(primaryAuto) > 0 {
 						columns, _, _ = define.ArrayIntersect2(columns, primaryAuto)
 					}
-				}
-
-				dm := &DefaultModel{
-					table:         table,
-					primaryKeys:   append(primaryKey, primaryAuto...),
-					primaryAuto:   primaryAuto,
-					columns:       columns,
-					columnDataMap: dataMap,
-					condition:     cnd,
-					orderBys:      db.GetOrderBys(),
-					page:          db.GetPageInfo(),
-					target:        v,
 				}
 
 				if sqlType == define.Update && cnd == nil {

@@ -136,6 +136,7 @@ type Condition interface {
 	Or2(condition Condition) Condition
 	Or3(rawExpresssion string, values ...interface{}) Condition
 	Or3Bool(b bool, rawExpresssion string, values ...interface{}) Condition
+	IsEmpty() bool
 }
 
 type SqlProto struct {
@@ -481,39 +482,74 @@ func StructToMap(vs interface{}, columns ...string) (map[string]interface{}, err
 	return nil, errors.New(fmt.Sprintf("can't convert %s to map", rawInfo.Name()))
 
 }
-func StructToCondition(vs interface{}, columns ...string) Condition {
-	maps, err := StructToMap(vs, columns...)
-	if err != nil {
-		panic(err)
+func MapToStruct(dataMap map[string]interface{}, p reflect.Type) (reflect.Value, error) {
+	cMap, columns := GetDefaultsColumnFieldMap(p)
+	v := reflect.Indirect(reflect.New(p))
+	for _, col := range columns {
+		if val, ok := dataMap[col]; ok {
+			v.FieldByName(cMap[col].FieldName).Set(reflect.ValueOf(val))
+		}
 	}
-	return MapToCondition(maps)
+	return v, nil
 }
-func MapToCondition(maps map[string]interface{}) Condition {
+
+func MapToCondition(maps map[string]interface{}, columns ...string) Condition {
 	if maps == nil {
 		return nil
 	}
-	var cnd Condition
-	for k, v := range maps {
-		t := reflect.TypeOf(v)
-		if t.Kind() == reflect.Ptr {
-			t = t.Elem()
-		}
-		if t.Kind() != reflect.Struct || t.Kind() == reflect.TypeOf(time.Now()).Kind() || ((t.Kind() == reflect.Slice || t.Kind() == reflect.Array) && t.Elem().Kind() != reflect.Struct) {
-			value := v
-			if (t.Kind() == reflect.Slice || t.Kind() == reflect.Array) && t.Elem().Kind() != reflect.Struct {
-				if cnd == nil {
-					cnd = CndIn(k, UnZipSlice(value)...)
-				} else {
-					cnd.In(k, UnZipSlice(value)...)
-				}
-			} else {
-				if cnd == nil {
-					cnd = Cnd(k, Eq, value)
-				} else {
-					cnd.And(k, Eq, value)
-				}
-			}
 
+	var cnd Condition
+	if columns != nil && len(columns) > 0 {
+		for _, k := range columns {
+			v, ok := maps[k]
+			if !ok {
+				continue
+			}
+			t := reflect.TypeOf(v)
+			if t.Kind() == reflect.Ptr {
+				t = t.Elem()
+			}
+			if t.Kind() != reflect.Struct || t.Kind() == reflect.TypeOf(time.Now()).Kind() || ((t.Kind() == reflect.Slice || t.Kind() == reflect.Array) && t.Elem().Kind() != reflect.Struct) {
+				value := v
+				if (t.Kind() == reflect.Slice || t.Kind() == reflect.Array) && t.Elem().Kind() != reflect.Struct {
+					if cnd == nil {
+						cnd = CndIn(k, UnZipSlice(value)...)
+					} else {
+						cnd.In(k, UnZipSlice(value)...)
+					}
+				} else {
+					if cnd == nil {
+						cnd = Cnd(k, Eq, value)
+					} else {
+						cnd.And(k, Eq, value)
+					}
+				}
+
+			}
+		}
+	} else {
+		for k, v := range maps {
+			t := reflect.TypeOf(v)
+			if t.Kind() == reflect.Ptr {
+				t = t.Elem()
+			}
+			if t.Kind() != reflect.Struct || t.Kind() == reflect.TypeOf(time.Now()).Kind() || ((t.Kind() == reflect.Slice || t.Kind() == reflect.Array) && t.Elem().Kind() != reflect.Struct) {
+				value := v
+				if (t.Kind() == reflect.Slice || t.Kind() == reflect.Array) && t.Elem().Kind() != reflect.Struct {
+					if cnd == nil {
+						cnd = CndIn(k, UnZipSlice(value)...)
+					} else {
+						cnd.In(k, UnZipSlice(value)...)
+					}
+				} else {
+					if cnd == nil {
+						cnd = Cnd(k, Eq, value)
+					} else {
+						cnd.And(k, Eq, value)
+					}
+				}
+
+			}
 		}
 	}
 	return cnd
