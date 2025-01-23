@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -36,6 +37,49 @@ func (f *Factory) Connect(dsn string) (*sql.DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+var dbTableColsCache = make(map[string][]define.Column)
+var columnSql = "select COLUMN_NAME as columnName,DATA_TYPE as dataType,COLUMN_KEY as columnKey,EXTRA as extra, IFNULL(COLUMN_COMMENT,'') as comment from information_schema.columns  where table_schema=?  and table_name= ? order by ordinal_position;"
+
+func (m Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, error) {
+
+	dbSql := "SELECT DATABASE() as db;"
+	rows, er := db.Query(dbSql)
+	if er != nil {
+		return nil, er
+	}
+	dbName := ""
+	if !rows.Next() {
+		return nil, errors.New("can not get Schema")
+	}
+	er = rows.Scan(&dbName)
+	if er != nil {
+		return nil, errors.New(fmt.Sprintf("column of table %s was empty", tableName))
+	}
+	if cols, ok := dbTableColsCache[dbName+"-"+tableName]; ok {
+		return cols, nil
+	}
+	rows, er = db.Query(columnSql, dbName, tableName)
+	if er != nil {
+		return nil, er
+	}
+	columns := make([]define.Column, 0)
+	for rows.Next() {
+		columnName := ""
+		columnType := ""
+		columnKey := ""
+		extra := ""
+		er = rows.Scan(&columnName, &columnType, &columnKey, &extra)
+		if er == nil {
+			columns = append(columns, define.Column{ColumnName: columnName, ColumnType: columnType, Primary: columnKey == "PRI", PrimaryAuto: columnKey == "PRI" && extra == "auto_increment"})
+		} else {
+			return nil, er
+		}
+	}
+	dbTableColsCache[dbName+"-"+tableName] = columns
+	return columns, nil
+
 }
 
 // buildCondition builds a single condition clause

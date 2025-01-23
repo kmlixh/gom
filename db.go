@@ -525,6 +525,21 @@ func toSnakeCase(s string) string {
 	return string(result)
 }
 
+func (db DB) GetColumns(table string) ([]define.Column, error) {
+	return db.Factory.GetColumns(table, db.DB)
+}
+
+func (db DB) GetTableStruct(table string) (*define.TableInfo, error) {
+	return db.Factory.GetTableInfo(db.DB, table)
+}
+func (db DB) GetTableStruct2(i any) (*define.TableInfo, error) {
+	tableName, er := db.GetTableName(i)
+	if er != nil {
+		panic("table name was nil")
+	}
+	return db.GetTableStruct(tableName)
+}
+
 // GetDB returns the underlying sql.DB object
 func (db *DB) GetDB() *sql.DB {
 	return db.DB

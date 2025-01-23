@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -127,6 +128,65 @@ func (f *Factory) buildCondition(cond *define.Condition, startParamIndex int) (s
 		return strings.Join(condStrs, " "), args
 	}
 	return "", nil
+}
+
+var dbTableColsCache = make(map[string][]define.Column)
+var colSql = `
+SELECT 
+    c.column_name AS "columnName",
+    c.data_type AS "dataType",
+    c.is_identity AS "columnKey",
+    COALESCE(c.identity_generation, 'NO') AS extra,
+    COALESCE(col_description(t.oid, a.attnum),'') AS comment
+FROM 
+    information_schema.columns c
+JOIN 
+    pg_class t ON t.relname = c.table_name
+JOIN 
+    pg_attribute a ON a.attrelid = t.oid AND a.attname = c.column_name
+WHERE 
+    c.table_schema = $1  
+    AND c.table_name = $2
+    AND a.attnum > 0
+ORDER BY 
+    c.ordinal_position;
+`
+
+func (m *Factory) GetColumns(tableName string, db *sql.DB) ([]define.Column, error) {
+	dbSql := "SELECT CURRENT_SCHEMA;"
+	rows, er := db.Query(dbSql)
+	if er != nil {
+		return nil, er
+	}
+	dbName := ""
+	if !rows.Next() {
+		return nil, errors.New("can not get Schema")
+	}
+	er = rows.Scan(&dbName)
+	if er != nil {
+		return nil, errors.New(fmt.Sprintf("column of table %s was empty", tableName))
+	}
+	if cols, ok := dbTableColsCache[tableName]; ok {
+		return cols, nil
+	}
+	rows, er = db.Query(colSql, dbName, tableName)
+	columns := make([]define.Column, 0)
+	for rows.Next() {
+		columnName := ""
+		columnType := ""
+		columnKey := ""
+		extra := ""
+		comment := ""
+		er = rows.Scan(&columnName, &columnType, &columnKey, &extra)
+		if er == nil {
+			columns = append(columns, define.Column{ColumnName: columnName, ColumnType: columnType, Primary: columnKey == "YES", PrimaryAuto: columnKey == "YES" && extra == "ALWAYS", Comment: comment})
+		} else {
+			return nil, er
+		}
+	}
+	dbTableColsCache[tableName] = columns
+	return columns, nil
+
 }
 
 // buildSimpleCondition builds a simple condition without sub-conditions

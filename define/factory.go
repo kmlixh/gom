@@ -89,6 +89,7 @@ type SQLFactory interface {
 	// pattern: 表名匹配模式，支持 * 通配符
 	// 对于 PostgreSQL，pattern 可以是 schema.table 格式
 	GetTables(db *sql.DB, pattern string) ([]string, error)
+	GetColumns(tableName string, db *sql.DB) ([]Column, error)
 
 	// BuildOrderBy builds the ORDER BY clause
 	BuildOrderBy(orders []OrderBy) string
@@ -100,4 +101,11 @@ type ITableModel interface {
 	TableName() string
 	// CreateSql returns the custom CREATE TABLE SQL statement
 	CreateSql() string
+}
+type Column struct {
+	ColumnName  string
+	Primary     bool
+	PrimaryAuto bool //If Primary Key Auto Generate Or2 Not
+	ColumnType  string
+	Comment     string
 }
