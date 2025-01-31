@@ -1872,7 +1872,12 @@ type PageInfo struct {
 }
 
 // PageInfo executes a paginated query and returns pagination information
-func (c *Chain) PageInfo(model interface{}) (*PageInfo, error) {
+func (c *Chain) PageInfo(models ...interface{}) (*PageInfo, error) {
+	if len(models) > 1 {
+		return nil, errors.New("only one model can be provided for PageInfo")
+	} else if len(models) == 1 {
+		c.From(models[0])
+	}
 	// 获取总记录数
 	total, err := c.Count()
 	if err != nil {
@@ -1896,9 +1901,9 @@ func (c *Chain) PageInfo(model interface{}) (*PageInfo, error) {
 
 	// 获取当前页数据
 	var list interface{}
-	if model != nil {
+	if c.model != nil {
 		// 如果提供了模型，使用模型类型创建切片
-		sliceType := reflect.SliceOf(reflect.TypeOf(model))
+		sliceType := reflect.SliceOf(reflect.TypeOf(c.model))
 		if sliceType.Kind() == reflect.Ptr {
 			sliceType = reflect.SliceOf(sliceType.Elem())
 		}
