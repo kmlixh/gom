@@ -224,29 +224,14 @@ func (r *Result) Scan(rows *sql.Rows) error {
 	return rows.Err()
 }
 
-// Into converts the result data into the specified struct slice
+// Into converts the result data into the specified struct slice or struct pointer
 func (r *Result) Into(dest interface{}) error {
 	if r == nil {
-		// For nil Result, set destination to empty slice
-		destValue := reflect.ValueOf(dest)
-		if destValue.Kind() != reflect.Ptr || destValue.IsNil() {
-			return fmt.Errorf("destination must be a non-nil pointer")
-		}
-		sliceValue := destValue.Elem()
-		if sliceValue.Kind() != reflect.Slice {
-			return fmt.Errorf("destination must be a slice")
-		}
-		// Set to empty slice
-		sliceValue.Set(reflect.MakeSlice(sliceValue.Type(), 0, 0))
-		return nil
+		return fmt.Errorf("result is nil")
 	}
 
 	if r.Error != nil {
 		return r.Error
-	}
-
-	if len(r.Data) == 0 {
-		return nil
 	}
 
 	destValue := reflect.ValueOf(dest)
@@ -254,24 +239,77 @@ func (r *Result) Into(dest interface{}) error {
 		return fmt.Errorf("destination must be a non-nil pointer")
 	}
 
-	sliceValue := destValue.Elem()
-	if sliceValue.Kind() != reflect.Slice {
-		return fmt.Errorf("destination must be a slice")
+	// Get the element that the pointer points to
+	destElem := destValue.Elem()
+
+	// Handle struct pointer case
+	if destElem.Kind() == reflect.Struct {
+		if len(r.Data) == 0 {
+			return sql.ErrNoRows
+		}
+		// Use the first row of data for struct
+		return convertRowToStruct(r.Data[0], destElem)
 	}
 
-	elemType := sliceValue.Type().Elem()
-	isPtr := elemType.Kind() == reflect.Ptr
-	if isPtr {
-		elemType = elemType.Elem()
-	}
-	if elemType.Kind() != reflect.Struct {
-		return fmt.Errorf("slice element must be a struct or pointer to struct")
+	// Handle slice pointer case
+	if destElem.Kind() == reflect.Slice {
+		// Set to empty slice if no data
+		if len(r.Data) == 0 {
+			destElem.Set(reflect.MakeSlice(destElem.Type(), 0, 0))
+			return nil
+		}
+
+		elemType := destElem.Type().Elem()
+		isPtr := elemType.Kind() == reflect.Ptr
+		if isPtr {
+			elemType = elemType.Elem()
+		}
+		if elemType.Kind() != reflect.Struct {
+			return fmt.Errorf("slice element must be a struct or pointer to struct")
+		}
+
+		// Create field map for faster lookup
+		fieldMap := make(map[string]*reflect.StructField)
+		for i := 0; i < elemType.NumField(); i++ {
+			field := elemType.Field(i)
+			tag := field.Tag.Get("gom")
+			if tag == "" {
+				continue
+			}
+			columnName := strings.Split(tag, ",")[0]
+			if columnName == "" {
+				continue
+			}
+			fieldMap[strings.ToLower(columnName)] = &field
+		}
+
+		// Convert each data row to struct
+		for _, data := range r.Data {
+			newElem := reflect.New(elemType)
+			if err := convertRowToStruct(data, newElem.Elem()); err != nil {
+				return err
+			}
+
+			if isPtr {
+				destElem.Set(reflect.Append(destElem, newElem))
+			} else {
+				destElem.Set(reflect.Append(destElem, newElem.Elem()))
+			}
+		}
+		return nil
 	}
 
-	// Create field map for faster lookup
+	return fmt.Errorf("destination must be a pointer to struct or slice")
+}
+
+// convertRowToStruct converts a single data row to a struct
+func convertRowToStruct(data map[string]interface{}, structValue reflect.Value) error {
+	structType := structValue.Type()
+
+	// Create field map for the struct
 	fieldMap := make(map[string]*reflect.StructField)
-	for i := 0; i < elemType.NumField(); i++ {
-		field := elemType.Field(i)
+	for i := 0; i < structType.NumField(); i++ {
+		field := structType.Field(i)
 		tag := field.Tag.Get("gom")
 		if tag == "" {
 			continue
@@ -283,27 +321,18 @@ func (r *Result) Into(dest interface{}) error {
 		fieldMap[strings.ToLower(columnName)] = &field
 	}
 
-	// Convert each data row to struct
-	for _, data := range r.Data {
-		newElem := reflect.New(elemType)
-		for columnName, value := range data {
-			columnName = strings.ToLower(columnName)
-			if field, ok := fieldMap[columnName]; ok {
-				fieldValue := newElem.Elem().FieldByName(field.Name)
-				if !fieldValue.CanSet() {
-					continue
-				}
-
-				if err := convertValue(value, fieldValue); err != nil {
-					return fmt.Errorf("error converting field %s: %v", field.Name, err)
-				}
+	// Convert each field
+	for columnName, value := range data {
+		columnName = strings.ToLower(columnName)
+		if field, ok := fieldMap[columnName]; ok {
+			fieldValue := structValue.FieldByName(field.Name)
+			if !fieldValue.CanSet() {
+				continue
 			}
-		}
 
-		if isPtr {
-			sliceValue.Set(reflect.Append(sliceValue, newElem))
-		} else {
-			sliceValue.Set(reflect.Append(sliceValue, newElem.Elem()))
+			if err := convertValue(value, fieldValue); err != nil {
+				return fmt.Errorf("error converting field %s: %v", field.Name, err)
+			}
 		}
 	}
 
