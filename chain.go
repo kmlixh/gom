@@ -478,6 +478,10 @@ func (c *Chain) From(model interface{}) *Chain {
 		c.tableName = tableName
 		return c
 	}
+	if c.tableName == "" && model.(define.ITableModel).TableName() != "" {
+		c.tableName = model.(define.ITableModel).TableName()
+
+	}
 
 	// Get model type and value
 	modelType := reflect.TypeOf(model)
