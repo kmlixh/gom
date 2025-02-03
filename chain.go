@@ -961,6 +961,18 @@ func (c *Chain) Save(fieldsOrModel ...interface{}) *define.Result {
 				return &define.Result{Error: fmt.Errorf("primary key field %s not found in model", transfer.PrimaryKey.Name)}
 			}
 
+			// Check if primary key is auto-increment
+			isAutoIncrement := false
+			pkTag := modelElem.Type().Field(transfer.PrimaryKey.Index).Tag.Get("gom")
+			if pkTag != "" {
+				for _, opt := range strings.Split(pkTag, ",")[1:] {
+					if opt == "auto" {
+						isAutoIncrement = true
+						break
+					}
+				}
+			}
+
 			idValue := idField.Interface()
 			zeroValue := reflect.Zero(reflect.TypeOf(idValue)).Interface()
 
@@ -981,22 +993,27 @@ func (c *Chain) Save(fieldsOrModel ...interface{}) *define.Result {
 				}
 			}
 
-			// If ID is not zero value, add it as a condition for update
-			if idValue != zeroValue {
+			// If ID is not zero value and not auto-increment, add it as a condition for update
+			if idValue != zeroValue && !isAutoIncrement {
 				c.Where(transfer.PrimaryKey.Column, define.OpEq, idValue)
 				result := c.Sets(fields).Update()
 				return result
 			}
 
-			// Otherwise, perform insert
+			// Remove auto-increment primary key from fields for insert
+			if isAutoIncrement {
+				delete(fields, transfer.PrimaryKey.Column)
+			}
+
+			// Perform insert
 			result := c.Sets(fields).executeInsert()
 			if result.Error != nil {
 				return result
 			}
 
-			// Set the ID back to the model if it was an insert
-			if result.ID != 0 {
-				reflect.ValueOf(v).Elem().FieldByName(transfer.PrimaryKey.Name).Set(reflect.ValueOf(result.ID))
+			// Set the ID back to the model if it was an insert and we got an ID
+			if result.ID != 0 && isAutoIncrement {
+				idField.Set(reflect.ValueOf(result.ID))
 			}
 			return result
 		}
