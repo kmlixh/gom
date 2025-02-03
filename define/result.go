@@ -12,9 +12,9 @@ import (
 
 // Result implements sql.Result interface and includes query result functionality
 type Result struct {
-	ID       int64
-	Affected int64
-	Error    error
+	ID       int64            `json:"id"`
+	Affected int64            `json:"affected"`
+	Error    error            `json:"error"`
 	Data     []map[string]any `json:"data"`
 	Columns  []string         `json:"columns"`
 }
