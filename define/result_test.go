@@ -222,7 +222,8 @@ func TestResultEdgeCases(t *testing.T) {
 		var result *Result
 		var models []TestResultModel
 		err := result.Into(&models)
-		assert.NoError(t, err)
+		assert.Error(t, err)
+		assert.Equal(t, "result is nil", err.Error())
 		assert.Len(t, models, 0)
 	})
 
@@ -235,15 +236,18 @@ func TestResultEdgeCases(t *testing.T) {
 		var models []TestResultModel
 		err := result.Into(models)
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "destination must be a non-nil pointer")
 
 		// Nil pointer
 		err = result.Into(nil)
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "destination must be a non-nil pointer")
 
-		// Non-slice pointer
+		// Non-slice pointer for multiple results
 		var model TestResultModel
 		err = result.Into(&model)
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "destination must be a pointer to slice for multiple results")
 	})
 
 	t.Run("Empty Result", func(t *testing.T) {
@@ -271,11 +275,20 @@ func TestResultEdgeCases(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Verify JSON structure
-		var decoded map[string]interface{}
+		var decoded struct {
+			ID       int64                    `json:"ID"`
+			Affected int64                    `json:"Affected"`
+			Data     []map[string]interface{} `json:"Data"`
+			Columns  []string                 `json:"Columns"`
+		}
 		err = json.Unmarshal([]byte(jsonStr), &decoded)
 		assert.NoError(t, err)
-		assert.Equal(t, float64(1), decoded["ID"])
-		assert.Equal(t, float64(2), decoded["Affected"])
+		assert.Equal(t, int64(1), decoded.ID)
+		assert.Equal(t, int64(2), decoded.Affected)
+		assert.Len(t, decoded.Data, 1)
+		assert.Equal(t, float64(1), decoded.Data[0]["id"])
+		assert.Equal(t, "Test", decoded.Data[0]["name"])
+		assert.Equal(t, []string{"id", "name"}, decoded.Columns)
 	})
 }
 

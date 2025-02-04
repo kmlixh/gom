@@ -56,6 +56,7 @@ func ConvertValue(value interface{}, targetType reflect.Type) (interface{}, erro
 }
 
 // StructToMap converts a struct to a map[string]interface{} using gom tags
+// Only non-zero values are included in the result
 func StructToMap(obj interface{}) (map[string]interface{}, error) {
 	if obj == nil {
 		return nil, errors.New("input object is nil")
@@ -72,16 +73,6 @@ func StructToMap(obj interface{}) (map[string]interface{}, error) {
 	result := make(map[string]interface{})
 	typ := val.Type()
 
-	// First, check if the struct has any gom tags
-	hasGomTags := false
-	for i := 0; i < typ.NumField(); i++ {
-		if tag := typ.Field(i).Tag.Get("gom"); tag != "" {
-			hasGomTags = true
-			break
-		}
-	}
-
-	// Now process all fields
 	for i := 0; i < val.NumField(); i++ {
 		field := val.Field(i)
 		fieldType := typ.Field(i)
@@ -91,24 +82,22 @@ func StructToMap(obj interface{}) (map[string]interface{}, error) {
 			continue
 		}
 
-		// Check for gom tag
-		tag := fieldType.Tag.Get("gom")
-		if tag != "" {
-			// If gom tag exists, use the tag name and include the field
+		// Skip zero values
+		if field.IsZero() {
+			continue
+		}
+
+		// Get field name from tag or use struct field name
+		fieldName := fieldType.Name
+		if tag := fieldType.Tag.Get("gom"); tag != "" {
 			parts := strings.Split(tag, ",")
-			fieldName := parts[0]
-			if fieldName == "" {
-				fieldName = fieldType.Name
-			}
-			result[fieldName] = field.Interface()
-		} else {
-			// If no gom tag:
-			// - For structs with gom tags, only include non-zero fields
-			// - For structs without any gom tags, include all fields
-			if !hasGomTags || !isZeroValue(field) {
-				result[fieldType.Name] = field.Interface()
+			if parts[0] != "" {
+				fieldName = parts[0]
 			}
 		}
+
+		// Add non-zero value to result
+		result[fieldName] = field.Interface()
 	}
 
 	return result, nil

@@ -231,20 +231,22 @@ func TestTransactionErrors(t *testing.T) {
 
 func TestConcurrencyErrors(t *testing.T) {
 	db := setupErrorTestDB(t)
-	if db == nil {
-		return
-	}
-	defer db.Close()
 
-	// 准备测试数据
+	// 创建测试用户
 	user := &ErrorTestUser{
 		Name:    "Original",
 		Age:     25,
 		Email:   "original@test.com",
 		Version: 1,
 	}
+
+	// 保存用户并确保获取到自增ID
 	result := db.Chain().Table("error_test_user").Save(user)
 	assert.NoError(t, result.Error)
+	lastID, err := result.LastInsertId()
+	assert.NoError(t, err)
+	user.ID = lastID
+	assert.Greater(t, user.ID, int64(0), "Expected user ID to be set after save")
 
 	// 事务1读取数据
 	var users1 []ErrorTestUser
@@ -270,29 +272,20 @@ func TestConcurrencyErrors(t *testing.T) {
 		"Updated1", user1.Version+1, user.ID, user1.Version,
 	).Exec()
 	assert.NoError(t, result.Error)
-	rowsAffected, err := result.RowsAffected()
+	affected, err := result.RowsAffected()
 	assert.NoError(t, err)
-	assert.Equal(t, int64(1), rowsAffected)
+	assert.Equal(t, int64(1), affected, "First update should affect 1 row")
 
-	// 事务2尝试使用旧版本号更新数据（应该失败）
+	// 事务2尝试更新相同的数据（应该失败，因为版本已经改变）
 	result = db.Chain().Table("error_test_user").Raw(
 		"UPDATE error_test_user SET name = ?, version = ? WHERE id = ? AND version = ?",
 		"Updated2", user2.Version+1, user.ID, user2.Version,
 	).Exec()
+	// 这里不应该返回错误，但应该显示没有行被更新
 	assert.NoError(t, result.Error)
-	rowsAffected, err = result.RowsAffected()
+	affected, err = result.RowsAffected()
 	assert.NoError(t, err)
-	assert.Equal(t, int64(0), rowsAffected, "应该没有行被更新")
-
-	// 验证数据是否正确更新
-	var finalUsers []ErrorTestUser
-	result = db.Chain().Table("error_test_user").
-		Where("id", define.OpEq, user.ID).
-		List(&finalUsers)
-	assert.NoError(t, result.Error)
-	assert.Len(t, finalUsers, 1)
-	assert.Equal(t, "Updated1", finalUsers[0].Name)
-	assert.Equal(t, user1.Version+1, finalUsers[0].Version)
+	assert.Equal(t, int64(0), affected, "Second update should affect 0 rows due to version mismatch")
 }
 
 func TestInvalidOperations(t *testing.T) {

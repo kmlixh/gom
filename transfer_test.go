@@ -13,7 +13,7 @@ import (
 )
 
 type TestUser struct {
-	ID        int64     `gom:"id,@" sql:"id,pk,auto_increment"`
+	ID        int64     `gom:"id,auto,pk" sql:"id,pk,auto_increment"`
 	Name      string    `gom:"name" sql:"name"`
 	Age       int       `gom:"age" sql:"age"`
 	Email     string    `gom:"email" sql:"email"`
@@ -25,6 +25,21 @@ type TestUser struct {
 
 func (t *TestUser) TableName() string {
 	return "test_user"
+}
+
+func (t *TestUser) CreateSql() string {
+	return `
+		CREATE TABLE IF NOT EXISTS test_user (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			name VARCHAR(255) NOT NULL,
+			age INT,
+			email VARCHAR(255),
+			created_at DATETIME,
+			updated_at DATETIME,
+			is_active TINYINT(1) DEFAULT 1,
+			score DOUBLE DEFAULT 0.0
+		)
+	`
 }
 
 func createTestDB(t *testing.T) *DB {
@@ -107,13 +122,16 @@ func TestTransferBasicOperations(t *testing.T) {
 	}
 
 	// Test Save
-	result := db.Chain().Table("test_user").Save(user)
+	result := db.Chain().From(user).Save(user)
 	assert.NoError(t, result.Error)
-	assert.NotZero(t, user.ID)
+	lastID, err := result.LastInsertId()
+	assert.NoError(t, err)
+	assert.NotZero(t, lastID)
+	assert.Equal(t, lastID, user.ID)
 
 	// Test List single
 	var users []TestUser
-	result = db.Chain().Table("test_user").Where("id", define.OpEq, user.ID).List(&users)
+	result = db.Chain().From(&TestUser{}).Where("id", define.OpEq, user.ID).List(&users)
 	assert.NoError(t, result.Error)
 	assert.Len(t, users, 1)
 	fetchedUser := users[0]
@@ -127,7 +145,7 @@ func TestTransferBasicOperations(t *testing.T) {
 
 	// Test List multiple
 	users = nil
-	result = db.Chain().Table("test_user").OrderBy("id").List(&users)
+	result = db.Chain().From(&TestUser{}).OrderBy("id").List(&users)
 	assert.NoError(t, result.Error)
 	assert.Len(t, users, 1)
 	assert.Equal(t, user.Name, users[0].Name)
@@ -135,24 +153,24 @@ func TestTransferBasicOperations(t *testing.T) {
 	// Test Update
 	updatedUser := *user
 	updatedUser.Name = "Updated User 1"
-	result = db.Chain().Table("test_user").Where("id", define.OpEq, user.ID).Values(map[string]interface{}{
+	result = db.Chain().From(&TestUser{}).Where("id", define.OpEq, user.ID).Values(map[string]interface{}{
 		"name": updatedUser.Name,
 	}).Save()
 	assert.NoError(t, result.Error)
 
 	users = nil
-	result = db.Chain().Table("test_user").Where("id", define.OpEq, user.ID).List(&users)
+	result = db.Chain().From(&TestUser{}).Where("id", define.OpEq, user.ID).List(&users)
 	assert.NoError(t, result.Error)
 	assert.Len(t, users, 1)
 	assert.Equal(t, "Updated User 1", users[0].Name)
 
 	// Test Delete
-	result = db.Chain().Table("test_user").Where("id", define.OpEq, user.ID).Delete()
+	result = db.Chain().From(&TestUser{}).Where("id", define.OpEq, user.ID).Delete()
 	assert.NoError(t, result.Error)
 
 	// Verify deletion
 	var checkUser TestUser
-	result = db.Chain().Table("test_user").Where("id", define.OpEq, user.ID).First(&checkUser)
+	result = db.Chain().From(&TestUser{}).Where("id", define.OpEq, user.ID).First(&checkUser)
 	assert.Error(t, result.Error)
 	assert.Equal(t, sql.ErrNoRows, result.Error)
 }

@@ -516,7 +516,7 @@ func (c *Chain) From(model interface{}) *Chain {
 		// Skip auto-increment fields for insert
 		isAuto := false
 		for _, part := range parts[1:] {
-			if part == "auto" {
+			if part == "auto" || part == "@" {
 				isAuto = true
 				break
 			}
@@ -1147,6 +1147,11 @@ func (c *Chain) Update(fieldsOrModel ...interface{}) *define.Result {
 			fields := transfer.ToMap(v)
 			if fields == nil || len(fields) == 0 {
 				return &define.Result{Error: fmt.Errorf("no fields to update")}
+			}
+
+			// Remove primary key field from update fields
+			if transfer.PrimaryKey != nil {
+				delete(fields, transfer.PrimaryKey.Column)
 			}
 
 			// Convert boolean values to integers for MySQL

@@ -133,7 +133,7 @@ func GetTransfer(model interface{}) *Transfer {
 			switch opt {
 			case "auto":
 				fieldInfo.IsAuto = true
-			case "@":
+			case "@", "pk":
 				fieldInfo.IsPrimary = true
 				transfer.PrimaryKey = fieldInfo
 			case "default":
