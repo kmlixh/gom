@@ -39,12 +39,52 @@ func (chain *Chain) GetTable() string {
 	return ""
 }
 func (chain *Chain) Clone() *Chain {
-	return &Chain{id: getGrouteId(), factory: chain.factory, db: chain.db, cnd: define.CndEmpty()}
-}
-func (chain *Chain) cloneSelfIfDifferentGoRoutine() {
-	if chain.id != getGrouteId() {
-		chain = chain.Clone()
+	newChain := &Chain{
+		id:       getGrouteId(),
+		factory:  chain.factory,
+		db:       chain.db,
+		cnd:      define.CndEmpty(),
+		table:    nil,
+		rawSql:   nil,
+		rawData:  nil,
+		tx:       chain.tx, // 事务需要共享
+		orderBys: nil,
+		page:     nil,
+		dataMap:  make(map[string]any),
+		fields:   nil,
+		rawMeta:  nil,
 	}
+
+	// 深度复制必要的字段
+	if chain.table != nil {
+		tableCopy := *chain.table
+		newChain.table = &tableCopy
+	}
+	if chain.rawSql != nil {
+		sqlCopy := *chain.rawSql
+		newChain.rawSql = &sqlCopy
+	}
+	if chain.rawData != nil {
+		newChain.rawData = make([]any, len(chain.rawData))
+		copy(newChain.rawData, chain.rawData)
+	}
+	if chain.orderBys != nil {
+		orderByCopy := make([]define.OrderBy, len(*chain.orderBys))
+		copy(orderByCopy, *chain.orderBys)
+		newChain.orderBys = &orderByCopy
+	}
+	if chain.fields != nil {
+		newChain.fields = make([]string, len(chain.fields))
+		copy(newChain.fields, chain.fields)
+	}
+
+	return newChain
+}
+func (chain *Chain) cloneSelfIfDifferentGoRoutine() *Chain {
+	if chain.id != getGrouteId() {
+		return chain.Clone()
+	}
+	return chain
 }
 func (chain *Chain) RawSql(sql string, datas ...any) *Chain {
 	chain.cloneSelfIfDifferentGoRoutine()
@@ -216,7 +256,7 @@ func (chain *Chain) First(vs ...interface{}) define.Result {
 	return chain.Page(1, 1).Select(vs[0])
 }
 func (chain *Chain) Insert(v ...interface{}) define.Result {
-	chain.cloneSelfIfDifferentGoRoutine()
+	chain = chain.cloneSelfIfDifferentGoRoutine()
 	if len(v) > 1 {
 		return define.ErrorResult(errors.New("data can't large then one"))
 	}
@@ -230,7 +270,7 @@ func (chain *Chain) Save(v ...interface{}) define.Result {
 
 }
 func (chain *Chain) Delete(v ...interface{}) define.Result {
-	chain.cloneSelfIfDifferentGoRoutine()
+	chain = chain.cloneSelfIfDifferentGoRoutine()
 	if len(v) > 1 {
 		return define.ErrorResult(errors.New("data can't large then one"))
 	}
@@ -242,7 +282,7 @@ func (chain *Chain) Delete(v ...interface{}) define.Result {
 }
 
 func (chain *Chain) Update(v ...interface{}) define.Result {
-	chain.cloneSelfIfDifferentGoRoutine()
+	chain = chain.cloneSelfIfDifferentGoRoutine()
 	if len(v) > 1 {
 		return define.ErrorResult(errors.New("data can't large then one"))
 	}
@@ -329,7 +369,12 @@ func (chain *Chain) executeInside(sqlType define.SqlType) define.Result {
 	if chain.cnd.IsEmpty() && (sqlType == define.Update || sqlType == define.Delete) {
 		primaryMap := make(map[string]interface{})
 		for _, key := range append(primaryKey, primaryAuto...) {
-			primaryMap[key] = chain.dataMap[key]
+			if val, ok := chain.dataMap[key]; !ok {
+				return define.ErrorResult(fmt.Errorf("primaryKey  '%s' not exist in data", key))
+			} else {
+				primaryMap[key] = val
+			}
+
 		}
 		chain.cnd = define.MapToCondition(primaryMap)
 	}
@@ -523,6 +568,7 @@ func (chain *Chain) CleanDb() *Chain {
 	chain.orderBys = nil
 	chain.rawSql = nil
 	chain.dataMap = nil
+	chain.rawMeta = nil
 	chain.cnd = define.CndEmpty()
 	return chain
 }

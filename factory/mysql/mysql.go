@@ -137,8 +137,8 @@ func InitFactory() {
 		}
 		if model.Page() != nil {
 			idx, size := model.Page().Page()
-			datas = append(datas, idx, size)
-			sql += " LIMIT ?,?"
+			datas = append(datas, size, idx)
+			sql += " LIMIT ? OFFSET ?"
 		}
 		sql += ";"
 		var result []define.SqlProto
