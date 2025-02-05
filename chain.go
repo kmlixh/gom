@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -29,81 +28,81 @@ type Chain struct {
 	rawMeta  any
 }
 
-func (db *Chain) Table(table string) *Chain {
-	db.table = &table
-	return db
+func (chain *Chain) Table(table string) *Chain {
+	chain.table = &table
+	return chain
 }
-func (c *Chain) GetTable() string {
-	if c.table != nil {
-		return *c.table
+func (chain *Chain) GetTable() string {
+	if chain.table != nil {
+		return *chain.table
 	}
 	return ""
 }
-func (db *Chain) Clone() *Chain {
-	return &Chain{id: getGrouteId(), factory: db.factory, db: db.db, cnd: define.CndEmpty()}
+func (chain *Chain) Clone() *Chain {
+	return &Chain{id: getGrouteId(), factory: chain.factory, db: chain.db, cnd: define.CndEmpty()}
 }
-func (db *Chain) cloneSelfIfDifferentGoRoutine() {
-	if db.id != getGrouteId() {
-		db = db.Clone()
+func (chain *Chain) cloneSelfIfDifferentGoRoutine() {
+	if chain.id != getGrouteId() {
+		chain = chain.Clone()
 	}
 }
-func (db *Chain) RawSql(sql string, datas ...any) *Chain {
-	db.cloneSelfIfDifferentGoRoutine()
-	db.rawSql = &sql
+func (chain *Chain) RawSql(sql string, datas ...any) *Chain {
+	chain.cloneSelfIfDifferentGoRoutine()
+	chain.rawSql = &sql
 	var temp = define.UnZipSlice(datas)
-	db.rawData = temp
-	return db
+	chain.rawData = temp
+	return chain
 }
 
-func (db *Chain) OrderBy(field string, t define.OrderType) *Chain {
-	db.cloneSelfIfDifferentGoRoutine()
+func (chain *Chain) OrderBy(field string, t define.OrderType) *Chain {
+	chain.cloneSelfIfDifferentGoRoutine()
 	var temp []define.OrderBy
 	temp = append(temp, MakeOrderBy(field, t))
-	db.orderBys = &temp
-	return db
+	chain.orderBys = &temp
+	return chain
 }
-func (db *Chain) OrderBys(orderbys []define.OrderBy) *Chain {
-	db.cloneSelfIfDifferentGoRoutine()
+func (chain *Chain) OrderBys(orderbys []define.OrderBy) *Chain {
+	chain.cloneSelfIfDifferentGoRoutine()
 	var temp []define.OrderBy
 	temp = append(temp, orderbys...)
-	db.orderBys = &temp
-	return db
+	chain.orderBys = &temp
+	return chain
 }
-func (db *Chain) CleanOrders() *Chain {
-	db.cloneSelfIfDifferentGoRoutine()
+func (chain *Chain) CleanOrders() *Chain {
+	chain.cloneSelfIfDifferentGoRoutine()
 	temp := make([]define.OrderBy, 0)
-	db.orderBys = &temp
-	return db
+	chain.orderBys = &temp
+	return chain
 }
-func (db *Chain) OrderByAsc(field string) *Chain {
-	return db.OrderBy(field, define.Asc)
+func (chain *Chain) OrderByAsc(field string) *Chain {
+	return chain.OrderBy(field, define.Asc)
 }
-func (db *Chain) OrderByDesc(field string) *Chain {
-	return db.OrderBy(field, define.Desc)
-}
-
-func (db *Chain) Where2(sql string, patches ...interface{}) *Chain {
-	db.cloneSelfIfDifferentGoRoutine()
-	return db.Where(define.CndRaw(sql, patches...))
-}
-func (db *Chain) Where(cnd define.Condition) *Chain {
-	db.cloneSelfIfDifferentGoRoutine()
-	db.cnd.And2(cnd)
-	return db
+func (chain *Chain) OrderByDesc(field string) *Chain {
+	return chain.OrderBy(field, define.Desc)
 }
 
-func (db *Chain) Page(page int64, pageSize int64) *Chain {
-	db.cloneSelfIfDifferentGoRoutine()
+func (chain *Chain) Where2(sql string, patches ...interface{}) *Chain {
+	chain.cloneSelfIfDifferentGoRoutine()
+	return chain.Where(define.CndRaw(sql, patches...))
+}
+func (chain *Chain) Where(cnd define.Condition) *Chain {
+	chain.cloneSelfIfDifferentGoRoutine()
+	chain.cnd.And2(cnd)
+	return chain
+}
+
+func (chain *Chain) Page(page int64, pageSize int64) *Chain {
+	chain.cloneSelfIfDifferentGoRoutine()
 	pages := MakePage(page, pageSize)
-	db.page = pages
-	return db
+	chain.page = pages
+	return chain
 }
 
-func (db *Chain) Count(columnName string) define.Result {
-	statements := fmt.Sprintf("select count(%s) as count from %s", columnName, db.GetTable())
+func (chain *Chain) Count(columnName string) define.Result {
+	statements := fmt.Sprintf("select count(%s) as count from %s", columnName, chain.GetTable())
 	var data []interface{}
-	if db.cnd != nil && db.cnd.PayLoads() > 0 {
-		cndString, cndData := db.factory.ConditionToSql(false, db.cnd)
+	if chain.cnd != nil && chain.cnd.PayLoads() > 0 {
+		cndString, cndData := chain.factory.ConditionToSql(false, chain.cnd)
 		if cndString != "" {
 			data = append(data, cndData...)
 			statements = statements + " WHERE " + cndString
@@ -114,16 +113,16 @@ func (db *Chain) Count(columnName string) define.Result {
 	if er != nil {
 		return define.ErrorResult(er)
 	}
-	result := db.execute(define.NewSqlProto(statements, data, scanners))
+	result := chain.execute(define.NewSqlProto(statements, data, scanners))
 
 	return result
 }
 
-func (db *Chain) Sum(columnName string) define.Result {
-	statements := fmt.Sprintf("select SUM(`%s`) as count from `%s`", columnName, db.GetTable())
+func (chain *Chain) Sum(columnName string) define.Result {
+	statements := fmt.Sprintf("select SUM(`%s`) as count from `%s`", columnName, chain.GetTable())
 	var data []interface{}
-	if db.cnd != nil && db.cnd.PayLoads() > 0 {
-		cndString, cndData := db.factory.ConditionToSql(false, db.cnd)
+	if chain.cnd != nil && chain.cnd.PayLoads() > 0 {
+		cndString, cndData := chain.factory.ConditionToSql(false, chain.cnd)
 		data = append(data, cndData...)
 		statements = statements + " WHERE " + cndString
 	}
@@ -132,158 +131,153 @@ func (db *Chain) Sum(columnName string) define.Result {
 	if er != nil {
 		return define.ErrorResult(er)
 	}
-	result := db.execute(define.NewSqlProto(statements, data, scanners))
+	result := chain.execute(define.NewSqlProto(statements, data, scanners))
 	return result
 }
-func (db *Chain) From(vs any) *Chain {
+func (chain *Chain) From(vs any) *Chain {
 	if _, ok := vs.(string); ok {
-		db.Table(vs.(string))
+		chain.Table(vs.(string))
 	} else {
-		db.rawMeta = vs
+		chain.rawMeta = vs
 	}
-	return db
+	return chain
 
 }
-func (db *Chain) Set(name string, val interface{}) *Chain {
-	db.dataMap[name] = val
-	return db
+func (chain *Chain) Set(name string, val interface{}) *Chain {
+	chain.dataMap[name] = val
+	return chain
 }
 
-func (db *Chain) Select(vt ...any) define.Result {
-	db.cloneSelfIfDifferentGoRoutine()
+func (chain *Chain) Select(vt ...any) define.Result {
+	chain.cloneSelfIfDifferentGoRoutine()
 	var vs any
 	if len(vt) > 1 {
 		return define.ErrorResult(errors.New("data can't large then one"))
 	} else if len(vt) == 1 {
 		vs = vt[0]
-	} else if db.rawMeta != nil {
-		vs = db.rawMeta
-	} else if db.table != nil && len(*db.table) > 0 {
+	} else if chain.rawMeta != nil {
+		vs = chain.rawMeta
+	} else if chain.table != nil && len(*chain.table) > 0 {
 		temp := make([]map[string]any, 0)
 		vs = &temp
 	}
-	scanner, er := define.GetDefaultScanner(vs, db.fields...)
+	scanner, er := define.GetDefaultScanner(vs, chain.fields...)
 	if er != nil {
 		return define.ErrorResult(er)
 	}
-	if db.rawSql != nil && len(*db.rawSql) > 0 {
-		return db.execute(define.NewSqlProto(*db.rawSql, db.rawData, scanner))
+	if chain.rawSql != nil && len(*chain.rawSql) > 0 {
+		return chain.execute(define.NewSqlProto(*chain.rawSql, chain.rawData, scanner))
 	} else {
 		rawInfo := define.GetRawTableInfo(vs)
 		if rawInfo.IsStruct {
 			//检查列缺失
 			colMap, cols := define.GetDefaultsColumnFieldMap(rawInfo.Type)
-			if len(db.fields) > 0 {
-				for _, c := range db.fields {
+			if len(chain.fields) > 0 {
+				for _, c := range chain.fields {
 					if _, ok := colMap[c]; !ok {
 						return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "Select", fmt.Errorf("'%s' not exist in variable", c), nil))
 					}
 				}
 			}
-			if db.fields == nil || len(db.fields) == 0 {
-				db.fields = cols
+			if chain.fields == nil || len(chain.fields) == 0 {
+				chain.fields = cols
 			} else {
-				db.fields = define.ArrayIntersect(db.fields, cols)
+				chain.fields = define.ArrayIntersect(chain.fields, cols)
 			}
 		}
 
-		table := db.GetTable()
+		table := chain.GetTable()
 		if len(table) == 0 {
 			table = rawInfo.TableName
 		}
-		cnd := db.cnd
+		cnd := chain.cnd
 
 		model := &DefaultModel{
 			table:         table,
 			primaryKeys:   nil,
-			columns:       db.fields,
+			columns:       chain.fields,
 			columnDataMap: nil,
 			condition:     cnd,
-			orderBys:      db.GetOrderBys(),
-			page:          db.GetPageInfo(),
+			orderBys:      chain.GetOrderBys(),
+			page:          chain.GetPageInfo(),
 			target:        vs,
 		}
-		selectFunc := db.factory.GetSqlFunc(define.Query)
+		selectFunc := chain.factory.GetSqlFunc(define.Query)
 		sqlProtos := selectFunc(model)
 		if er != nil {
 			return define.ErrorResult(er)
 		}
-		defer db.CleanDb()
-		return db.execute(sqlProtos[0])
+		defer chain.CleanDb()
+		return chain.execute(sqlProtos[0])
 	}
 }
-func (db *Chain) First(vs ...interface{}) define.Result {
-	db.cloneSelfIfDifferentGoRoutine()
-	return db.Page(0, 1).Select(vs)
+func (chain *Chain) First(vs ...interface{}) define.Result {
+	chain.cloneSelfIfDifferentGoRoutine()
+	return chain.Page(1, 1).Select(vs[0])
 }
-func (db *Chain) Insert(v ...interface{}) define.Result {
-	db.cloneSelfIfDifferentGoRoutine()
-	v = define.UnZipSlice(v)
+func (chain *Chain) Insert(v ...interface{}) define.Result {
+	chain.cloneSelfIfDifferentGoRoutine()
 	if len(v) > 1 {
 		return define.ErrorResult(errors.New("data can't large then one"))
 	}
 	if len(v) == 1 {
-		db.rawMeta = v[0]
+		chain.rawMeta = v[0]
 	}
-	return db.executeInside(define.Insert)
+	return chain.executeInside(define.Insert)
 }
-func (db *Chain) Save(v ...interface{}) define.Result {
-	return db.Insert(v...)
+func (chain *Chain) Save(v ...interface{}) define.Result {
+	return chain.Insert(v...)
 
 }
-func (db *Chain) Delete(v ...interface{}) define.Result {
-	db.cloneSelfIfDifferentGoRoutine()
-	v = define.UnZipSlice(v)
+func (chain *Chain) Delete(v ...interface{}) define.Result {
+	chain.cloneSelfIfDifferentGoRoutine()
 	if len(v) > 1 {
 		return define.ErrorResult(errors.New("data can't large then one"))
 	}
 	if len(v) == 1 {
-		db.rawMeta = v[0]
+		chain.rawMeta = v[0]
 	}
-	return db.executeInside(define.Delete)
+	return chain.executeInside(define.Delete)
 
 }
 
-func (db *Chain) Update(v ...interface{}) define.Result {
-	db.cloneSelfIfDifferentGoRoutine()
-	v = define.UnZipSlice(v)
+func (chain *Chain) Update(v ...interface{}) define.Result {
+	chain.cloneSelfIfDifferentGoRoutine()
 	if len(v) > 1 {
 		return define.ErrorResult(errors.New("data can't large then one"))
 	}
 	if len(v) == 1 {
-		db.rawMeta = v[0]
+		chain.rawMeta = v[0]
 	}
-	return db.executeInside(define.Update)
+	return chain.executeInside(define.Update)
 }
 
-func (db *Chain) executeInside(sqlType define.SqlType) define.Result {
-	if db.rawSql != nil && len(*db.rawSql) > 0 {
-		if db.rawMeta != nil {
+func (chain *Chain) executeInside(sqlType define.SqlType) define.Result {
+	if chain.rawSql != nil && len(*chain.rawSql) > 0 {
+		if chain.rawMeta != nil {
 			return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "executeInside", fmt.Errorf("when the RawSql is not nil or empty, data should be nil"), nil))
 		}
-		return db.Raw(nil, *db.rawSql, db.rawData...)
+		return chain.Raw(nil, *chain.rawSql, chain.rawData...)
 	}
-	if sqlType != define.Query {
-		if db.rawMeta == nil && len(db.dataMap) == 0 {
-			return define.ErrorResult(errors.New("data was null"))
-		} else if len(db.dataMap) == 0 && db.rawMeta != nil {
-			dataMap, er := define.StructToMap(db.rawMeta)
-			if er != nil {
-				return define.ErrorResult(er)
-			}
-			db.dataMap = dataMap
+	if chain.rawMeta == nil && len(chain.dataMap) == 0 {
+		return define.ErrorResult(errors.New("data was null"))
+	} else if len(chain.dataMap) == 0 && chain.rawMeta != nil {
+		dataMap, er := define.StructToMap(chain.rawMeta)
+		if er != nil {
+			return define.ErrorResult(er)
 		}
+		chain.dataMap = dataMap
 	}
-	table := db.GetTable()
-	rawInfo := define.GetRawTableInfo(db.rawMeta)
+	table := chain.GetTable()
+	rawInfo := define.GetRawTableInfo(chain.rawMeta)
 	if len(table) == 0 {
-		if db.rawMeta == nil {
+		if chain.rawMeta == nil {
 			return define.ErrorResult(errors.New("can't get table Name"))
 		}
 		table = rawInfo.TableName
 	}
 	colMap, _ := define.GetDefaultsColumnFieldMap(rawInfo.Type)
-	dbCols, er := db.factory.GetColumns(table, db.db)
+	dbCols, er := chain.factory.GetColumns(table, chain.db)
 	if er != nil {
 		return define.ErrorResult(er)
 	}
@@ -304,7 +298,7 @@ func (db *Chain) executeInside(sqlType define.SqlType) define.Result {
 			primaryAuto = append(primaryAuto, dbCol.ColumnName)
 		}
 	}
-	columns := db.fields
+	columns := chain.fields
 	if len(columns) > 0 {
 		for _, c := range columns {
 			if _, ok := colMap[c]; !ok {
@@ -318,23 +312,26 @@ func (db *Chain) executeInside(sqlType define.SqlType) define.Result {
 	if len(columns) > 0 {
 		columns = append(primaryKey, append(primaryAuto, columns...)...)
 	}
-	var cnd define.Condition
-	cnd = db.GetCondition()
+
 	if er != nil {
 		return define.ErrorResult(er)
 	}
 	dataCol := make([]string, 0)
-	for key, _ := range db.dataMap {
+	for key, _ := range chain.dataMap {
 		dataCol = append(dataCol, key)
 	}
 	columns = define.ArrayIntersect(dbColNames, dataCol)
 
 	// 如果设置了允许的字段列表,则取交集
-	if len(db.fields) > 0 {
-		columns = define.ArrayIntersect(columns, db.fields)
+	if len(chain.fields) > 0 {
+		columns = define.ArrayIntersect(columns, chain.fields)
 	}
-	if db.cnd.IsEmpty() {
-		db.cnd = define.MapToCondition(db.dataMap)
+	if chain.cnd.IsEmpty() && (sqlType == define.Update || sqlType == define.Delete) {
+		primaryMap := make(map[string]interface{})
+		for _, key := range append(primaryKey, primaryAuto...) {
+			primaryMap[key] = chain.dataMap[key]
+		}
+		chain.cnd = define.MapToCondition(primaryMap)
 	}
 
 	dm := &DefaultModel{
@@ -342,129 +339,66 @@ func (db *Chain) executeInside(sqlType define.SqlType) define.Result {
 		primaryKeys:   append(primaryKey, primaryAuto...),
 		primaryAuto:   primaryAuto,
 		columns:       columns,
-		columnDataMap: db.dataMap,
-		condition:     cnd,
-		orderBys:      db.GetOrderBys(),
-		page:          db.GetPageInfo(),
-		target:        db.rawMeta,
+		columnDataMap: chain.dataMap,
+		condition:     chain.cnd,
+		orderBys:      chain.GetOrderBys(),
+		page:          chain.GetPageInfo(),
+		target:        chain.rawMeta,
 	}
 
-	if len(vs) == 0 && db.table == nil && db.cnd == nil {
-		return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "executeInside", fmt.Errorf("there was nothing to do"), nil))
-	} else {
-		var vvs []define.TableModel
-		if vs != nil && len(vs) > 0 {
-			for _, v := range vs {
-
-				//检查列缺失
-
-				if sqlType == define.Update {
-					if cnd == nil {
-						prs := append(primaryKey, primaryAuto...)
-						if len(prs) == 0 {
-							return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "validatePrimaryKey", fmt.Errorf("can't find primary Key"), nil))
-						}
-						cndMap := make(map[string]interface{})
-						for _, key := range prs {
-							data, ok := dataMap[key]
-							if !ok {
-								return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "validatePrimaryKey", fmt.Errorf("can't find data for primary Key '%s'", key), nil))
-							}
-							if reflect.ValueOf(data).IsZero() {
-								return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "validatePrimaryKey", fmt.Errorf("value of Key '%s' can't be nil or empty", key), nil))
-							}
-							cndMap[key] = data
-						}
-						cnd = define.MapToCondition(cndMap)
-					}
-
-					columns, _, _ = define.ArrayIntersect2(columns, append(primaryKey, primaryAuto...))
-				} else if sqlType == define.Delete && cnd == nil {
-					cnd = define.MapToCondition(dataMap)
-					columns = make([]string, 0)
-				}
-
-				if sqlType == define.Insert {
-					columns = define.ArrayIntersect(dbColNames, columns)
-					if len(primaryAuto) > 0 {
-						columns, _, _ = define.ArrayIntersect2(columns, primaryAuto)
-					}
-				}
-
-				if sqlType == define.Update && cnd == nil {
-					return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation, "executeInside", fmt.Errorf("can't update Database without Conditions"), nil))
-				}
-				vvs = append(vvs, dm)
-			}
-		} else if sqlType == define.Delete && db.GetTable() != "" && db.GetCondition() != nil {
-			dm := &DefaultModel{
-				table:         db.GetTable(),
-				primaryKeys:   nil,
-				columns:       nil,
-				columnDataMap: nil,
-				condition:     db.GetCondition(),
-				orderBys:      db.GetOrderBys(),
-				page:          db.GetPageInfo(),
-			}
-			vvs = append(vvs, dm)
+	var lastInsertId = int64(0)
+	genFunc := chain.factory.GetSqlFunc(sqlType)
+	//此处应当判断是否已经在事物中，如果不在事务中才开启事物
+	count := int64(0)
+	sqlProtos := genFunc(dm)
+	for _, sqlProto := range sqlProtos {
+		if define.Debug {
+			fmt.Println(sqlProto)
 		}
-		var lastInsertId = int64(0)
-		genFunc := db.factory.GetSqlFunc(sqlType)
-		//此处应当判断是否已经在事物中，如果不在事务中才开启事物
-		count := int64(0)
-		sqlProtos := genFunc(vvs...)
-		for _, sqlProto := range sqlProtos {
-			if define.Debug {
-				fmt.Println(sqlProto)
-			}
-			rs := db.execute(sqlProto)
-			if rs.Error() != nil {
-				return rs
-			}
-			cs := rs.RowsAffected()
-			if cs == 1 && len(sqlProtos) == len(vvs) && sqlType == define.Insert {
-				//
-				id := rs.LastInsertId()
-				lastInsertId = id
-			}
-			count += cs
+		rs := chain.execute(sqlProto)
+		if rs.Error() != nil {
+			return rs
 		}
-		defer db.CleanDb()
-		return define.NewResult(lastInsertId, count, nil, nil)
+		cs := rs.RowsAffected()
+		id := rs.LastInsertId()
+		lastInsertId = id
+		count += cs
 	}
+	defer chain.CleanDb()
+	return define.NewResult(lastInsertId, count, nil, nil)
 }
-func (db *Chain) Raw(scanner define.IRowScanner, rawSql string, datas ...any) define.Result {
-	return db.execute(define.NewSqlProto(rawSql, datas, scanner))
+func (chain *Chain) Raw(scanner define.IRowScanner, rawSql string, datas ...any) define.Result {
+	return chain.execute(define.NewSqlProto(rawSql, datas, scanner))
 }
 
-func (db *Chain) prepare(query string) (*sql.Stmt, error) {
-	if db.IsInTransaction() {
-		st, er := db.tx.Prepare(query)
+func (chain *Chain) prepare(query string) (*sql.Stmt, error) {
+	if chain.IsInTransaction() {
+		st, er := chain.tx.Prepare(query)
 		if er != nil {
-			db.Rollback()
+			chain.Rollback()
 		}
 		return st, er
 	}
-	return db.db.Prepare(query)
+	return chain.db.Prepare(query)
 }
 
-func (db *Chain) GetCondition() define.Condition {
-	if db.cnd != nil {
-		return db.cnd
+func (chain *Chain) GetCondition() define.Condition {
+	if chain.cnd != nil {
+		return chain.cnd
 	}
 	return nil
 }
 
-func (db *Chain) execute(sqlProto define.SqlProto) define.Result {
+func (chain *Chain) execute(sqlProto define.SqlProto) define.Result {
 	if define.Debug {
 		fmt.Println("execute sql:", sqlProto.PreparedSql, "data:", sqlProto.Data)
 	}
 	var err error
 	var st *sql.Stmt
-	if db.tx != nil {
-		st, err = db.tx.Prepare(sqlProto.PreparedSql)
+	if chain.tx != nil {
+		st, err = chain.tx.Prepare(sqlProto.PreparedSql)
 	} else {
-		st, err = db.db.Prepare(sqlProto.PreparedSql)
+		st, err = chain.db.Prepare(sqlProto.PreparedSql)
 	}
 
 	defer func(st *sql.Stmt, err error) {
@@ -504,45 +438,45 @@ func (db *Chain) execute(sqlProto define.SqlProto) define.Result {
 		}
 		lastInsertId, _ := rs.LastInsertId()
 		rowsEffect, _ := rs.RowsAffected()
-		defer db.CleanDb()
+		defer chain.CleanDb()
 		return define.NewResult(lastInsertId, rowsEffect, nil, nil)
 	}
 }
-func (db *Chain) Begin() error {
-	if db.tx != nil {
+func (chain *Chain) Begin() error {
+	if chain.tx != nil {
 		return dberrors.New(dberrors.ErrCodeTransaction, "Begin", fmt.Errorf("there was a transaction"), nil)
 	}
-	tx, err := db.db.Begin()
-	db.tx = tx
+	tx, err := chain.db.Begin()
+	chain.tx = tx
 	return err
 }
-func (db *Chain) IsInTransaction() bool {
-	return db.tx != nil
+func (chain *Chain) IsInTransaction() bool {
+	return chain.tx != nil
 }
-func (db *Chain) Commit() {
-	if db.IsInTransaction() {
-		err := db.tx.Commit()
+func (chain *Chain) Commit() {
+	if chain.IsInTransaction() {
+		err := chain.tx.Commit()
 		if err != nil {
 			panic(err)
 		}
-		db.tx = nil
+		chain.tx = nil
 	}
 }
-func (db *Chain) Rollback() {
-	if db.tx != nil {
-		err := db.tx.Rollback()
+func (chain *Chain) Rollback() {
+	if chain.tx != nil {
+		err := chain.tx.Rollback()
 		if err != nil {
 			panic(err)
 		}
-		db.tx = nil
+		chain.tx = nil
 	}
 }
 
 type TransactionWork func(databaseTx *Chain) (interface{}, error)
 
-func (db *Chain) DoTransaction(work TransactionWork) (interface{}, error) {
+func (chain *Chain) DoTransaction(work TransactionWork) (interface{}, error) {
 	//Create A New Db And set Tx for it
-	dbTx := db.Clone()
+	dbTx := chain.Clone()
 	eb := dbTx.Begin()
 	if eb != nil {
 		return nil, eb
@@ -563,380 +497,381 @@ func (db *Chain) DoTransaction(work TransactionWork) (interface{}, error) {
 	return i, es
 }
 
-func (db *Chain) GetOrderBys() []define.OrderBy {
-	if db.orderBys != nil && *db.orderBys != nil {
-		return *db.orderBys
+func (chain *Chain) GetOrderBys() []define.OrderBy {
+	if chain.orderBys != nil && *chain.orderBys != nil {
+		return *chain.orderBys
 	}
 	return nil
 }
 
-func (db *Chain) GetPageInfo() define.PageInfo {
-	if db.page != nil {
-		return db.page
+func (chain *Chain) GetPageInfo() define.PageInfo {
+	if chain.page != nil {
+		return chain.page
 	}
 	return nil
 }
-func (db *Chain) GetPage() (int64, int64) {
-	if db.page != nil {
-		return db.page.Page()
+func (chain *Chain) GetPage() (int64, int64) {
+	if chain.page != nil {
+		return chain.page.Page()
 	}
 	return 0, 0
 }
-func (db *Chain) CleanDb() *Chain {
-	db.table = nil
-	db.page = nil
-	db.fields = nil
-	db.orderBys = nil
-	db.rawSql = nil
-	db.cnd = define.CndEmpty()
-	return db
+func (chain *Chain) CleanDb() *Chain {
+	chain.table = nil
+	chain.page = nil
+	chain.fields = nil
+	chain.orderBys = nil
+	chain.rawSql = nil
+	chain.dataMap = nil
+	chain.cnd = define.CndEmpty()
+	return chain
 }
-func (c *Chain) Eq(field string, values interface{}) *Chain {
+func (chain *Chain) Eq(field string, values interface{}) *Chain {
 
-	c.cnd.Eq(field, values)
-	return c
+	chain.cnd.Eq(field, values)
+	return chain
 }
-func (c *Chain) EqBool(b bool, field string, value interface{}) *Chain {
+func (chain *Chain) EqBool(b bool, field string, value interface{}) *Chain {
 
-	c.cnd.EqBool(b, field, value)
-	return c
+	chain.cnd.EqBool(b, field, value)
+	return chain
 }
-func (c *Chain) OrEq(field string, value interface{}) *Chain {
+func (chain *Chain) OrEq(field string, value interface{}) *Chain {
 
-	c.cnd.OrEq(field, value)
-	return c
+	chain.cnd.OrEq(field, value)
+	return chain
 }
-func (c *Chain) OrEqBool(b bool, field string, value interface{}) *Chain {
+func (chain *Chain) OrEqBool(b bool, field string, value interface{}) *Chain {
 
-	c.cnd.OrEqBool(b, field, value)
-	return c
+	chain.cnd.OrEqBool(b, field, value)
+	return chain
 }
-func (c *Chain) Ge(field string, value interface{}) *Chain {
+func (chain *Chain) Ge(field string, value interface{}) *Chain {
 
-	c.cnd.Ge(field, value)
-	return c
+	chain.cnd.Ge(field, value)
+	return chain
 }
-func (c *Chain) GeBool(b bool, field string, value interface{}) *Chain {
+func (chain *Chain) GeBool(b bool, field string, value interface{}) *Chain {
 
-	c.cnd.GeBool(b, field, value)
-	return c
+	chain.cnd.GeBool(b, field, value)
+	return chain
 }
-func (c *Chain) OrGe(field string, value interface{}) *Chain {
+func (chain *Chain) OrGe(field string, value interface{}) *Chain {
 
-	c.cnd.OrGe(field, value)
-	return c
+	chain.cnd.OrGe(field, value)
+	return chain
 }
-func (c *Chain) OrGeBool(b bool, field string, value interface{}) *Chain {
+func (chain *Chain) OrGeBool(b bool, field string, value interface{}) *Chain {
 
-	c.cnd.OrGeBool(b, field, value)
-	return c
+	chain.cnd.OrGeBool(b, field, value)
+	return chain
 }
-func (c *Chain) Gt(field string, values interface{}) *Chain {
+func (chain *Chain) Gt(field string, values interface{}) *Chain {
 
-	c.cnd.Gt(field, values)
-	return c
+	chain.cnd.Gt(field, values)
+	return chain
 }
-func (c *Chain) GtBool(b bool, field string, values interface{}) *Chain {
+func (chain *Chain) GtBool(b bool, field string, values interface{}) *Chain {
 
-	c.cnd.GtBool(b, field, values)
-	return c
+	chain.cnd.GtBool(b, field, values)
+	return chain
 }
-func (c *Chain) OrGt(field string, values interface{}) *Chain {
+func (chain *Chain) OrGt(field string, values interface{}) *Chain {
 
-	c.cnd.OrGt(field, values)
-	return c
+	chain.cnd.OrGt(field, values)
+	return chain
 }
-func (c *Chain) OrGtBool(b bool, field string, values interface{}) *Chain {
+func (chain *Chain) OrGtBool(b bool, field string, values interface{}) *Chain {
 
-	c.cnd.OrGtBool(b, field, values)
-	return c
+	chain.cnd.OrGtBool(b, field, values)
+	return chain
 }
-func (c *Chain) Le(field string, values interface{}) *Chain {
+func (chain *Chain) Le(field string, values interface{}) *Chain {
 
-	c.cnd.Le(field, values)
-	return c
+	chain.cnd.Le(field, values)
+	return chain
 }
-func (c *Chain) LeBool(b bool, field string, values interface{}) *Chain {
+func (chain *Chain) LeBool(b bool, field string, values interface{}) *Chain {
 
-	c.cnd.LeBool(b, field, values)
-	return c
+	chain.cnd.LeBool(b, field, values)
+	return chain
 }
-func (c *Chain) OrLe(field string, values interface{}) *Chain {
+func (chain *Chain) OrLe(field string, values interface{}) *Chain {
 
-	c.cnd.OrLe(field, values)
-	return c
+	chain.cnd.OrLe(field, values)
+	return chain
 }
-func (c *Chain) OrLeBool(b bool, field string, values interface{}) *Chain {
+func (chain *Chain) OrLeBool(b bool, field string, values interface{}) *Chain {
 
-	c.cnd.OrLeBool(b, field, values)
-	return c
+	chain.cnd.OrLeBool(b, field, values)
+	return chain
 }
-func (c *Chain) Lt(field string, values interface{}) *Chain {
+func (chain *Chain) Lt(field string, values interface{}) *Chain {
 
-	c.cnd.Lt(field, values)
-	return c
+	chain.cnd.Lt(field, values)
+	return chain
 }
-func (c *Chain) LtBool(b bool, field string, values interface{}) *Chain {
+func (chain *Chain) LtBool(b bool, field string, values interface{}) *Chain {
 
-	c.cnd.LtBool(b, field, values)
-	return c
+	chain.cnd.LtBool(b, field, values)
+	return chain
 }
-func (c *Chain) OrLt(field string, values interface{}) *Chain {
+func (chain *Chain) OrLt(field string, values interface{}) *Chain {
 
-	c.cnd.OrLt(field, values)
-	return c
+	chain.cnd.OrLt(field, values)
+	return chain
 }
-func (c *Chain) OrLtBool(b bool, field string, values interface{}) *Chain {
+func (chain *Chain) OrLtBool(b bool, field string, values interface{}) *Chain {
 
-	c.cnd.OrLtBool(b, field, values)
-	return c
+	chain.cnd.OrLtBool(b, field, values)
+	return chain
 }
-func (c *Chain) NotEq(field string, values interface{}) *Chain {
+func (chain *Chain) NotEq(field string, values interface{}) *Chain {
 
-	c.cnd.NotEq(field, values)
-	return c
+	chain.cnd.NotEq(field, values)
+	return chain
 }
-func (c *Chain) NotEqBool(b bool, field string, values interface{}) *Chain {
+func (chain *Chain) NotEqBool(b bool, field string, values interface{}) *Chain {
 
-	c.cnd.NotEqBool(b, field, values)
-	return c
+	chain.cnd.NotEqBool(b, field, values)
+	return chain
 }
-func (c *Chain) OrNotEq(field string, values interface{}) *Chain {
+func (chain *Chain) OrNotEq(field string, values interface{}) *Chain {
 
-	c.cnd.OrNotEq(field, values)
-	return c
+	chain.cnd.OrNotEq(field, values)
+	return chain
 }
-func (c *Chain) OrNotEqBool(b bool, field string, values interface{}) *Chain {
+func (chain *Chain) OrNotEqBool(b bool, field string, values interface{}) *Chain {
 
-	c.cnd.OrNotEqBool(b, field, values)
-	return c
+	chain.cnd.OrNotEqBool(b, field, values)
+	return chain
 }
-func (c *Chain) In(field string, values ...interface{}) *Chain {
+func (chain *Chain) In(field string, values ...interface{}) *Chain {
 
-	c.cnd.In(field, values...)
-	return c
+	chain.cnd.In(field, values...)
+	return chain
 }
-func (c *Chain) InBool(b bool, field string, values ...interface{}) *Chain {
+func (chain *Chain) InBool(b bool, field string, values ...interface{}) *Chain {
 
-	c.cnd.InBool(b, field, values...)
-	return c
+	chain.cnd.InBool(b, field, values...)
+	return chain
 }
-func (c *Chain) OrIn(field string, values ...interface{}) *Chain {
+func (chain *Chain) OrIn(field string, values ...interface{}) *Chain {
 
-	c.cnd.OrIn(field, values...)
-	return c
+	chain.cnd.OrIn(field, values...)
+	return chain
 }
-func (c *Chain) OrInBool(b bool, field string, values ...interface{}) *Chain {
+func (chain *Chain) OrInBool(b bool, field string, values ...interface{}) *Chain {
 
-	c.cnd.OrInBool(b, field, values...)
-	return c
+	chain.cnd.OrInBool(b, field, values...)
+	return chain
 }
-func (c *Chain) NotIn(field string, values ...interface{}) *Chain {
+func (chain *Chain) NotIn(field string, values ...interface{}) *Chain {
 
-	c.cnd.NotIn(field, values...)
-	return c
+	chain.cnd.NotIn(field, values...)
+	return chain
 }
-func (c *Chain) NotInBool(b bool, field string, values ...interface{}) *Chain {
+func (chain *Chain) NotInBool(b bool, field string, values ...interface{}) *Chain {
 
-	c.cnd.NotInBool(b, field, values...)
-	return c
+	chain.cnd.NotInBool(b, field, values...)
+	return chain
 }
-func (c *Chain) OrNotIn(field string, values ...interface{}) *Chain {
+func (chain *Chain) OrNotIn(field string, values ...interface{}) *Chain {
 
-	c.cnd.OrNotIn(field, values...)
-	return c
+	chain.cnd.OrNotIn(field, values...)
+	return chain
 }
-func (c *Chain) OrNotInBool(b bool, field string, values ...interface{}) *Chain {
+func (chain *Chain) OrNotInBool(b bool, field string, values ...interface{}) *Chain {
 
-	c.cnd.OrNotInBool(b, field, values...)
-	return c
+	chain.cnd.OrNotInBool(b, field, values...)
+	return chain
 }
-func (c *Chain) Like(field string, values interface{}) *Chain {
+func (chain *Chain) Like(field string, values interface{}) *Chain {
 
-	c.cnd.Like(field, values)
-	return c
+	chain.cnd.Like(field, values)
+	return chain
 }
-func (c *Chain) LikeBool(b bool, field string, values interface{}) *Chain {
+func (chain *Chain) LikeBool(b bool, field string, values interface{}) *Chain {
 
-	c.cnd.LikeBool(b, field, values)
-	return c
+	chain.cnd.LikeBool(b, field, values)
+	return chain
 }
-func (c *Chain) OrLike(field string, values interface{}) *Chain {
+func (chain *Chain) OrLike(field string, values interface{}) *Chain {
 
-	c.cnd.OrLike(field, values)
-	return c
+	chain.cnd.OrLike(field, values)
+	return chain
 }
-func (c *Chain) OrLikeBool(b bool, field string, values interface{}) *Chain {
+func (chain *Chain) OrLikeBool(b bool, field string, values interface{}) *Chain {
 
-	c.cnd.OrLikeBool(b, field, values)
-	return c
+	chain.cnd.OrLikeBool(b, field, values)
+	return chain
 }
-func (c *Chain) NotLike(field string, values interface{}) *Chain {
+func (chain *Chain) NotLike(field string, values interface{}) *Chain {
 
-	c.cnd.NotLike(field, values)
-	return c
+	chain.cnd.NotLike(field, values)
+	return chain
 }
-func (c *Chain) NotLikeBool(b bool, field string, values interface{}) *Chain {
+func (chain *Chain) NotLikeBool(b bool, field string, values interface{}) *Chain {
 
-	c.cnd.NotLikeBool(b, field, values)
-	return c
+	chain.cnd.NotLikeBool(b, field, values)
+	return chain
 }
-func (c *Chain) OrNotLike(field string, values interface{}) *Chain {
+func (chain *Chain) OrNotLike(field string, values interface{}) *Chain {
 
-	c.cnd.OrNotLike(field, values)
-	return c
+	chain.cnd.OrNotLike(field, values)
+	return chain
 }
-func (c *Chain) OrNotLikeBool(b bool, field string, values interface{}) *Chain {
+func (chain *Chain) OrNotLikeBool(b bool, field string, values interface{}) *Chain {
 
-	c.cnd.OrNotLikeBool(b, field, values)
-	return c
+	chain.cnd.OrNotLikeBool(b, field, values)
+	return chain
 }
-func (c *Chain) LikeIgnoreStart(field string, values interface{}) *Chain {
+func (chain *Chain) LikeIgnoreStart(field string, values interface{}) *Chain {
 
-	c.cnd.LikeIgnoreStart(field, values)
-	return c
+	chain.cnd.LikeIgnoreStart(field, values)
+	return chain
 }
-func (c *Chain) LikeIgnoreStartBool(b bool, field string, values interface{}) *Chain {
+func (chain *Chain) LikeIgnoreStartBool(b bool, field string, values interface{}) *Chain {
 
-	c.cnd.LikeIgnoreStartBool(b, field, values)
-	return c
+	chain.cnd.LikeIgnoreStartBool(b, field, values)
+	return chain
 }
-func (c *Chain) OrLikeIgnoreStart(field string, values interface{}) *Chain {
+func (chain *Chain) OrLikeIgnoreStart(field string, values interface{}) *Chain {
 
-	c.cnd.OrLikeIgnoreStart(field, values)
-	return c
+	chain.cnd.OrLikeIgnoreStart(field, values)
+	return chain
 }
-func (c *Chain) OrLikeIgnoreStartBool(b bool, field string, values interface{}) *Chain {
+func (chain *Chain) OrLikeIgnoreStartBool(b bool, field string, values interface{}) *Chain {
 
-	c.cnd.OrLikeIgnoreStartBool(b, field, values)
-	return c
+	chain.cnd.OrLikeIgnoreStartBool(b, field, values)
+	return chain
 }
-func (c *Chain) LikeIgnoreEnd(field string, values interface{}) *Chain {
+func (chain *Chain) LikeIgnoreEnd(field string, values interface{}) *Chain {
 
-	c.cnd.LikeIgnoreEnd(field, values)
-	return c
+	chain.cnd.LikeIgnoreEnd(field, values)
+	return chain
 }
-func (c *Chain) LikeIgnoreEndBool(b bool, field string, values interface{}) *Chain {
+func (chain *Chain) LikeIgnoreEndBool(b bool, field string, values interface{}) *Chain {
 
-	c.cnd.LikeIgnoreEndBool(b, field, values)
-	return c
+	chain.cnd.LikeIgnoreEndBool(b, field, values)
+	return chain
 }
-func (c *Chain) OrLikeIgnoreEnd(field string, values interface{}) *Chain {
+func (chain *Chain) OrLikeIgnoreEnd(field string, values interface{}) *Chain {
 
-	c.cnd.OrLikeIgnoreEnd(field, values)
-	return c
+	chain.cnd.OrLikeIgnoreEnd(field, values)
+	return chain
 }
-func (c *Chain) OrLikeIgnoreEndBool(b bool, field string, values interface{}) *Chain {
+func (chain *Chain) OrLikeIgnoreEndBool(b bool, field string, values interface{}) *Chain {
 
-	c.cnd.OrLikeIgnoreEndBool(b, field, values)
-	return c
+	chain.cnd.OrLikeIgnoreEndBool(b, field, values)
+	return chain
 }
-func (c *Chain) IsNull(filed string) *Chain {
+func (chain *Chain) IsNull(filed string) *Chain {
 
-	c.cnd.IsNull(filed)
-	return c
+	chain.cnd.IsNull(filed)
+	return chain
 }
-func (c *Chain) IsNullBool(b bool, field string) *Chain {
+func (chain *Chain) IsNullBool(b bool, field string) *Chain {
 
-	c.cnd.IsNullBool(b, field)
-	return c
+	chain.cnd.IsNullBool(b, field)
+	return chain
 }
-func (c *Chain) IsNotNull(field string) *Chain {
+func (chain *Chain) IsNotNull(field string) *Chain {
 
-	c.cnd.IsNotNull(field)
-	return c
+	chain.cnd.IsNotNull(field)
+	return chain
 }
-func (c *Chain) IsNotNullBool(b bool, field string) *Chain {
+func (chain *Chain) IsNotNullBool(b bool, field string) *Chain {
 
-	c.cnd.IsNotNullBool(b, field)
-	return c
+	chain.cnd.IsNotNullBool(b, field)
+	return chain
 }
-func (c *Chain) OrIsNull(filed string) *Chain {
+func (chain *Chain) OrIsNull(filed string) *Chain {
 
-	c.cnd.OrIsNull(filed)
-	return c
+	chain.cnd.OrIsNull(filed)
+	return chain
 }
-func (c *Chain) OrIsNullBool(b bool, field string) *Chain {
+func (chain *Chain) OrIsNullBool(b bool, field string) *Chain {
 
-	c.cnd.OrIsNullBool(b, field)
-	return c
+	chain.cnd.OrIsNullBool(b, field)
+	return chain
 }
-func (c *Chain) OrIsNotNull(field string) *Chain {
+func (chain *Chain) OrIsNotNull(field string) *Chain {
 
-	c.cnd.OrIsNotNull(field)
-	return c
+	chain.cnd.OrIsNotNull(field)
+	return chain
 }
-func (c *Chain) OrIsNotNullBool(b bool, field string) *Chain {
+func (chain *Chain) OrIsNotNullBool(b bool, field string) *Chain {
 
-	c.cnd.OrIsNotNullBool(b, field)
-	return c
+	chain.cnd.OrIsNotNullBool(b, field)
+	return chain
 }
-func (c *Chain) And(field string, operation define.Operation, value ...interface{}) *Chain {
+func (chain *Chain) And(field string, operation define.Operation, value ...interface{}) *Chain {
 
-	c.cnd.And(field, operation, value...)
-	return c
+	chain.cnd.And(field, operation, value...)
+	return chain
 }
-func (c *Chain) AndBool(b bool, field string, operation define.Operation, value ...interface{}) *Chain {
+func (chain *Chain) AndBool(b bool, field string, operation define.Operation, value ...interface{}) *Chain {
 
-	c.cnd.AndBool(b, field, operation, value...)
-	return c
+	chain.cnd.AndBool(b, field, operation, value...)
+	return chain
 }
-func (c *Chain) And2(condition define.Condition) *Chain {
+func (chain *Chain) And2(condition define.Condition) *Chain {
 
-	c.cnd.And2(condition)
-	return c
+	chain.cnd.And2(condition)
+	return chain
 }
-func (c *Chain) And3(rawExpresssion string, values ...interface{}) *Chain {
+func (chain *Chain) And3(rawExpresssion string, values ...interface{}) *Chain {
 
-	c.cnd.And3(rawExpresssion, values...)
-	return c
+	chain.cnd.And3(rawExpresssion, values...)
+	return chain
 }
-func (c *Chain) And3Bool(b bool, rawExpresssion string, values ...interface{}) *Chain {
+func (chain *Chain) And3Bool(b bool, rawExpresssion string, values ...interface{}) *Chain {
 
-	c.cnd.And3Bool(b, rawExpresssion, values...)
-	return c
+	chain.cnd.And3Bool(b, rawExpresssion, values...)
+	return chain
 }
-func (c *Chain) Or(field string, operation define.Operation, value ...interface{}) *Chain {
+func (chain *Chain) Or(field string, operation define.Operation, value ...interface{}) *Chain {
 
-	c.cnd.Or(field, operation, value...)
-	return c
+	chain.cnd.Or(field, operation, value...)
+	return chain
 }
-func (c *Chain) OrBool(b bool, field string, operation define.Operation, value ...interface{}) *Chain {
+func (chain *Chain) OrBool(b bool, field string, operation define.Operation, value ...interface{}) *Chain {
 
-	c.cnd.OrBool(b, field, operation, value...)
-	return c
+	chain.cnd.OrBool(b, field, operation, value...)
+	return chain
 }
-func (c *Chain) Or2(condition define.Condition) *Chain {
+func (chain *Chain) Or2(condition define.Condition) *Chain {
 
-	c.cnd.Or2(condition)
-	return c
+	chain.cnd.Or2(condition)
+	return chain
 }
-func (c *Chain) Or3(rawExpresssion string, values ...interface{}) *Chain {
+func (chain *Chain) Or3(rawExpresssion string, values ...interface{}) *Chain {
 
-	c.cnd.Or3(rawExpresssion, values...)
-	return c
+	chain.cnd.Or3(rawExpresssion, values...)
+	return chain
 }
-func (c *Chain) Or3Bool(b bool, rawExpresssion string, values ...interface{}) *Chain {
+func (chain *Chain) Or3Bool(b bool, rawExpresssion string, values ...interface{}) *Chain {
 
-	c.cnd.Or3Bool(b, rawExpresssion, values...)
-	return c
+	chain.cnd.Or3Bool(b, rawExpresssion, values...)
+	return chain
 }
 
 // Fields 设置允许操作的列名
-func (db *Chain) Fields(columns ...string) *Chain {
-	db.cloneSelfIfDifferentGoRoutine()
-	db.fields = columns
-	return db
+func (chain *Chain) Fields(columns ...string) *Chain {
+	chain.cloneSelfIfDifferentGoRoutine()
+	chain.fields = columns
+	return chain
 }
 
 // validateFields 验证列名是否在允许的范围内
-func (db *Chain) validateFields(columns []string) error {
-	if len(db.fields) == 0 {
+func (chain *Chain) validateFields(columns []string) error {
+	if len(chain.fields) == 0 {
 		return nil // 未设置fields时不做验证
 	}
 
 	allowedFields := make(map[string]bool)
-	for _, field := range db.fields {
+	for _, field := range chain.fields {
 		allowedFields[field] = true
 	}
 

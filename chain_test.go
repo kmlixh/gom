@@ -125,7 +125,7 @@ func testBasicCRUD(t *testing.T, db *Chain) {
 
 	// 测试更新
 	queryUser.Age = 26
-	result = db.Update(&queryUser)
+	result = db.Fields("age").Update(&queryUser)
 	assert.NoError(t, result.Error())
 	affected := result.RowsAffected()
 	assert.NoError(t, result.Error())

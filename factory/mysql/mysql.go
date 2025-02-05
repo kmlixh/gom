@@ -103,7 +103,7 @@ func InitFactory() {
 		sql := "SELECT "
 		counts := len(model.Columns())
 		if counts == 0 {
-			panic(errors.New("columns is null or empty"))
+			sql += " *"
 		} else {
 			for i := 0; i < len(model.Columns()); i++ {
 				if i == 0 {
