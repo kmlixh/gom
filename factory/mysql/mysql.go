@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -137,8 +138,8 @@ func InitFactory() {
 		}
 		if model.Page() != nil {
 			idx, size := model.Page().Page()
-			datas = append(datas, size, idx)
-			sql += " LIMIT ? OFFSET ?"
+			datas = append(datas, idx, size)
+			sql += " LIMIT ? , ?"
 		}
 		sql += ";"
 		var result []define.SqlProto
@@ -184,24 +185,62 @@ func InitFactory() {
 		var result []define.SqlProto
 		for _, model := range models {
 			var datas []interface{}
-
 			sql := "INSERT INTO " + model.Table() + " ("
-			valuesPattern := "VALUES("
-			i := 0
+
+			// 构建列名部分
+			var columnNames []string
 			for _, c := range model.Columns() {
-				if i > 0 {
-					sql += ","
-					valuesPattern += ","
-				}
-				sql += wrapperName(c)
-				valuesPattern += "?"
-				datas = append(datas, model.ColumnDataMap()[c])
-				i++
+				columnNames = append(columnNames, wrapperName(c))
 			}
-			sql += ")"
-			valuesPattern += ");"
-			sql += valuesPattern
-			result = append(result, define.SqlProto{sql, datas, nil})
+			sql += strings.Join(columnNames, ",")
+			sql += ") VALUES "
+
+			// 处理批量插入
+			if model.IsBatch() {
+				target := reflect.ValueOf(model.Model())
+				if target.Kind() == reflect.Ptr {
+					target = target.Elem()
+				}
+				if target.Kind() != reflect.Slice && target.Kind() != reflect.Array {
+					panic(errors.New("batch insert requires slice or array"))
+				}
+
+				// 构建值占位符
+				placeholders := make([]string, len(model.Columns()))
+				for i := range placeholders {
+					placeholders[i] = "?"
+				}
+				valueStr := "(" + strings.Join(placeholders, ",") + ")"
+
+				// 构建所有记录的值
+				values := make([]string, target.Len())
+				for i := 0; i < target.Len(); i++ {
+					item := target.Index(i).Interface()
+					itemMap, err := define.StructToMap(item, model.Columns()...)
+					if err != nil {
+						panic(err)
+					}
+					for _, c := range model.Columns() {
+						datas = append(datas, itemMap[c])
+					}
+					values[i] = valueStr
+				}
+				sql += strings.Join(values, ",")
+			} else {
+				// 单条插入
+				placeholders := make([]string, len(model.Columns()))
+				for i := range placeholders {
+					placeholders[i] = "?"
+				}
+				sql += "(" + strings.Join(placeholders, ",") + ")"
+
+				for _, c := range model.Columns() {
+					datas = append(datas, model.ColumnDataMap()[c])
+				}
+			}
+
+			sql += ";"
+			result = append(result, define.SqlProto{PreparedSql: sql, Data: datas})
 		}
 		return result
 	}

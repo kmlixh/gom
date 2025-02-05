@@ -174,6 +174,8 @@ type TableModel interface {
 	OrderBys() []OrderBy
 	Page() PageInfo
 	Model() interface{}
+	IsBatch() bool  // 是否为批量操作
+	BatchSize() int // 批量操作的大小
 }
 type SqlFunc func(model ...TableModel) []SqlProto
 type SqlFactory interface {

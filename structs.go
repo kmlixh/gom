@@ -52,6 +52,8 @@ type DefaultModel struct {
 	orderBys       []define.OrderBy
 	page           define.PageInfo
 	target         interface{}
+	isBatch        bool // 是否为批量操作
+	batchSize      int  // 批量操作的大小
 }
 
 func (d *DefaultModel) Model() interface{} {
@@ -112,4 +114,12 @@ func (d DefaultModel) Clone() define.TableModel {
 		orderBys:      d.orderBys,
 		page:          d.page,
 	}
+}
+
+func (d DefaultModel) IsBatch() bool {
+	return d.isBatch
+}
+
+func (d DefaultModel) BatchSize() int {
+	return d.batchSize
 }
