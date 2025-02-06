@@ -297,15 +297,112 @@ func (chain *Chain) Insert(v ...interface{}) define.Result {
 		// 单个值的插入
 		chain.rawMeta = value
 		return chain.executeInside(define.Insert)
+	} else {
+		result, er := chain.DoTransaction(func(databaseTx *Chain) (interface{}, error) {
+			rowsAppected := int64(0)
+			lastId := int64(0)
+			for _, vv := range v {
+				result := databaseTx.Insert(vv)
+				if result.Error() != nil {
+					return nil, result.Error()
+				}
+				rowsAppected += result.RowsAffected()
+				lastId = result.LastInsertId()
+			}
+			return define.NewResult(lastId, rowsAppected, nil, nil), nil
+		})
+		if er != nil {
+			return define.ErrorResult(er)
+		}
+		return result.(define.Result)
 	}
-
-	// 多个值的批量插入
-	values := reflect.ValueOf(v)
-	return chain.batchInsert(values)
 }
 
 // batchInsert 处理批量插入操作
 func (chain *Chain) batchInsert(values reflect.Value) define.Result {
+
+	table := chain.GetTable()
+	rawInfo := define.GetRawTableInfo(values)
+	if !rawInfo.IsStruct {
+		return define.ErrorResult(errors.New("data is not struct or not of a struct slice"))
+	}
+	if table == "" {
+		table = rawInfo.TableName
+	}
+
+	// 预分配切片容量
+	dbCols, er := chain.factory.GetColumns(table, chain.db)
+	if er != nil {
+		return define.ErrorResult(er)
+	}
+
+	primaryKey := make([]string, 0, len(dbCols))
+	primaryAuto := make([]string, 0, len(dbCols))
+	dbColMap := make(map[string]define.Column, len(dbCols))
+	dbColNames := make([]string, 0, len(dbCols))
+
+	colMap, _ := define.GetDefaultsColumnFieldMap(rawInfo.Type)
+
+	// 优化循环
+	for _, dbCol := range dbCols {
+		dbColNames = append(dbColNames, dbCol.ColumnName)
+		dbColMap[dbCol.ColumnName] = dbCol
+
+		if dbCol.IsPrimary {
+			if _, ok := colMap[dbCol.ColumnName]; !ok {
+				return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation,
+					"validateColumns",
+					fmt.Errorf("primary key column '%s' not exist in variable", dbCol.ColumnName),
+					nil))
+			}
+
+			if !dbCol.IsPrimaryAuto {
+				primaryKey = append(primaryKey, dbCol.ColumnName)
+			} else {
+				primaryAuto = append(primaryAuto, dbCol.ColumnName)
+			}
+		}
+	}
+
+	// 验证字段
+	if len(chain.fields) > 0 {
+		for _, c := range chain.fields {
+			if _, ok := colMap[c]; !ok {
+				return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation,
+					"validateColumns",
+					fmt.Errorf("field '%s' not exist in variable", c),
+					nil))
+			}
+			if _, ok := dbColMap[c]; !ok {
+				return define.ErrorResult(dberrors.New(dberrors.ErrCodeValidation,
+					"validateColumns",
+					fmt.Errorf("field '%s' not exist in table '%s'", c, table),
+					nil))
+			}
+		}
+	}
+
+	// 优化字段处理
+	columns := chain.fields
+	if len(columns) > 0 {
+		newColumns := make([]string, 0, len(primaryKey)+len(primaryAuto)+len(columns))
+		newColumns = append(newColumns, primaryKey...)
+		newColumns = append(newColumns, primaryAuto...)
+		newColumns = append(newColumns, columns...)
+		columns = newColumns
+	}
+
+	// 构建数据列
+	dataCol := make([]string, 0, len(chain.dataMap))
+	for key := range chain.dataMap {
+		dataCol = append(dataCol, key)
+	}
+	columns, _, _ = define.ArrayIntersect2(dbColNames, primaryAuto)
+
+	if len(chain.fields) > 0 {
+		columns = define.ArrayIntersect(columns, chain.fields)
+	}
+
 	length := values.Len()
 	if length == 0 {
 		return define.ErrorResult(errors.New("empty array/slice provided for batch insert"))
@@ -331,32 +428,24 @@ func (chain *Chain) batchInsert(values reflect.Value) define.Result {
 			}
 
 			// 准备当前批次的数据
-			batch := make([]interface{}, end-start)
-			for j := start; j < end; j++ {
-				batch[j-start] = values.Index(j).Interface()
-			}
-
+			//batch := make([]interface{}, end-start)
+			//for j := start; j < end; j++ {
+			//	batch[j-start] = values.Index(j).Interface()
+			//}
+			sliceVal := values.Slice(start, end)
 			// 构建批量插入的model
-			table := chain.GetTable()
-			if len(table) == 0 {
-				if len(batch) > 0 {
-					rawInfo := define.GetRawTableInfo(batch[0])
-					table = rawInfo.TableName
-				}
-				if len(table) == 0 {
-					return nil, fmt.Errorf("table name not provided")
-				}
-			}
-
+			slice := sliceVal.Interface()
 			// 构建批量插入的model
 			model := &DefaultModel{
 				table:         table,
-				columns:       chain.fields,
+				columns:       columns,
 				columnDataMap: nil,
 				condition:     nil,
-				target:        batch,
+				target:        slice,
 				isBatch:       true,
-				batchSize:     len(batch),
+				batchSize:     sliceVal.Len(),
+				primaryAuto:   primaryAuto,
+				primaryKeys:   primaryKey,
 			}
 
 			// 执行批量插入
