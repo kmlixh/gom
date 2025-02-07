@@ -1939,6 +1939,10 @@ func (c *Chain) PageInfo(models ...interface{}) (*PageInfo, error) {
 			return nil, err
 		}
 		list = slice.Elem().Interface()
+		re := c.List(&list)
+		if re.Error != nil {
+			return nil, re.Error
+		}
 	} else {
 		// 如果没有提供模型，返回原始查询结果
 		result := c.List()
