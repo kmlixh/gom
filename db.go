@@ -529,15 +529,26 @@ func (db DB) GetColumns(table string) ([]define.Column, error) {
 	return db.Factory.GetColumns(table, db.DB)
 }
 
-func (db DB) GetTableStruct(table string) (*define.TableInfo, error) {
-	return db.Factory.GetTableInfo(db.DB, table)
+func (db DB) GetTableStruct(i any, table string) (*define.TableStruct, error) {
+	tableInfo, er := db.Factory.GetTableInfo(db.DB, table)
+	if er != nil {
+		return nil, er
+	}
+	maps, er := define.GetFieldToColMap(i, tableInfo)
+	if er != nil {
+		return nil, er
+	}
+	return &define.TableStruct{
+		TableInfo:     *tableInfo,
+		FieldToColMap: maps,
+	}, nil
 }
-func (db DB) GetTableStruct2(i any) (*define.TableInfo, error) {
+func (db DB) GetTableStruct2(i any) (*define.TableStruct, error) {
 	tableName, er := db.GetTableName(i)
 	if er != nil {
 		panic("table name was nil")
 	}
-	return db.GetTableStruct(tableName)
+	return db.GetTableStruct(i, tableName)
 }
 
 // GetDB returns the underlying sql.DB object

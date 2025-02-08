@@ -56,6 +56,11 @@ type ColumnInfo struct {
 	Comment         string // 注释
 }
 
+type TableStruct struct {
+	TableInfo
+	FieldToColMap map[string]string
+}
+
 // SQLFactory defines the interface for SQL query builders
 type SQLFactory interface {
 	// Connect creates a new database connection

@@ -2,6 +2,7 @@ package define
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 )
@@ -101,6 +102,61 @@ func StructToMap(obj interface{}) (map[string]interface{}, error) {
 	}
 
 	return result, nil
+}
+func GetFieldToColMap(i any, tableInfo *TableInfo) (map[string]string, error) {
+	fieldMap := make(map[string]string)
+	if i == nil {
+		return fieldMap, fmt.Errorf("input object is nil")
+	}
+
+	v := reflect.ValueOf(i)
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return fieldMap, fmt.Errorf("input object is nil")
+		}
+		v = v.Elem()
+	}
+
+	if v.Kind() != reflect.Struct {
+		return fieldMap, fmt.Errorf("input object is not a struct")
+	}
+
+	t := v.Type()
+	for i := 0; i < v.NumField(); i++ {
+		field := t.Field(i)
+		if field.PkgPath != "" {
+			continue
+		}
+		fieldName := ""
+		tag := field.Tag.Get("json")
+		if tag != "" {
+			name := strings.Split(tag, ",")[0]
+			if name != "-" {
+				fieldName = name
+			}
+		}
+		if fieldName != "" {
+			colName := ""
+			tag := field.Tag.Get("gom")
+			if tag != "" {
+				parts := strings.Split(tag, ",")
+				if parts[0] != "" && parts[0] != "-" {
+					colName = parts[0]
+				}
+			}
+			if colName == "" {
+				colName = fieldName
+			}
+			for _, col := range tableInfo.Columns {
+				if col.Name == colName {
+					fieldMap[fieldName] = col.Name
+					break
+				}
+			}
+		}
+	}
+
+	return fieldMap, nil
 }
 
 // isZeroValue checks if a reflect.Value is the zero value for its type
