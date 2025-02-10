@@ -195,7 +195,8 @@ func (m *TestFactoryImpl) GetTableInfo(db *sql.DB, tableName string) (*TableInfo
 		Columns: []ColumnInfo{
 			{
 				Name:            "id",
-				Type:            "INT",
+				TypeName:        "INT",
+				DataType:        reflect.TypeOf(sql.NullInt64{}),
 				Length:          11,
 				IsNullable:      false,
 				IsPrimaryKey:    true,

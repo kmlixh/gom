@@ -578,22 +578,20 @@ func (f *Factory) BuildCreateTable(table string, modelType reflect.Type) string 
 
 // GetTableInfo retrieves table information from MySQL
 func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo, error) {
-	// Get table schema
-	var tableSchema string
-	err := db.QueryRow("SELECT DATABASE()").Scan(&tableSchema)
-	if err != nil {
-		return nil, fmt.Errorf("获取数据库名失败: %v", err)
+	if db == nil {
+		return nil, errors.New("database connection is nil")
 	}
 
 	// Get table comment
 	var tableComment string
-	err = db.QueryRow(`
+	row := db.QueryRow(`
 		SELECT table_comment 
 		FROM information_schema.tables 
-		WHERE table_schema = ? AND table_name = ?
-	`, tableSchema, tableName).Scan(&tableComment)
-	if err != nil {
-		return nil, fmt.Errorf("获取表注释失败: %v", err)
+		WHERE table_schema = DATABASE() 
+		AND table_name = ?
+	`, tableName)
+	if err := row.Scan(&tableComment); err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to get table comment: %v", err)
 	}
 
 	// Get column information
@@ -601,89 +599,87 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 		SELECT 
 			column_name,
 			data_type,
-			column_type,
-			is_nullable,
-			column_key,
-			column_default,
-			extra,
-			column_comment,
+			character_maximum_length,
 			numeric_precision,
 			numeric_scale,
-			character_maximum_length
+			is_nullable,
+			column_key,
+			extra,
+			column_default,
+			column_comment
 		FROM information_schema.columns
-		WHERE table_schema = ? AND table_name = ?
+		WHERE table_schema = DATABASE()
+		AND table_name = ?
 		ORDER BY ordinal_position
-	`, tableSchema, tableName)
+	`, tableName)
 	if err != nil {
-		return nil, fmt.Errorf("获取列信息失败: %v", err)
+		return nil, fmt.Errorf("failed to get column information: %v", err)
 	}
 	defer rows.Close()
 
 	var columns []define.ColumnInfo
 	var primaryKeys []string
+	hasDecimal := false
+	hasUUID := false
+	hasIP := false
+
 	for rows.Next() {
-		var (
-			columnName    string
-			dataType      string
-			columnType    string
-			isNullable    string
-			columnKey     string
-			columnDefault sql.NullString
-			extra         string
-			comment       string
-			precision     sql.NullInt64
-			scale         sql.NullInt64
-			length        sql.NullInt64
-		)
+		var col define.ColumnInfo
+		var isNullable, columnKey, extra, defaultValue, comment string
+		var maxLength, numericPrecision, numericScale sql.NullInt64
 
 		err := rows.Scan(
-			&columnName,
-			&dataType,
-			&columnType,
+			&col.Name,
+			&col.TypeName,
+			&maxLength,
+			&numericPrecision,
+			&numericScale,
 			&isNullable,
 			&columnKey,
-			&columnDefault,
 			&extra,
+			&defaultValue,
 			&comment,
-			&precision,
-			&scale,
-			&length,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("扫描列信息失败: %v", err)
+			return nil, fmt.Errorf("failed to scan column info: %v", err)
 		}
 
-		column := define.ColumnInfo{
-			Name:            columnName,
-			Type:            dataType,
-			IsNullable:      isNullable == "YES",
-			IsPrimaryKey:    columnKey == "PRI",
-			IsAutoIncrement: strings.Contains(strings.ToLower(extra), "auto_increment"),
-			Comment:         comment,
+		// Set standard SQL data type
+		col.DataType = getSQLDataType(col.TypeName)
+
+		// Set other fields
+		col.Length = maxLength.Int64
+		if numericPrecision.Valid {
+			col.Precision = int(numericPrecision.Int64)
+		}
+		if numericScale.Valid {
+			col.Scale = int(numericScale.Int64)
+		}
+		col.IsNullable = isNullable == "YES"
+		col.IsPrimaryKey = columnKey == "PRI"
+		col.IsAutoIncrement = extra == "auto_increment"
+		col.DefaultValue = defaultValue
+		col.Comment = comment
+
+		// Check special types
+		switch strings.ToLower(col.TypeName) {
+		case "decimal", "numeric":
+			hasDecimal = true
+		case "uuid":
+			hasUUID = true
+		case "inet":
+			hasIP = true
 		}
 
-		if columnDefault.Valid {
-			column.DefaultValue = columnDefault.String
-		}
-		if length.Valid {
-			column.Length = length.Int64
-		}
-		if precision.Valid {
-			column.Precision = int(precision.Int64)
-		}
-		if scale.Valid {
-			column.Scale = int(scale.Int64)
+		if col.IsPrimaryKey {
+			primaryKeys = append(primaryKeys, col.Name)
 		}
 
-		if column.IsPrimaryKey {
-			primaryKeys = append(primaryKeys, columnName)
-		}
-
-		columns = append(columns, column)
+		columns = append(columns, col)
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("遍历列信息失败: %v", err)
+		return nil, fmt.Errorf("error iterating rows: %v", err)
 	}
 
 	return &define.TableInfo{
@@ -691,7 +687,32 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 		TableComment: tableComment,
 		PrimaryKeys:  primaryKeys,
 		Columns:      columns,
+		HasDecimal:   hasDecimal,
+		HasUUID:      hasUUID,
+		HasIP:        hasIP,
 	}, nil
+}
+
+// getSQLDataType returns the standard SQL data type for a given MySQL type
+func getSQLDataType(mysqlType string) reflect.Type {
+	switch strings.ToLower(mysqlType) {
+	case "tinyint", "smallint", "mediumint", "int", "integer":
+		return reflect.TypeOf(sql.NullInt32{})
+	case "bigint":
+		return reflect.TypeOf(sql.NullInt64{})
+	case "decimal", "numeric", "float", "double":
+		return reflect.TypeOf(sql.NullFloat64{})
+	case "char", "varchar", "tinytext", "text", "mediumtext", "longtext":
+		return reflect.TypeOf(sql.NullString{})
+	case "date", "datetime", "timestamp":
+		return reflect.TypeOf(sql.NullTime{})
+	case "binary", "varbinary", "tinyblob", "blob", "mediumblob", "longblob":
+		return reflect.TypeOf(sql.RawBytes{})
+	case "bit", "bool", "boolean":
+		return reflect.TypeOf(sql.NullBool{})
+	default:
+		return reflect.TypeOf(sql.NullString{})
+	}
 }
 
 // GetTables 获取符合模式的所有表

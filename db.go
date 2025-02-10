@@ -15,8 +15,6 @@ import (
 	"unicode"
 
 	"github.com/kmlixh/gom/v4/define"
-	"github.com/kmlixh/gom/v4/factory/mysql"
-	"github.com/kmlixh/gom/v4/factory/postgres"
 )
 
 // DBErrorType represents specific types of database errors
@@ -242,76 +240,7 @@ func (db *DB) GetTableInfo(tableName string) (*define.TableInfo, error) {
 
 // GetTables returns a list of table names in the database
 func (db *DB) GetTables(pattern string) ([]string, error) {
-	var tables []string
-
-	// For MySQL
-	if _, ok := db.Factory.(*mysql.Factory); ok {
-		// Convert pattern to SQL LIKE pattern
-		if pattern == "*" || pattern == "" {
-			pattern = "%"
-		} else {
-			// Convert glob pattern to SQL LIKE pattern
-			pattern = strings.ReplaceAll(pattern, "*", "%")
-		}
-
-		// Use INFORMATION_SCHEMA to get table names
-		query := `
-			SELECT TABLE_NAME 
-			FROM INFORMATION_SCHEMA.TABLES 
-			WHERE TABLE_SCHEMA = DATABASE() 
-			AND TABLE_NAME LIKE ?
-		`
-		rows, err := db.DB.Query(query, pattern)
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var table string
-			if err := rows.Scan(&table); err != nil {
-				return nil, err
-			}
-			tables = append(tables, table)
-		}
-		return tables, rows.Err()
-	}
-
-	// For PostgreSQL
-	if _, ok := db.Factory.(*postgres.Factory); ok {
-		// Convert pattern to SQL LIKE pattern
-		if pattern == "*" || pattern == "" {
-			pattern = "%"
-		} else {
-			// Convert glob pattern to SQL LIKE pattern
-			pattern = strings.ReplaceAll(pattern, "*", "%")
-		}
-
-		query := `
-			SELECT schemaname || '.' || tablename
-			FROM pg_catalog.pg_tables
-			WHERE tablename LIKE $1
-			AND schemaname NOT IN ('pg_catalog', 'information_schema')
-			ORDER BY schemaname, tablename
-		`
-
-		rows, err := db.DB.Query(query, pattern)
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var table string
-			if err := rows.Scan(&table); err != nil {
-				return nil, err
-			}
-			tables = append(tables, table)
-		}
-		return tables, rows.Err()
-	}
-
-	return nil, fmt.Errorf("unsupported database driver")
+	return db.Factory.GetTables(db.DB, pattern)
 }
 
 // GenerateStruct 生成单个表的结构体代码
@@ -459,15 +388,29 @@ func goType(dbType string, isNullable bool) string {
 	case strings.Contains(dbType, "int"):
 		if strings.Contains(dbType, "big") {
 			goType = "int64"
+		} else if strings.Contains(dbType, "small") {
+			goType = "int16"
+		} else if strings.Contains(dbType, "tiny") {
+			goType = "int8"
 		} else {
 			goType = "int"
 		}
-	case strings.Contains(dbType, "float"), strings.Contains(dbType, "double"), strings.Contains(dbType, "decimal"):
+	case strings.Contains(dbType, "decimal"), strings.Contains(dbType, "numeric"):
+		goType = "decimal.Decimal"
+	case strings.Contains(dbType, "float"):
+		goType = "float32"
+	case strings.Contains(dbType, "double"):
 		goType = "float64"
 	case strings.Contains(dbType, "bool"):
 		goType = "bool"
 	case strings.Contains(dbType, "time"), strings.Contains(dbType, "date"):
 		goType = "time.Time"
+	case strings.Contains(dbType, "json"):
+		goType = "json.RawMessage"
+	case strings.Contains(dbType, "uuid"):
+		goType = "uuid.UUID"
+	case strings.Contains(dbType, "inet"):
+		goType = "net.IP"
 	default:
 		goType = "string"
 	}

@@ -607,9 +607,17 @@ func (c *Chain) list() *define.Result {
 	var rows *sql.Rows
 	var err error
 	if c.tx != nil {
-		rows, err = c.tx.Query(sqlStr, args...)
+		st, er := c.tx.Prepare(sqlStr)
+		if er != nil {
+			return &define.Result{Error: er}
+		}
+		rows, err = st.Query(args...)
 	} else {
-		rows, err = c.db.DB.Query(sqlStr, args...)
+		st, er := c.db.DB.Prepare(sqlStr)
+		if er != nil {
+			return &define.Result{Error: er}
+		}
+		rows, err = st.Query(args...)
 	}
 	if err != nil {
 		return &define.Result{Error: err}

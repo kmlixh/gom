@@ -52,7 +52,12 @@ func main() {
 	defer generator.Close()
 
 	// 执行代码生成
-	if err := generator.Generate(); err != nil {
+	file, er := os.Create(opts.OutputDir + "/" + "gomen.go")
+	if er != nil {
+		log.Fatalf("创建文件失败: %v", err)
+	}
+	defer file.Close()
+	if err := generator.Generate(file); err != nil {
 		log.Fatalf("生成代码失败: %v", err)
 	}
 

@@ -596,101 +596,169 @@ func (f *Factory) BuildCreateTable(table string, modelType reflect.Type) string 
 
 // GetTableInfo 获取表信息
 func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo, error) {
-	// 获取表基本信息
-	var tableInfo define.TableInfo
-	tableInfo.TableName = tableName
-
-	// 获取表注释
-	query := `SELECT COALESCE(obj_description(c.oid), '') as table_comment
-			 FROM pg_class c
-			 WHERE c.relname = $1`
-
-	err := db.QueryRow(query, tableName).Scan(&tableInfo.TableComment)
-	if err != nil && err != sql.ErrNoRows {
-		return nil, fmt.Errorf("获取表注释失败: %v", err)
+	if db == nil {
+		return nil, errors.New("database connection is nil")
 	}
 
-	// 获取列信息
-	query = `SELECT 
-				a.attname as column_name,
-				format_type(a.atttypid, a.atttypmod) as data_type,
-				CASE 
-					WHEN format_type(a.atttypid, a.atttypmod) LIKE 'character varying%' 
-					THEN regexp_replace(format_type(a.atttypid, a.atttypmod), 'character varying\((\d+)\)', '\1')::integer
-					ELSE null
-				END as character_maximum_length,
-				CASE 
-					WHEN format_type(a.atttypid, a.atttypmod) LIKE 'numeric%' 
-					THEN split_part(regexp_replace(format_type(a.atttypid, a.atttypmod), 'numeric\((\d+),(\d+)\)', '\1'), ',', 1)::integer
-					ELSE null
-				END as numeric_precision,
-				CASE 
-					WHEN format_type(a.atttypid, a.atttypmod) LIKE 'numeric%' 
-					THEN split_part(regexp_replace(format_type(a.atttypid, a.atttypmod), 'numeric\((\d+),(\d+)\)', '\2'), ',', 1)::integer
-					ELSE null
-				END as numeric_scale,
-				CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END as is_nullable,
-				CASE WHEN pk.contype = 'p' THEN 'PRI' ELSE '' END as column_key,
-				CASE WHEN a.attidentity = 'a' THEN 'auto_increment' ELSE '' END as extra,
-				COALESCE(col_description(a.attrelid, a.attnum), '') as column_comment
-			FROM pg_attribute a
-			LEFT JOIN pg_constraint pk 
-				ON pk.conrelid = a.attrelid 
-				AND pk.contype = 'p' 
-				AND a.attnum = ANY(pk.conkey)
-			WHERE a.attrelid = $1::regclass
-			AND a.attnum > 0
-			AND NOT a.attisdropped
-			ORDER BY a.attnum`
+	// Get current schema
+	var schema string
+	row := db.QueryRow("SELECT CURRENT_SCHEMA")
+	if err := row.Scan(&schema); err != nil {
+		return nil, fmt.Errorf("failed to get current schema: %v", err)
+	}
 
-	rows, err := db.Query(query, tableName)
+	// Get table comment
+	var tableComment string
+	row = db.QueryRow(`
+		SELECT obj_description(c.oid) 
+		FROM pg_class c 
+		JOIN pg_namespace n ON n.oid = c.relnamespace 
+		WHERE n.nspname = $1 
+		AND c.relname = $2
+	`, schema, tableName)
+	if err := row.Scan(&tableComment); err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to get table comment: %v", err)
+	}
+
+	// Get column information
+	rows, err := db.Query(`
+		SELECT 
+			a.attname AS column_name,
+			t.typname AS data_type,
+			a.attlen AS max_length,
+			a.atttypmod AS type_modifier,
+			a.attnotnull AS not_null,
+			pg_get_expr(d.adbin, d.adrelid) AS default_value,
+			col_description(c.oid, a.attnum) AS column_comment,
+			a.attidentity AS identity,
+			CASE WHEN pk.contype = 'p' THEN true ELSE false END AS is_primary
+		FROM pg_attribute a
+		JOIN pg_class c ON c.oid = a.attrelid
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		JOIN pg_type t ON t.oid = a.atttypid
+		LEFT JOIN pg_attrdef d ON d.adrelid = c.oid AND d.adnum = a.attnum
+		LEFT JOIN pg_constraint pk ON pk.conrelid = c.oid AND pk.contype = 'p' AND a.attnum = ANY(pk.conkey)
+		WHERE n.nspname = $1
+		AND c.relname = $2
+		AND a.attnum > 0
+		AND NOT a.attisdropped
+		ORDER BY a.attnum
+	`, schema, tableName)
 	if err != nil {
-		return nil, fmt.Errorf("获取列信息失败: %v", err)
+		return nil, fmt.Errorf("failed to get column information: %v", err)
 	}
 	defer rows.Close()
 
+	var columns []define.ColumnInfo
+	var primaryKeys []string
+	hasDecimal := false
+	hasUUID := false
+	hasIP := false
+
 	for rows.Next() {
 		var col define.ColumnInfo
-		var maxLength sql.NullInt64
-		var precision sql.NullInt64
-		var scale sql.NullInt64
-		var isNullable string
-		var columnKey string
-		var extra string
+		var maxLength, typeModifier int
+		var notNull bool
+		var defaultValue, comment, identity sql.NullString
+		var isPrimary bool
 
 		err := rows.Scan(
 			&col.Name,
-			&col.Type,
+			&col.TypeName,
 			&maxLength,
-			&precision,
-			&scale,
-			&isNullable,
-			&columnKey,
-			&extra,
-			&col.Comment,
+			&typeModifier,
+			&notNull,
+			&defaultValue,
+			&comment,
+			&identity,
+			&isPrimary,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("扫描列信息失败: %v", err)
+			return nil, fmt.Errorf("failed to scan column info: %v", err)
 		}
 
-		col.IsNullable = isNullable == "YES"
-		col.IsPrimaryKey = columnKey == "PRI"
-		col.IsAutoIncrement = extra == "auto_increment"
+		// Set standard SQL data type
+		col.DataType = getSQLDataType(col.TypeName)
 
-		if maxLength.Valid {
-			col.Length = maxLength.Int64
-		}
-		if precision.Valid {
-			col.Precision = int(precision.Int64)
-		}
-		if scale.Valid {
-			col.Scale = int(scale.Int64)
+		// Set other fields
+		if typeModifier > 4 {
+			col.Length = int64(typeModifier - 4)
+		} else if maxLength > 0 {
+			col.Length = int64(maxLength)
 		}
 
-		tableInfo.Columns = append(tableInfo.Columns, col)
+		// Handle numeric precision and scale
+		if strings.HasPrefix(col.TypeName, "numeric") || strings.HasPrefix(col.TypeName, "decimal") {
+			if typeModifier > 4 {
+				precision := (typeModifier - 4) >> 16
+				scale := (typeModifier - 4) & 0xFFFF
+				col.Precision = int(precision)
+				col.Scale = int(scale)
+			}
+		}
+
+		col.IsNullable = !notNull
+		col.IsPrimaryKey = isPrimary
+		col.IsAutoIncrement = identity.Valid && (identity.String == "a" || identity.String == "d")
+		if defaultValue.Valid {
+			col.DefaultValue = defaultValue.String
+		}
+		if comment.Valid {
+			col.Comment = comment.String
+		}
+
+		// Check special types
+		switch col.TypeName {
+		case "numeric", "decimal":
+			hasDecimal = true
+		case "uuid":
+			hasUUID = true
+		case "inet":
+			hasIP = true
+		}
+
+		if col.IsPrimaryKey {
+			primaryKeys = append(primaryKeys, col.Name)
+		}
+
+		columns = append(columns, col)
 	}
 
-	return &tableInfo, nil
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %v", err)
+	}
+
+	return &define.TableInfo{
+		TableName:    tableName,
+		TableComment: tableComment,
+		PrimaryKeys:  primaryKeys,
+		Columns:      columns,
+		HasDecimal:   hasDecimal,
+		HasUUID:      hasUUID,
+		HasIP:        hasIP,
+	}, nil
+}
+
+// getSQLDataType returns the standard SQL data type for a given PostgreSQL type
+func getSQLDataType(pgType string) reflect.Type {
+	switch strings.ToLower(pgType) {
+	case "smallint", "integer", "serial", "smallserial":
+		return reflect.TypeOf(sql.NullInt32{})
+	case "bigint", "bigserial":
+		return reflect.TypeOf(sql.NullInt64{})
+	case "decimal", "numeric", "real", "double precision":
+		return reflect.TypeOf(sql.NullFloat64{})
+	case "character", "character varying", "text", "uuid", "json", "jsonb", "xml", "inet":
+		return reflect.TypeOf(sql.NullString{})
+	case "timestamp", "timestamp with time zone", "date", "time", "time with time zone":
+		return reflect.TypeOf(sql.NullTime{})
+	case "bytea":
+		return reflect.TypeOf(sql.RawBytes{})
+	case "boolean":
+		return reflect.TypeOf(sql.NullBool{})
+	default:
+		return reflect.TypeOf(sql.NullString{})
+	}
 }
 
 // GetTables 获取符合模式的所有表

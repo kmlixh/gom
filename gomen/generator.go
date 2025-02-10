@@ -1,8 +1,10 @@
 package gomen
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -86,7 +88,19 @@ func (g *Generator) Close() error {
 }
 
 // Generate 生成代码
-func (g *Generator) Generate() error {
+func (g *Generator) Generate(writer io.Writer) error {
+	// 如果没有提供 writer，使用默认的输出流
+	if writer == nil {
+		var err error
+		writer, err = g.createDefaultWriter()
+		if err != nil {
+			return fmt.Errorf("创建默认输出流失败: %v", err)
+		}
+		if bw, ok := writer.(*bufio.Writer); ok {
+			defer bw.Flush()
+		}
+	}
+
 	// 获取表列表
 	tables, err := g.db.GetTables(g.options.Pattern)
 	if err != nil {
@@ -105,13 +119,13 @@ func (g *Generator) Generate() error {
 
 	// 生成每个表的结构体
 	for _, table := range tables {
-		if err := g.generateTableStruct(table); err != nil {
+		if err := g.GenerateTableStruct(table, writer); err != nil {
 			return fmt.Errorf("生成表 %s 的结构体失败: %v", table, err)
 		}
 	}
 
 	// 生成模型注册文件
-	if err := g.generateModelRegistry(tables); err != nil {
+	if err := g.GenerateModelRegistry(tables, writer); err != nil {
 		return fmt.Errorf("生成模型注册文件失败: %v", err)
 	}
 
@@ -121,6 +135,15 @@ func (g *Generator) Generate() error {
 	}
 
 	return nil
+}
+
+// createDefaultWriter 创建默认的输出流
+func (g *Generator) createDefaultWriter() (io.Writer, error) {
+	// 创建输出目录
+	if err := os.MkdirAll(g.options.OutputDir, 0755); err != nil {
+		return nil, fmt.Errorf("创建输出目录失败: %v", err)
+	}
+	return bufio.NewWriter(os.Stdout), nil
 }
 
 // validateOptions 验证生成选项
@@ -156,8 +179,8 @@ func validateOptions(options *Options) error {
 	return nil
 }
 
-// generateTableStruct 生成单个表的结构体
-func (g *Generator) generateTableStruct(tableName string) error {
+// GenerateTableStruct 生成单个表的结构体
+func (g *Generator) GenerateTableStruct(tableName string, writer io.Writer) error {
 	// 获取表信息
 	tableInfo, err := g.db.GetTableInfo(tableName)
 	if err != nil {
@@ -181,15 +204,6 @@ func (g *Generator) generateTableStruct(tableName string) error {
 		structName = strings.TrimSuffix(structName, g.options.Suffix)
 	}
 	structName = toGoName(structName)
-
-	// 创建输出文件
-	filename := filepath.Join(g.options.OutputDir, snakeCase(structName)+".go")
-	file, err := os.Create(filename)
-	if err != nil {
-		return fmt.Errorf("创建文件失败: %v", err)
-	}
-	defer file.Close()
-
 	// 准备模板数据
 	data := struct {
 		Timestamp    string
@@ -220,7 +234,7 @@ func (g *Generator) generateTableStruct(tableName string) error {
 		return fmt.Errorf("解析模板失败: %v", err)
 	}
 
-	if err := tmpl.Execute(file, data); err != nil {
+	if err := tmpl.Execute(writer, data); err != nil {
 		return fmt.Errorf("生成代码失败: %v", err)
 	}
 
@@ -228,13 +242,7 @@ func (g *Generator) generateTableStruct(tableName string) error {
 }
 
 // generateModelRegistry 生成模型注册文件
-func (g *Generator) generateModelRegistry(tables []string) error {
-	filename := filepath.Join(g.options.OutputDir, "models.go")
-	file, err := os.Create(filename)
-	if err != nil {
-		return fmt.Errorf("创建模型注册文件失败: %v", err)
-	}
-	defer file.Close()
+func (g *Generator) GenerateModelRegistry(tables []string, writer io.Writer) error {
 
 	// 准备模型列表
 	var models []string
@@ -266,7 +274,7 @@ func (g *Generator) generateModelRegistry(tables []string) error {
 		return fmt.Errorf("解析模板失败: %v", err)
 	}
 
-	if err := tmpl.Execute(file, data); err != nil {
+	if err := tmpl.Execute(writer, data); err != nil {
 		return fmt.Errorf("生成模型注册文件失败: %v", err)
 	}
 
@@ -396,8 +404,8 @@ func isTimeField(name string) bool {
 // hasDecimalType 检查是否包含 Decimal 类型
 func hasDecimalType(columns []define.ColumnInfo) bool {
 	for _, col := range columns {
-		if strings.Contains(strings.ToLower(col.Type), "decimal") ||
-			strings.Contains(strings.ToLower(col.Type), "numeric") {
+		if strings.Contains(strings.ToLower(col.TypeName), "decimal") ||
+			strings.Contains(strings.ToLower(col.TypeName), "numeric") {
 			return true
 		}
 	}
@@ -407,7 +415,7 @@ func hasDecimalType(columns []define.ColumnInfo) bool {
 // hasUUIDType 检查是否包含 UUID 类型
 func hasUUIDType(columns []define.ColumnInfo) bool {
 	for _, col := range columns {
-		if strings.Contains(strings.ToLower(col.Type), "uuid") {
+		if strings.Contains(strings.ToLower(col.TypeName), "uuid") {
 			return true
 		}
 	}
@@ -417,7 +425,7 @@ func hasUUIDType(columns []define.ColumnInfo) bool {
 // hasIPType 检查是否包含 IP 类型
 func hasIPType(columns []define.ColumnInfo) bool {
 	for _, col := range columns {
-		if strings.Contains(strings.ToLower(col.Type), "inet") {
+		if strings.Contains(strings.ToLower(col.TypeName), "inet") {
 			return true
 		}
 	}
