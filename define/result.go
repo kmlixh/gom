@@ -248,7 +248,7 @@ func (r *Result) Into(dest interface{}) error {
 			return sql.ErrNoRows
 		}
 		// Use the first row of data for struct
-		return convertRowToStruct(r.Data[0], destElem)
+		return ConvertRowToStruct(r.Data[0], destElem)
 	}
 
 	// Handle slice pointer case
@@ -286,7 +286,7 @@ func (r *Result) Into(dest interface{}) error {
 		// Convert each data row to struct
 		for _, data := range r.Data {
 			newElem := reflect.New(elemType)
-			if err := convertRowToStruct(data, newElem.Elem()); err != nil {
+			if err := ConvertRowToStruct(data, newElem.Elem()); err != nil {
 				return err
 			}
 
@@ -302,8 +302,8 @@ func (r *Result) Into(dest interface{}) error {
 	return fmt.Errorf("destination must be a pointer to struct or slice")
 }
 
-// convertRowToStruct converts a single data row to a struct
-func convertRowToStruct(data map[string]interface{}, structValue reflect.Value) error {
+// ConvertRowToStruct converts a single data row to a struct
+func ConvertRowToStruct(data map[string]interface{}, structValue reflect.Value) error {
 	structType := structValue.Type()
 
 	// Create field map for the struct
@@ -396,3 +396,21 @@ func (r *Result) FromJSON(jsonStr string) error {
 
 // Ensure Result implements sql.Result interface
 var _ sql.Result = (*Result)(nil)
+
+// GetRow returns a DataRow for the specified index
+func (r *Result) GetRow(index int) (*DataRow, error) {
+	if r.Error != nil {
+		return nil, r.Error
+	}
+
+	if index < 0 || index >= len(r.Data) {
+		return nil, fmt.Errorf("index out of range: %d", index)
+	}
+
+	return &DataRow{data: r.Data[index]}, nil
+}
+
+// GetFirstRow returns the first DataRow from the result
+func (r *Result) GetFirstRow() (*DataRow, error) {
+	return r.GetRow(0)
+}
