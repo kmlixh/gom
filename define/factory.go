@@ -60,6 +60,7 @@ type ColumnInfo struct {
 type TableStruct struct {
 	TableInfo
 	FieldToColMap map[string]string
+	ColToFieldMap map[string]string
 }
 
 // SQLFactory defines the interface for SQL query builders

@@ -103,24 +103,28 @@ func StructToMap(obj interface{}) (map[string]interface{}, error) {
 
 	return result, nil
 }
-func GetFieldToColMap(i any, tableInfo *TableInfo) (map[string]string, error) {
+func GetFieldToColMap(i any, tableInfo *TableInfo) (map[string]string, map[string]string, error) {
 	fieldMap := make(map[string]string)
+	colMap := make(map[string]string)
 	if i == nil {
-		return fieldMap, fmt.Errorf("input object is nil")
+		return fieldMap, colMap, fmt.Errorf("input object is nil")
 	}
 
 	v := reflect.ValueOf(i)
 	if v.Kind() == reflect.Ptr {
 		if v.IsNil() {
-			return fieldMap, fmt.Errorf("input object is nil")
+			return fieldMap, colMap, fmt.Errorf("input object is nil")
 		}
 		v = v.Elem()
 	}
 
 	if v.Kind() != reflect.Struct {
-		return fieldMap, fmt.Errorf("input object is not a struct")
+		return fieldMap, colMap, fmt.Errorf("input object is not a struct")
 	}
 
+	for _, col := range tableInfo.Columns {
+		colMap[col.Name] = col.Name
+	}
 	t := v.Type()
 	for i := 0; i < v.NumField(); i++ {
 		field := t.Field(i)
@@ -128,6 +132,7 @@ func GetFieldToColMap(i any, tableInfo *TableInfo) (map[string]string, error) {
 			continue
 		}
 		fieldName := ""
+		colName := ""
 		tag := field.Tag.Get("json")
 		if tag != "" {
 			name := strings.Split(tag, ",")[0]
@@ -136,7 +141,7 @@ func GetFieldToColMap(i any, tableInfo *TableInfo) (map[string]string, error) {
 			}
 		}
 		if fieldName != "" {
-			colName := ""
+
 			tag := field.Tag.Get("gom")
 			if tag != "" {
 				parts := strings.Split(tag, ",")
@@ -147,16 +152,15 @@ func GetFieldToColMap(i any, tableInfo *TableInfo) (map[string]string, error) {
 			if colName == "" {
 				colName = fieldName
 			}
-			for _, col := range tableInfo.Columns {
-				if col.Name == colName {
-					fieldMap[fieldName] = col.Name
-					break
-				}
-			}
 		}
-	}
+		if _, ok := colMap[colName]; ok {
+			fieldMap[fieldName] = colName
+			colMap[colName] = fieldName
+			break
+		}
 
-	return fieldMap, nil
+	}
+	return fieldMap, colMap, nil
 }
 
 // isZeroValue checks if a reflect.Value is the zero value for its type
