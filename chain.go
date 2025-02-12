@@ -670,217 +670,59 @@ func (c *Chain) list() *define.Result {
 
 // createScanner creates an appropriate scanner for the given column type
 func createScanner(ct *sql.ColumnType) interface{} {
-	dbType := ct.DatabaseTypeName()
-	nullable, _ := ct.Nullable()
-	scanType := ct.ScanType()
-
-	switch strings.ToLower(dbType) {
-	case "bool", "boolean", "bit", "tinyint(1)":
-		if nullable {
-			return new(sql.NullInt64)
-		}
-		return new(int64)
-	case "tinyint":
-		if nullable {
-			return new(sql.NullInt64)
-		}
-		return new(int64)
-	case "int2", "int4":
-		if nullable {
-			return new(sql.NullInt32)
-		}
-		return new(int32)
-	case "int", "integer", "bigint", "int8":
-		if nullable {
-			return new(sql.NullInt64)
-		}
-		return new(int64)
-	case "year":
-		if nullable {
-			return new(sql.NullInt16)
-		}
-		return new(int16)
-	case "float", "float4", "real":
-		if nullable {
-			return new(sql.NullFloat64)
-		}
-		return new(float32)
-	case "double", "float8":
-		if nullable {
-			return new(sql.NullFloat64)
-		}
-		return new(float64)
-	case "decimal", "numeric", "dec", "fixed":
-		length, scale, _ := ct.DecimalSize()
-		if scale > 0 {
-			if nullable {
-				return new(sql.NullFloat64)
-			}
-			return new(float64)
-		}
-		if length > 9 {
-			if nullable {
-				return new(sql.NullInt64)
-			}
-			return new(int64)
-		}
-		if nullable {
-			return new(sql.NullInt32)
-		}
-		return new(int32)
-	case "time":
-		if nullable {
-			return new(sql.NullTime)
-		}
-		return new(time.Time)
-	case "date":
-		if nullable {
-			return new(sql.NullTime)
-		}
-		return new(time.Time)
-	case "datetime", "timestamp", "timestamptz":
-		if nullable {
-			return new(sql.NullTime)
-		}
-		return new(time.Time)
-	case "interval": // PostgreSQL interval type
-		return new(string)
-	case "char", "varchar", "tinytext", "text", "mediumtext", "longtext":
-		if nullable {
-			return new(sql.NullString)
-		}
-		return new(string)
-	case "enum", "set":
-		if nullable {
-			return new(sql.NullString)
-		}
-		return new(string)
-	case "binary", "varbinary", "tinyblob", "blob", "mediumblob", "longblob":
-		return new([]byte)
-	case "json", "jsonb":
-		return new([]byte)
-	case "uuid":
-		if nullable {
-			return new(sql.NullString)
-		}
-		return new(string)
-	case "inet", "cidr", "macaddr":
-		if nullable {
-			return new(sql.NullString)
-		}
-		return new(string)
-	case "point", "line", "lseg", "box", "path", "polygon", "circle":
-		if nullable {
-			return new(sql.NullString)
-		}
-		return new(string)
-	case "array":
-		return new([]byte)
-	case "xml":
-		if nullable {
-			return new(sql.NullString)
-		}
-		return new(string)
-	case "money", "smallmoney":
-		if nullable {
-			return new(sql.NullFloat64)
-		}
-		return new(float64)
-	default:
-		if scanType != nil {
-			return reflect.New(scanType).Interface()
-		}
-		if nullable {
-			return new(sql.NullString)
-		}
-		return new(string)
+	if ct == nil {
+		return new(interface{})
 	}
+
+	scanType := ct.ScanType()
+	if scanType == nil {
+		// 如果ScanType为nil，使用默认的string类型
+		return new(sql.NullString)
+	}
+
+	// 创建scanType类型的指针
+	return reflect.New(scanType).Interface()
 }
 
 // extractValue extracts the actual value from a scanner
 func extractValue(scanner interface{}, ct *sql.ColumnType) interface{} {
 	if scanner == nil {
-		// Return zero value based on column type
-		switch strings.ToLower(ct.DatabaseTypeName()) {
-		case "bool", "boolean":
-			return false
-		case "tinyint(1)":
-			return int64(0)
-		case "tinyint", "smallint", "mediumint", "int", "integer", "bigint", "year":
-			return int64(0)
-		case "float", "double", "decimal", "numeric":
-			return float64(0)
-		case "time", "date", "datetime", "timestamp":
-			return time.Time{}
-		default:
-			return ""
+		return nil
+	}
+
+	// 获取scanner的反射值
+	value := reflect.ValueOf(scanner).Elem()
+
+	// 处理sql.Null*类型
+	if value.Type().Implements(reflect.TypeOf((*sql.Scanner)(nil)).Elem()) {
+		// 检查是否为sql.Null*类型
+		if validField := value.FieldByName("Valid"); validField.IsValid() {
+			if !validField.Bool() {
+				return nil
+			}
+			// 返回实际值
+			return value.FieldByName("Value").Interface()
 		}
 	}
 
-	switch v := scanner.(type) {
-	case *bool:
-		return *v
-	case *int64:
-		if ct != nil && (strings.ToLower(ct.DatabaseTypeName()) == "tinyint(1)") {
-			return *v != 0
-		}
-		return *v
-	case *sql.NullInt64:
-		if !v.Valid {
+	// 处理[]byte类型的特殊情况
+	if value.Type() == reflect.TypeOf([]byte{}) {
+		bytes := value.Bytes()
+		if bytes == nil {
 			return nil
 		}
-		if ct != nil && (strings.ToLower(ct.DatabaseTypeName()) == "tinyint(1)") {
-			return v.Int64 != 0
-		}
-		return v.Int64
-	case *sql.NullBool:
-		if !v.Valid {
-			return nil
-		}
-		return v.Bool
-	case *int32:
-		return *v
-	case *int16:
-		return *v
-	case *int8:
-		return *v
-	case *float32:
-		return *v
-	case *float64:
-		return *v
-	case *string:
-		return *v
-	case *time.Time:
-		return *v
-	case *sql.NullFloat64:
-		if v.Valid {
-			return v.Float64
-		}
-		return float64(0)
-	case *sql.NullString:
-		if v.Valid {
-			return v.String
-		}
-		return ""
-	case *sql.NullTime:
-		if v.Valid {
-			return v.Time
-		}
-		return time.Time{}
-	case *[]byte:
-		if *v != nil {
-			// Try to parse JSON
-			if strings.ToLower(ct.DatabaseTypeName()) == "json" || strings.ToLower(ct.DatabaseTypeName()) == "jsonb" {
-				var js interface{}
-				if err := json.Unmarshal(*v, &js); err == nil {
-					return js
-				}
+		// 处理JSON类型
+		if strings.ToLower(ct.DatabaseTypeName()) == "json" || strings.ToLower(ct.DatabaseTypeName()) == "jsonb" {
+			var js interface{}
+			if err := json.Unmarshal(bytes, &js); err == nil {
+				return js
 			}
-			return string(*v)
 		}
-		return ""
+		return string(bytes)
 	}
-	return nil
+
+	// 返回普通类型的值
+	return value.Interface()
 }
 
 // First returns the first result
