@@ -477,13 +477,14 @@ func (db DB) GetTableStruct(i any, table string) (*define.TableStruct, error) {
 	if er != nil {
 		return nil, er
 	}
-	maps, er := define.GetFieldToColMap(i, tableInfo)
+	maps, maps2, er := define.GetFieldToColMap(i, tableInfo)
 	if er != nil {
 		return nil, er
 	}
 	return &define.TableStruct{
 		TableInfo:     *tableInfo,
 		FieldToColMap: maps,
+		ColToFieldMap: maps2,
 	}, nil
 }
 func (db DB) GetTableStruct2(i any) (*define.TableStruct, error) {
