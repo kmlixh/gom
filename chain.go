@@ -802,8 +802,10 @@ func extractValue(scanner interface{}, ct *sql.ColumnType) interface{} {
 	if scanner == nil {
 		// Return zero value based on column type
 		switch strings.ToLower(ct.DatabaseTypeName()) {
-		case "bool", "boolean", "bit", "tinyint(1)":
+		case "bool", "boolean":
 			return false
+		case "tinyint(1)":
+			return int64(0)
 		case "tinyint", "smallint", "mediumint", "int", "integer", "bigint", "year":
 			return int64(0)
 		case "float", "double", "decimal", "numeric":
@@ -819,9 +821,7 @@ func extractValue(scanner interface{}, ct *sql.ColumnType) interface{} {
 	case *bool:
 		return *v
 	case *int64:
-		if ct != nil && (strings.ToLower(ct.DatabaseTypeName()) == "tinyint(1)" ||
-			strings.ToLower(ct.DatabaseTypeName()) == "bool" ||
-			strings.ToLower(ct.DatabaseTypeName()) == "boolean") {
+		if ct != nil && (strings.ToLower(ct.DatabaseTypeName()) == "tinyint(1)") {
 			return *v != 0
 		}
 		return *v
@@ -829,12 +829,15 @@ func extractValue(scanner interface{}, ct *sql.ColumnType) interface{} {
 		if !v.Valid {
 			return nil
 		}
-		if ct != nil && (strings.ToLower(ct.DatabaseTypeName()) == "tinyint(1)" ||
-			strings.ToLower(ct.DatabaseTypeName()) == "bool" ||
-			strings.ToLower(ct.DatabaseTypeName()) == "boolean") {
+		if ct != nil && (strings.ToLower(ct.DatabaseTypeName()) == "tinyint(1)") {
 			return v.Int64 != 0
 		}
 		return v.Int64
+	case *sql.NullBool:
+		if !v.Valid {
+			return nil
+		}
+		return v.Bool
 	case *int32:
 		return *v
 	case *int16:
@@ -849,11 +852,6 @@ func extractValue(scanner interface{}, ct *sql.ColumnType) interface{} {
 		return *v
 	case *time.Time:
 		return *v
-	case *sql.NullBool:
-		if v.Valid {
-			return v.Bool
-		}
-		return false
 	case *sql.NullFloat64:
 		if v.Valid {
 			return v.Float64
