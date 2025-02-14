@@ -232,22 +232,29 @@ func TestResultEdgeCases(t *testing.T) {
 			Data: []map[string]interface{}{{"id": 1}},
 		}
 
-		// Non-pointer destination
+		// Test non-pointer destination
 		var models []TestResultModel
 		err := result.Into(models)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "destination must be a non-nil pointer")
+		assert.Equal(t, "destination must be a pointer", err.Error())
 
-		// Nil pointer
-		err = result.Into(nil)
+		// Test nil pointer
+		var nilPtr *TestResultModel
+		err = result.Into(nilPtr)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "destination must be a non-nil pointer")
+		assert.Equal(t, "destination must be a pointer", err.Error())
 
-		// Non-slice pointer for multiple results
+		// Test non-slice pointer for multiple results
 		var model TestResultModel
 		err = result.Into(&model)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "destination must be a pointer to slice for multiple results")
+		assert.Equal(t, "destination must be a pointer to slice for multiple results", err.Error())
+
+		// Test invalid type
+		var invalidType int
+		err = result.Into(&invalidType)
+		assert.Error(t, err)
+		assert.Equal(t, "destination must be a pointer to slice for multiple results", err.Error())
 	})
 
 	t.Run("Empty Result", func(t *testing.T) {

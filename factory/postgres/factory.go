@@ -608,7 +608,7 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 	}
 
 	// Get table comment
-	var tableComment string
+	var tableComment sql.NullString
 	row = db.QueryRow(`
 		SELECT obj_description(c.oid) 
 		FROM pg_class c 
@@ -618,6 +618,12 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 	`, schema, tableName)
 	if err := row.Scan(&tableComment); err != nil && err != sql.ErrNoRows {
 		return nil, fmt.Errorf("failed to get table comment: %v", err)
+	}
+
+	// Use empty string if comment is NULL
+	comment := ""
+	if tableComment.Valid {
+		comment = tableComment.String
 	}
 
 	// Get column information
@@ -730,7 +736,7 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 
 	return &define.TableInfo{
 		TableName:    tableName,
-		TableComment: tableComment,
+		TableComment: comment,
 		PrimaryKeys:  primaryKeys,
 		Columns:      columns,
 		HasDecimal:   hasDecimal,

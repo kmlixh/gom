@@ -577,16 +577,16 @@ func TestDomainEdgeCases(t *testing.T) {
 	assert.Equal(t, math.MaxInt32, fetchedLimit.ServiceCount)
 	assert.Equal(t, -1, fetchedLimit.Status)
 
-	// 4. 测试并发插入和查询
-	var wg sync.WaitGroup
+	// 4. 测试并发操作
 	domainCount := 10
-	errorChan := make(chan error, domainCount*2) // 用于收集错误
+	errorChan := make(chan error, domainCount*2)
 
 	// 并发插入
+	var insertWg sync.WaitGroup
 	for i := 0; i < domainCount; i++ {
-		wg.Add(1)
+		insertWg.Add(1)
 		go func(index int) {
-			defer wg.Done()
+			defer insertWg.Done()
 			concurrentDomain := &Domain{
 				Name:         fmt.Sprintf("Concurrent Domain %d", index),
 				DomainName:   fmt.Sprintf("concurrent-domain-%d", index),
@@ -609,11 +609,15 @@ func TestDomainEdgeCases(t *testing.T) {
 		}(i)
 	}
 
+	// 等待所有插入完成
+	insertWg.Wait()
+
 	// 并发查询
+	var queryWg sync.WaitGroup
 	for i := 0; i < domainCount; i++ {
-		wg.Add(1)
+		queryWg.Add(1)
 		go func(index int) {
-			defer wg.Done()
+			defer queryWg.Done()
 			var domains []Domain
 			result := db.Chain().
 				Table("domains").
@@ -626,7 +630,7 @@ func TestDomainEdgeCases(t *testing.T) {
 		}(i)
 	}
 
-	wg.Wait()
+	queryWg.Wait()
 	close(errorChan)
 
 	// 检查是否有错误发生

@@ -576,21 +576,26 @@ func (f *Factory) BuildCreateTable(table string, modelType reflect.Type) string 
 	return query
 }
 
-// GetTableInfo retrieves table information from MySQL
+// GetTableInfo retrieves table information from the database
 func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo, error) {
 	if db == nil {
 		return nil, errors.New("database connection is nil")
 	}
 
+	// Check if table exists
+	var exists bool
+	err := db.QueryRow("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?)", tableName).Scan(&exists)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check table existence: %v", err)
+	}
+	if !exists {
+		return nil, nil
+	}
+
 	// Get table comment
-	var tableComment string
-	row := db.QueryRow(`
-		SELECT table_comment 
-		FROM information_schema.tables 
-		WHERE table_schema = DATABASE() 
-		AND table_name = ?
-	`, tableName)
-	if err := row.Scan(&tableComment); err != nil && err != sql.ErrNoRows {
+	var tableComment sql.NullString
+	err = db.QueryRow("SELECT table_comment FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?", tableName).Scan(&tableComment)
+	if err != nil {
 		return nil, fmt.Errorf("failed to get table comment: %v", err)
 	}
 
@@ -625,12 +630,15 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 
 	for rows.Next() {
 		var col define.ColumnInfo
-		var isNullable, columnKey, extra, defaultValue, comment string
+		var isNullable string
+		var columnKey, extra string
 		var maxLength, numericPrecision, numericScale sql.NullInt64
+		var defaultValue, comment sql.NullString
+		var dataType string
 
 		err := rows.Scan(
 			&col.Name,
-			&col.TypeName,
+			&dataType,
 			&maxLength,
 			&numericPrecision,
 			&numericScale,
@@ -644,10 +652,8 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 			return nil, fmt.Errorf("failed to scan column info: %v", err)
 		}
 
-		// Set standard SQL data type
-		col.DataType = getSQLDataType(col.TypeName)
-
-		// Set other fields
+		col.TypeName = dataType
+		col.DataType = getSQLDataType(dataType)
 		col.Length = maxLength.Int64
 		if numericPrecision.Valid {
 			col.Precision = int(numericPrecision.Int64)
@@ -658,11 +664,15 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 		col.IsNullable = isNullable == "YES"
 		col.IsPrimaryKey = columnKey == "PRI"
 		col.IsAutoIncrement = extra == "auto_increment"
-		col.DefaultValue = defaultValue
-		col.Comment = comment
+		if defaultValue.Valid {
+			col.DefaultValue = defaultValue.String
+		}
+		if comment.Valid {
+			col.Comment = comment.String
+		}
 
 		// Check special types
-		switch strings.ToLower(col.TypeName) {
+		switch strings.ToLower(dataType) {
 		case "decimal", "numeric":
 			hasDecimal = true
 		case "uuid":
@@ -684,7 +694,7 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 
 	return &define.TableInfo{
 		TableName:    tableName,
-		TableComment: tableComment,
+		TableComment: tableComment.String,
 		PrimaryKeys:  primaryKeys,
 		Columns:      columns,
 		HasDecimal:   hasDecimal,
@@ -715,14 +725,26 @@ func getSQLDataType(mysqlType string) reflect.Type {
 	}
 }
 
-// GetTables 获取符合模式的所有表
+// GetTables returns a list of table names in the database
 func (f *Factory) GetTables(db *sql.DB, pattern string) ([]string, error) {
-	if pattern == "" {
-		pattern = "%"
+	if db == nil {
+		return nil, errors.New("database connection is nil")
 	}
-	rows, err := db.Query("SHOW TABLES")
+
+	query := "SHOW TABLES"
+	if pattern != "" && pattern != "*" {
+		query += " LIKE ?"
+	}
+
+	var rows *sql.Rows
+	var err error
+	if pattern != "" && pattern != "*" {
+		rows, err = db.Query(query, pattern)
+	} else {
+		rows, err = db.Query(query)
+	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get tables: %v", err)
 	}
 	defer rows.Close()
 
@@ -730,13 +752,16 @@ func (f *Factory) GetTables(db *sql.DB, pattern string) ([]string, error) {
 	for rows.Next() {
 		var tableName string
 		if err := rows.Scan(&tableName); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to scan table name: %v", err)
 		}
-		if strings.Contains(tableName, strings.ReplaceAll(pattern, "%", "")) {
-			tables = append(tables, tableName)
-		}
+		tables = append(tables, tableName)
 	}
-	return tables, rows.Err()
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating table rows: %v", err)
+	}
+
+	return tables, nil
 }
 
 // BuildOrderBy builds the ORDER BY clause for MySQL

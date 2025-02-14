@@ -3,6 +3,7 @@ package define
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -224,86 +225,71 @@ func (r *Result) Scan(rows *sql.Rows) error {
 	return rows.Err()
 }
 
-// Into converts the result data into the specified struct slice or struct pointer
+// Into scans the result into the destination
 func (r *Result) Into(dest interface{}) error {
 	if r == nil {
-		return fmt.Errorf("result is nil")
+		return errors.New("result is nil")
 	}
 
 	if r.Error != nil {
 		return r.Error
 	}
 
+	if dest == nil {
+		return errors.New("destination must be a pointer")
+	}
+
 	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.IsNil() {
-		return fmt.Errorf("destination must be a non-nil pointer")
+	if destValue.Kind() != reflect.Ptr {
+		return errors.New("destination must be a pointer")
 	}
 
-	// Get the element that the pointer points to
-	destElem := destValue.Elem()
-
-	// Handle struct pointer case
-	if destElem.Kind() == reflect.Struct {
-		if len(r.Data) == 0 {
-			return sql.ErrNoRows
-		}
-		// Use the first row of data for struct
-		return convertRowToStruct(r.Data[0], destElem)
+	if destValue.IsNil() {
+		return errors.New("destination must be a pointer")
 	}
 
-	// Handle slice pointer case
-	if destElem.Kind() == reflect.Slice {
-		// Set to empty slice if no data
-		if len(r.Data) == 0 {
-			destElem.Set(reflect.MakeSlice(destElem.Type(), 0, 0))
-			return nil
+	// For multiple results, destination must be a pointer to slice
+	if len(r.Data) > 1 {
+		sliceValue := destValue.Elem()
+		if sliceValue.Kind() != reflect.Slice {
+			return errors.New("destination must be a pointer to slice for multiple results")
 		}
-
-		elemType := destElem.Type().Elem()
-		isPtr := elemType.Kind() == reflect.Ptr
-		if isPtr {
-			elemType = elemType.Elem()
-		}
-		if elemType.Kind() != reflect.Struct {
-			return fmt.Errorf("slice element must be a struct or pointer to struct")
-		}
-
-		// Create field map for faster lookup
-		fieldMap := make(map[string]*reflect.StructField)
-		for i := 0; i < elemType.NumField(); i++ {
-			field := elemType.Field(i)
-			tag := field.Tag.Get("gom")
-			if tag == "" {
-				continue
-			}
-			columnName := strings.Split(tag, ",")[0]
-			if columnName == "" {
-				continue
-			}
-			fieldMap[strings.ToLower(columnName)] = &field
-		}
-
-		// Convert each data row to struct
-		for _, data := range r.Data {
-			newElem := reflect.New(elemType)
-			if err := convertRowToStruct(data, newElem.Elem()); err != nil {
-				return err
-			}
-
-			if isPtr {
-				destElem.Set(reflect.Append(destElem, newElem))
-			} else {
-				destElem.Set(reflect.Append(destElem, newElem.Elem()))
-			}
-		}
-		return nil
 	}
 
-	return fmt.Errorf("destination must be a pointer to struct or slice")
+	// Handle empty result
+	if len(r.Data) == 0 {
+		return sql.ErrNoRows
+	}
+
+	// For single result into non-slice
+	if len(r.Data) == 1 && destValue.Elem().Kind() != reflect.Slice {
+		return r.scanSingle(r.Data[0], destValue.Elem())
+	}
+
+	// For multiple results into slice
+	sliceValue := destValue.Elem()
+	sliceType := sliceValue.Type()
+	elemType := sliceType.Elem()
+
+	// Create a new slice with the correct capacity
+	newSlice := reflect.MakeSlice(sliceType, 0, len(r.Data))
+
+	// Scan each result into a new element
+	for _, item := range r.Data {
+		elem := reflect.New(elemType)
+		if err := r.scanSingle(item, elem.Elem()); err != nil {
+			return err
+		}
+		newSlice = reflect.Append(newSlice, elem.Elem())
+	}
+
+	// Set the new slice to the destination
+	destValue.Elem().Set(newSlice)
+	return nil
 }
 
-// convertRowToStruct converts a single data row to a struct
-func convertRowToStruct(data map[string]interface{}, structValue reflect.Value) error {
+// scanSingle scans a single data row into a struct
+func (r *Result) scanSingle(data map[string]interface{}, structValue reflect.Value) error {
 	structType := structValue.Type()
 
 	// Create field map for the struct

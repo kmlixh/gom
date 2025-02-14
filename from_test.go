@@ -150,10 +150,9 @@ func TestFromBasicOperations(t *testing.T) {
 	assert.NoError(t, result.Error)
 
 	// Verify deletion
-	var deletedUsers []FromTestUser
-	result = db.Chain().Table("fromtestuser").Where("id", define.OpEq, user.ID).List(&deletedUsers)
-	assert.NoError(t, result.Error)
-	assert.Len(t, deletedUsers, 0)
+	count, err := db.Chain().Table("fromtestuser").Where("id", define.OpEq, user.ID).Count()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(0), count)
 }
 
 func TestFromWithDefaults(t *testing.T) {

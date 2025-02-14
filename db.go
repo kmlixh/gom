@@ -300,23 +300,27 @@ func generateStructFile(tableInfo *define.TableInfo, outputDir, packageName stri
 
 	// 使用模板生成代码
 	tmpl, err := template.New("struct").Funcs(template.FuncMap{
-		"toGoName": toGoName,
-		"goType":   goType,
+		"toGoName":    toGoName,
+		"goType":      goType,
+		"isTimeField": isTimeField,
+		"eq":          strings.EqualFold,
 	}).Parse(structTemplate)
 	if err != nil {
 		return fmt.Errorf("解析模板失败: %v", err)
 	}
 
 	data := struct {
-		Timestamp   string
-		PackageName string
-		TableInfo   *define.TableInfo
-		StructName  string
+		Timestamp    string
+		PackageName  string
+		TableInfo    *define.TableInfo
+		StructName   string
+		GenerateJson bool
 	}{
-		Timestamp:   time.Now().Format("2006-01-02 15:04:05"),
-		PackageName: packageName,
-		TableInfo:   tableInfo,
-		StructName:  toGoName(tableName),
+		Timestamp:    time.Now().Format("2006-01-02 15:04:05"),
+		PackageName:  packageName,
+		TableInfo:    tableInfo,
+		StructName:   toGoName(tableName),
+		GenerateJson: true, // 默认生成 JSON 标签
 	}
 
 	if err := tmpl.Execute(file, data); err != nil {
@@ -352,18 +356,54 @@ package {{.PackageName}}
 
 import (
 	"time"
+	{{- if .GenerateJson}}
+	"encoding/json"
+	{{- end}}
+	{{- if .TableInfo.HasDecimal}}
+	"github.com/shopspring/decimal"
+	{{- end}}
+	{{- if .TableInfo.HasUUID}}
+	"github.com/google/uuid"
+	{{- end}}
+	{{- if .TableInfo.HasIP}}
+	"net"
+	{{- end}}
 )
 
 // {{.StructName}} {{.TableInfo.TableComment}}
 type {{.StructName}} struct {
 	{{- range .TableInfo.Columns}}
-	{{toGoName .Name}} {{goType .Type .IsNullable}} ` + "`" + `gom:"{{.Name}}{{if .IsPrimaryKey}},@{{end}}{{if .IsAutoIncrement}},auto{{end}}{{if not .IsNullable}},notnull{{end}}"` + "`" + ` {{if .Comment}}// {{.Comment}}{{end}}
+	{{toGoName .Name}} {{goType .TypeName .IsNullable}} ` + "`" + `gom:"{{.Name}}{{if .IsPrimaryKey}},@{{end}}{{if .IsAutoIncrement}},auto{{end}}{{if not .IsNullable}},notnull{{end}}"` + "`" + ` {{if .Comment}}// {{.Comment}}{{end}}
 	{{- end}}
 }
 
 // TableName returns the table name
 func (m *{{.StructName}}) TableName() string {
 	return "{{.TableInfo.TableName}}"
+}
+
+// BeforeCreate handles the before create hook
+func (m *{{.StructName}}) BeforeCreate() error {
+	now := time.Now()
+	{{- range .TableInfo.Columns}}
+	{{- if and (isTimeField .Name) (eq .Name "created_at")}}
+	m.CreatedAt = now
+	{{- end}}
+	{{- if and (isTimeField .Name) (eq .Name "updated_at")}}
+	m.UpdatedAt = now
+	{{- end}}
+	{{- end}}
+	return nil
+}
+
+// BeforeUpdate handles the before update hook
+func (m *{{.StructName}}) BeforeUpdate() error {
+	{{- range .TableInfo.Columns}}
+	{{- if and (isTimeField .Name) (eq .Name "updated_at")}}
+	m.UpdatedAt = time.Now()
+	{{- end}}
+	{{- end}}
+	return nil
 }
 `
 
@@ -419,6 +459,12 @@ func goType(dbType string, isNullable bool) string {
 		return "*" + goType
 	}
 	return goType
+}
+
+// isTimeField checks if a field is a time-related field
+func isTimeField(name string) bool {
+	name = strings.ToLower(name)
+	return name == "created_at" || name == "updated_at" || name == "deleted_at"
 }
 
 // GetTableName returns the table name for a model

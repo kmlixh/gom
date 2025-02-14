@@ -285,12 +285,39 @@ func (g *Generator) GenerateModelRegistry(tables []string, writer io.Writer) err
 func (g *Generator) buildTags(col *define.ColumnInfo) string {
 	var tags []string
 
-	// 根据 TagStyle 添加主标签
+	// 构建主标签
+	var mainTag string
 	if g.options.TagStyle == "gom" {
-		tags = append(tags, fmt.Sprintf(`gom:"%s"`, col.Name))
+		mainTag = fmt.Sprintf(`gom:"%s`, col.Name)
 	} else {
-		tags = append(tags, fmt.Sprintf(`db:"%s"`, col.Name))
+		mainTag = fmt.Sprintf(`db:"%s`, col.Name)
 	}
+
+	// 添加标签属性
+	var attrs []string
+	if col.IsPrimaryKey {
+		attrs = append(attrs, "@")
+	}
+	if col.IsAutoIncrement {
+		attrs = append(attrs, "auto")
+	}
+	if !col.IsNullable {
+		attrs = append(attrs, "notnull")
+	}
+	if col.DefaultValue != "" {
+		attrs = append(attrs, "default")
+	}
+
+	// 组合主标签
+	if len(attrs) > 0 {
+		mainTag += "," + strings.Join(attrs, ",")
+	}
+	mainTag += `"`
+	tags = append(tags, mainTag)
+
+	// 添加 JSON 标签
+	jsonTag := fmt.Sprintf(`json:"%s"`, snakeToLowerCamel(col.Name))
+	tags = append(tags, jsonTag)
 
 	// 如果需要生成 db 标签且主标签不是 db
 	if g.options.GenerateDB && g.options.TagStyle != "db" {
@@ -298,6 +325,15 @@ func (g *Generator) buildTags(col *define.ColumnInfo) string {
 	}
 
 	return strings.Join(tags, " ")
+}
+
+// snakeToLowerCamel 将蛇形命名转换为小驼峰命名
+func snakeToLowerCamel(s string) string {
+	parts := strings.Split(s, "_")
+	for i := 1; i < len(parts); i++ {
+		parts[i] = strings.Title(parts[i])
+	}
+	return strings.Join(parts, "")
 }
 
 // formatGeneratedCode 格式化生成的代码
@@ -368,7 +404,7 @@ func goType(dbType string, isNullable bool) string {
 		} else if strings.Contains(dbType, "tiny") {
 			goType = "int8"
 		} else {
-			goType = "int"
+			goType = "int32"
 		}
 	case strings.Contains(dbType, "decimal"), strings.Contains(dbType, "numeric"):
 		goType = "decimal.Decimal"
@@ -376,16 +412,24 @@ func goType(dbType string, isNullable bool) string {
 		goType = "float32"
 	case strings.Contains(dbType, "double"):
 		goType = "float64"
-	case strings.Contains(dbType, "bool"):
+	case strings.Contains(dbType, "bool"), strings.Contains(dbType, "tinyint(1)"):
 		goType = "bool"
-	case strings.Contains(dbType, "time"), strings.Contains(dbType, "date"):
+	case strings.Contains(dbType, "datetime"), strings.Contains(dbType, "timestamp"):
 		goType = "time.Time"
-	case strings.Contains(dbType, "json"):
+	case strings.Contains(dbType, "date"):
+		goType = "time.Time"
+	case strings.Contains(dbType, "time"):
+		goType = "time.Time"
+	case strings.Contains(dbType, "json"), strings.Contains(dbType, "jsonb"):
 		goType = "json.RawMessage"
 	case strings.Contains(dbType, "uuid"):
 		goType = "uuid.UUID"
 	case strings.Contains(dbType, "inet"):
 		goType = "net.IP"
+	case strings.Contains(dbType, "char"), strings.Contains(dbType, "text"):
+		goType = "string"
+	case strings.Contains(dbType, "blob"), strings.Contains(dbType, "binary"):
+		goType = "[]byte"
 	default:
 		goType = "string"
 	}
@@ -455,7 +499,7 @@ import (
 // {{.StructName}} {{.TableInfo.TableComment}}
 type {{.StructName}} struct {
 	{{- range .TableInfo.Columns}}
-	{{toGoName .Name}} {{goType .Type .IsNullable}} ` + "`" + `{{buildTags .}}` + "`" + ` {{if .Comment}}// {{.Comment}}{{end}}
+	{{toGoName .Name}} {{goType .TypeName .IsNullable}} ` + "`" + `{{buildTags .}}` + "`" + ` {{if .Comment}}// {{.Comment}}{{end}}
 	{{- end}}
 }
 
