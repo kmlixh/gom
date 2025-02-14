@@ -624,7 +624,7 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 	// Get table comment
 	var tableComment string
 	row = db.QueryRow(`
-		SELECT obj_description(c.oid) 
+		SELECT COALESCE(obj_description(c.oid), '') 
 		FROM pg_class c 
 		JOIN pg_namespace n ON n.oid = c.relnamespace 
 		WHERE n.nspname = $1 

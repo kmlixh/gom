@@ -249,10 +249,12 @@ func TestMySQLNestedTransactionsWithSavepoints(t *testing.T) {
 	model1 := &TestModel{
 		Name:      "Test1",
 		Age:       25,
+		Email:     "test1@example.com",
+		IsActive:  true,
 		CreatedAt: time.Now(),
 	}
-	_, err = tx.Exec("INSERT INTO tests (name, age, created_at) VALUES (?, ?, ?)",
-		model1.Name, model1.Age, model1.CreatedAt)
+	_, err = tx.Exec("INSERT INTO tests (name, age, email, is_active, created_at) VALUES (?, ?, ?, ?, ?)",
+		model1.Name, model1.Age, model1.Email, model1.IsActive, model1.CreatedAt)
 	assert.NoError(t, err)
 
 	// Create savepoint
@@ -263,10 +265,12 @@ func TestMySQLNestedTransactionsWithSavepoints(t *testing.T) {
 	model2 := &TestModel{
 		Name:      "Test2",
 		Age:       30,
+		Email:     "test2@example.com",
+		IsActive:  true,
 		CreatedAt: time.Now(),
 	}
-	_, err = tx.Exec("INSERT INTO tests (name, age, created_at) VALUES (?, ?, ?)",
-		model2.Name, model2.Age, model2.CreatedAt)
+	_, err = tx.Exec("INSERT INTO tests (name, age, email, is_active, created_at) VALUES (?, ?, ?, ?, ?)",
+		model2.Name, model2.Age, model2.Email, model2.IsActive, model2.CreatedAt)
 	assert.NoError(t, err)
 
 	// Verify both records exist
@@ -288,10 +292,12 @@ func TestMySQLNestedTransactionsWithSavepoints(t *testing.T) {
 	model3 := &TestModel{
 		Name:      "Test3",
 		Age:       35,
+		Email:     "test3@example.com",
+		IsActive:  true,
 		CreatedAt: time.Now(),
 	}
-	_, err = tx.Exec("INSERT INTO tests (name, age, created_at) VALUES (?, ?, ?)",
-		model3.Name, model3.Age, model3.CreatedAt)
+	_, err = tx.Exec("INSERT INTO tests (name, age, email, is_active, created_at) VALUES (?, ?, ?, ?, ?)",
+		model3.Name, model3.Age, model3.Email, model3.IsActive, model3.CreatedAt)
 	assert.NoError(t, err)
 
 	// Commit transaction

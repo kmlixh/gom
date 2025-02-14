@@ -248,10 +248,11 @@ func TestPostgreSQLNestedTransactionsWithSavepoints(t *testing.T) {
 	model1 := &TestModel{
 		Name:      "Test1",
 		Age:       25,
+		Email:     "test1@example.com",
 		CreatedAt: time.Now(),
 	}
-	_, err = tx.Exec("INSERT INTO tests (name, age, created_at) VALUES ($1, $2, $3)",
-		model1.Name, model1.Age, model1.CreatedAt)
+	_, err = tx.Exec("INSERT INTO tests (name, age, email, created_at) VALUES ($1, $2, $3, $4)",
+		model1.Name, model1.Age, model1.Email, model1.CreatedAt)
 	assert.NoError(t, err)
 
 	// Create savepoint
@@ -262,10 +263,11 @@ func TestPostgreSQLNestedTransactionsWithSavepoints(t *testing.T) {
 	model2 := &TestModel{
 		Name:      "Test2",
 		Age:       30,
+		Email:     "test2@example.com",
 		CreatedAt: time.Now(),
 	}
-	_, err = tx.Exec("INSERT INTO tests (name, age, created_at) VALUES ($1, $2, $3)",
-		model2.Name, model2.Age, model2.CreatedAt)
+	_, err = tx.Exec("INSERT INTO tests (name, age, email, created_at) VALUES ($1, $2, $3, $4)",
+		model2.Name, model2.Age, model2.Email, model2.CreatedAt)
 	assert.NoError(t, err)
 
 	// Rollback to savepoint

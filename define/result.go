@@ -160,22 +160,26 @@ func convertValue(value interface{}, fieldValue reflect.Value) error {
 			return nil
 		} else if fieldValue.Type().String() == "sql.NullBool" {
 			if len(v) == 0 {
-				fieldValue.SetBool(false)
-				return nil
-			}
-			if len(v) == 1 {
-				fieldValue.SetBool(v[0] != 0)
+				fieldValue.Set(reflect.ValueOf(sql.NullBool{Valid: false}))
 				return nil
 			}
 			s := strings.ToLower(string(v))
 			if s == "true" || s == "1" || s == "yes" || s == "on" {
-				fieldValue.SetBool(true)
+				fieldValue.Set(reflect.ValueOf(sql.NullBool{
+					Valid: true,
+					Bool:  true,
+				}))
 				return nil
 			}
 			if s == "false" || s == "0" || s == "no" || s == "off" || s == "" {
-				fieldValue.SetBool(false)
+				fieldValue.Set(reflect.ValueOf(sql.NullBool{
+					Valid: true,
+					Bool:  false,
+				}))
 				return nil
 			}
+			fieldValue.Set(reflect.ValueOf(sql.NullBool{Valid: false}))
+			return nil
 		}
 
 		// Handle other []uint8 conversions

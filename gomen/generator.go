@@ -391,7 +391,20 @@ func goType(dbType string, isNullable bool) string {
 	}
 
 	if isNullable {
-		return "*" + goType
+		switch goType {
+		case "int":
+			return "*sql.NullInt32"
+		case "int64":
+			return "*sql.NullInt64"
+		case "float32", "float64":
+			return "*sql.NullFloat64"
+		case "bool":
+			return "*sql.NullBool"
+		case "time.Time":
+			return "*sql.NullTime"
+		default:
+			return "*sql.NullString"
+		}
 	}
 	return goType
 }
@@ -455,7 +468,7 @@ import (
 // {{.StructName}} {{.TableInfo.TableComment}}
 type {{.StructName}} struct {
 	{{- range .TableInfo.Columns}}
-	{{toGoName .Name}} {{goType .Type .IsNullable}} ` + "`" + `{{buildTags .}}` + "`" + ` {{if .Comment}}// {{.Comment}}{{end}}
+	{{toGoName .Name}} {{goType .TypeName .IsNullable}} ` + "`" + `{{buildTags .}}` + "`" + ` {{if .Comment}}// {{.Comment}}{{end}}
 	{{- end}}
 }
 

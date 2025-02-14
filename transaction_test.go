@@ -176,15 +176,15 @@ func runTransactionIsolationLevelsTest(t *testing.T, db *DB) {
 			if _, ok := db.Factory.(*postgres.Factory); ok {
 				// PostgreSQL uses $1, $2, etc. for parameter placeholders
 				result = tx.RawExecute(`
-					INSERT INTO tests (name, age, created_at)
-					VALUES ($1, $2, $3)
-				`, "Test", 25, time.Now())
+					INSERT INTO tests (name, age, email, created_at, is_active)
+					VALUES ($1, $2, $3, $4, $5)
+				`, "Test", 25, "test@example.com", time.Now(), true)
 			} else {
 				// MySQL uses ? for parameter placeholders
 				result = tx.RawExecute(`
-					INSERT INTO tests (name, age, created_at)
-					VALUES (?, ?, ?)
-				`, "Test", 25, time.Now())
+					INSERT INTO tests (name, age, email, created_at, is_active)
+					VALUES (?, ?, ?, ?, ?)
+				`, "Test", 25, "test@example.com", time.Now(), true)
 			}
 			if result.Error != nil {
 				return result.Error
@@ -335,13 +335,13 @@ func TestTransactionErrorHandling(t *testing.T) {
 		}()
 
 		// Insert valid record
-		_, err = tx.Exec("INSERT INTO tests (name, age, created_at) VALUES (?, ?, ?)",
-			"Valid", 25, time.Now())
+		_, err = tx.Exec("INSERT INTO tests (name, age, email, created_at, is_active) VALUES (?, ?, ?, ?, ?)",
+			"Valid", 25, "valid@example.com", time.Now(), true)
 		assert.NoError(t, err)
 
 		// Try to insert invalid record (name too long)
-		_, err = tx.Exec("INSERT INTO tests (name, age, created_at) VALUES (?, ?, ?)",
-			strings.Repeat("x", 300), 30, time.Now())
+		_, err = tx.Exec("INSERT INTO tests (name, age, email, created_at, is_active) VALUES (?, ?, ?, ?, ?)",
+			strings.Repeat("x", 300), 30, "invalid@example.com", time.Now(), true)
 		assert.Error(t, err)
 
 		// Rollback transaction
@@ -366,8 +366,10 @@ func TestTransactionErrorHandling(t *testing.T) {
 		}()
 
 		// Insert initial record
-		_, err = tx.Exec("INSERT INTO tests (name, age, created_at) VALUES (?, ?, ?)",
-			"Test", 25, time.Now())
+		_, err = tx.Exec("INSERT INTO tests (name, age, email, created_at, is_active) VALUES (?, ?, ?, ?, ?)",
+			"Test", 25, "test@example.com", time.Now(), true)
+		_, err = tx.Exec("INSERT INTO tests (name, age, email, created_at) VALUES (?, ?, ?, ?)",
+			"Test", 25, "test@example.com", time.Now())
 		assert.NoError(t, err)
 
 		// Create savepoint
@@ -375,8 +377,8 @@ func TestTransactionErrorHandling(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Try to insert invalid record
-		_, err = tx.Exec("INSERT INTO tests (name, age, created_at) VALUES (?, ?, ?)",
-			strings.Repeat("x", 300), 30, time.Now())
+		_, err = tx.Exec("INSERT INTO tests (name, age, email, created_at) VALUES (?, ?, ?, ?)",
+			strings.Repeat("x", 300), 30, "invalid@example.com", time.Now())
 		assert.Error(t, err)
 
 		// Rollback to savepoint
@@ -406,8 +408,8 @@ func TestTransactionErrorHandling(t *testing.T) {
 		}()
 
 		// Insert in outer transaction
-		_, err = tx1.Exec("INSERT INTO tests (name, age, created_at) VALUES (?, ?, ?)",
-			"Outer", 25, time.Now())
+		_, err = tx1.Exec("INSERT INTO tests (name, age, email, created_at) VALUES (?, ?, ?, ?)",
+			"Outer", 25, "outer@example.com", time.Now())
 		assert.NoError(t, err)
 
 		// Create savepoint for nested transaction
@@ -415,8 +417,8 @@ func TestTransactionErrorHandling(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Try to insert invalid record in nested transaction
-		_, err = tx1.Exec("INSERT INTO tests (name, age, created_at) VALUES (?, ?, ?)",
-			strings.Repeat("x", 300), 30, time.Now())
+		_, err = tx1.Exec("INSERT INTO tests (name, age, email, created_at) VALUES (?, ?, ?, ?)",
+			strings.Repeat("x", 300), 30, "invalid@example.com", time.Now())
 		assert.Error(t, err)
 
 		// Rollback to savepoint
@@ -431,7 +433,7 @@ func TestTransactionErrorHandling(t *testing.T) {
 
 		for rows.Next() {
 			var record TestModel
-			err = rows.Scan(&record.ID, &record.Name, &record.Age, &record.CreatedAt)
+			err = rows.Scan(&record.ID, &record.Name, &record.Age, &record.Email, &record.CreatedAt)
 			assert.NoError(t, err)
 			records = append(records, record)
 		}

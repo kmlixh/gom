@@ -713,16 +713,30 @@ func getSQLDataType(mysqlType string) reflect.Type {
 
 // GetTables 获取符合模式的所有表
 func (f *Factory) GetTables(db *sql.DB, pattern string) ([]string, error) {
-	if pattern == "" {
-		pattern = "%"
+	if db == nil {
+		return nil, errors.New("database connection is nil")
 	}
-	query := "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()"
-	if pattern != "%" {
-		query += fmt.Sprintf(" AND TABLE_NAME LIKE '%s'", pattern)
-	}
-	rows, err := db.Query(query)
+
+	// 获取当前数据库名
+	var dbName string
+	err := db.QueryRow("SELECT DATABASE()").Scan(&dbName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get current database: %v", err)
+	}
+
+	// 构建查询
+	query := "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ?"
+	args := []interface{}{dbName}
+
+	if pattern != "" && pattern != "*" && pattern != "%" {
+		query += " AND TABLE_NAME LIKE ?"
+		args = append(args, pattern)
+	}
+
+	// 执行查询
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query tables: %v", err)
 	}
 	defer rows.Close()
 
@@ -730,11 +744,16 @@ func (f *Factory) GetTables(db *sql.DB, pattern string) ([]string, error) {
 	for rows.Next() {
 		var tableName string
 		if err := rows.Scan(&tableName); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to scan table name: %v", err)
 		}
 		tables = append(tables, tableName)
 	}
-	return tables, rows.Err()
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating table rows: %v", err)
+	}
+
+	return tables, nil
 }
 
 // BuildOrderBy builds the ORDER BY clause for MySQL
