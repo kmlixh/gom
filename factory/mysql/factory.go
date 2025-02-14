@@ -4,7 +4,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -216,95 +219,74 @@ func (f *Factory) buildCondition(cond *define.Condition) (string, []interface{})
 }
 
 // BuildSelect builds a SELECT query for MySQL
-func (f *Factory) BuildSelect(table string, fields []string, conditions []*define.Condition, orderBy string, limit, offset int) (string, []interface{}) {
+func (f *Factory) BuildSelect(table string, fields []string, conditions []*define.Condition, orderBy string, limit, offset int) (string, []interface{}, error) {
+	if table == "" {
+		return "", nil, define.ErrEmptyTableName
+	}
+
 	var args []interface{}
-	query := "SELECT "
+	var where []string
 
-	// Add fields
-	if len(fields) > 0 {
-		var quotedFields []string
-		for _, field := range fields {
-			if field == "*" {
-				quotedFields = append(quotedFields, "*")
-			} else if strings.Contains(field, "(") && strings.Contains(field, ")") {
-				// Don't quote function calls
-				quotedFields = append(quotedFields, field)
-			} else if strings.HasPrefix(field, "GROUP BY") || strings.HasPrefix(field, "HAVING") {
-				// Don't modify GROUP BY and HAVING clauses
-				continue
-			} else {
-				quotedFields = append(quotedFields, fmt.Sprintf("`%s`", field))
-			}
-		}
-		query += strings.Join(quotedFields, ", ")
+	// Build SELECT clause
+	var selectFields string
+	if len(fields) == 0 {
+		selectFields = "*"
 	} else {
-		query += "*"
-	}
-
-	// Add table
-	query += fmt.Sprintf(" FROM `%s`", table)
-
-	// Add WHERE conditions
-	if len(conditions) > 0 {
-		var whereConditions []string
-		var hasOr bool
-		for _, cond := range conditions {
-			if cond == nil {
-				continue
-			}
-			condStr, condArgs := f.buildCondition(cond)
-			if condStr != "" {
-				if strings.HasPrefix(condStr, "HAVING") {
-					// Store HAVING conditions for later
-					continue
-				}
-				if len(whereConditions) > 0 {
-					if cond.JoinType == define.JoinOr {
-						hasOr = true
-						whereConditions = append(whereConditions, "OR", condStr)
-					} else {
-						whereConditions = append(whereConditions, "AND", condStr)
-					}
-				} else {
-					whereConditions = append(whereConditions, condStr)
-				}
-				args = append(args, condArgs...)
-			}
-		}
-		if len(whereConditions) > 0 {
-			if hasOr {
-				query += " WHERE (" + strings.Join(whereConditions, " ") + ")"
+		quotedFields := make([]string, len(fields))
+		for i, field := range fields {
+			if strings.Contains(field, " ") || strings.Contains(field, "(") || strings.Contains(field, "GROUP BY") || strings.Contains(field, "HAVING") {
+				quotedFields[i] = field
 			} else {
-				query += " WHERE " + strings.Join(whereConditions, " ")
+				quotedFields[i] = "`" + field + "`"
+			}
+		}
+		selectFields = strings.Join(quotedFields, ", ")
+	}
+
+	// Build WHERE clause
+	if len(conditions) > 0 {
+		for _, cond := range conditions {
+			if cond != nil {
+				sql, condArgs := f.buildCondition(cond)
+				if sql != "" {
+					if strings.HasPrefix(strings.ToUpper(sql), "HAVING") {
+						continue
+					}
+					where = append(where, sql)
+					args = append(args, condArgs...)
+				}
 			}
 		}
 	}
 
-	// Add GROUP BY and HAVING
+	// Build query
+	query := fmt.Sprintf("SELECT %s FROM `%s`", selectFields, table)
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+
+	// Extract GROUP BY and HAVING clauses from fields
 	var groupByClause string
 	var havingClause string
 	for _, field := range fields {
-		if strings.HasPrefix(field, "GROUP BY") {
+		if strings.HasPrefix(strings.ToUpper(field), "GROUP BY") {
 			groupByClause = field
+		} else if strings.HasPrefix(strings.ToUpper(field), "HAVING") {
+			havingClause = field
 		}
 	}
-	for _, cond := range conditions {
-		if cond != nil {
-			condStr, condArgs := f.buildCondition(cond)
-			if strings.HasPrefix(condStr, "HAVING") {
-				havingClause = condStr
-				args = append(args, condArgs...)
-			}
-		}
-	}
+
+	// Add GROUP BY if specified
 	if groupByClause != "" {
 		query += " " + groupByClause
 	}
+
+	// Add HAVING if specified
 	if havingClause != "" {
 		query += " " + havingClause
 	}
 
-	// Add ORDER BY
+	// Add ORDER BY if specified
 	if orderBy != "" {
 		if !strings.HasPrefix(strings.ToUpper(orderBy), "ORDER BY") {
 			query += " ORDER BY " + orderBy
@@ -313,7 +295,7 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 		}
 	}
 
-	// Add LIMIT and OFFSET
+	// Add LIMIT and OFFSET if specified
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 		if offset > 0 {
@@ -321,7 +303,7 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 		}
 	}
 
-	return query, args
+	return query, args, nil
 }
 
 // BuildUpdate builds an UPDATE query for MySQL
@@ -430,10 +412,17 @@ func (f *Factory) BuildBatchInsert(table string, values []map[string]interface{}
 		return "", nil
 	}
 
-	// Get field names from the first row
+	// Get field names from the first row and sort them for consistent order
 	var fieldNames []string
 	for field := range values[0] {
-		fieldNames = append(fieldNames, fmt.Sprintf("`%s`", field))
+		fieldNames = append(fieldNames, field)
+	}
+	sort.Strings(fieldNames)
+
+	// Build quoted field names
+	var quotedFields []string
+	for _, field := range fieldNames {
+		quotedFields = append(quotedFields, fmt.Sprintf("`%s`", field))
 	}
 
 	var args []interface{}
@@ -444,7 +433,7 @@ func (f *Factory) BuildBatchInsert(table string, values []map[string]interface{}
 		var rowPlaceholders []string
 		for _, field := range fieldNames {
 			rowPlaceholders = append(rowPlaceholders, "?")
-			args = append(args, row[strings.Trim(field, "`")])
+			args = append(args, row[field])
 		}
 		valuePlaceholders = append(valuePlaceholders, "("+strings.Join(rowPlaceholders, ", ")+")")
 	}
@@ -452,7 +441,7 @@ func (f *Factory) BuildBatchInsert(table string, values []map[string]interface{}
 	query := fmt.Sprintf(
 		"INSERT INTO `%s` (%s) VALUES %s",
 		table,
-		strings.Join(fieldNames, ", "),
+		strings.Join(quotedFields, ", "),
 		strings.Join(valuePlaceholders, ", "),
 	)
 
@@ -622,11 +611,13 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 	hasDecimal := false
 	hasUUID := false
 	hasIP := false
+	hasTime := false
 
 	for rows.Next() {
 		var col define.ColumnInfo
-		var isNullable, columnKey, extra, defaultValue, comment string
+		var isNullable, columnKey, extra, comment string
 		var maxLength, numericPrecision, numericScale sql.NullInt64
+		var defaultValue sql.NullString
 
 		err := rows.Scan(
 			&col.Name,
@@ -658,7 +649,9 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 		col.IsNullable = isNullable == "YES"
 		col.IsPrimaryKey = columnKey == "PRI"
 		col.IsAutoIncrement = extra == "auto_increment"
-		col.DefaultValue = defaultValue
+		if defaultValue.Valid {
+			col.DefaultValue = defaultValue.String
+		}
 		col.Comment = comment
 
 		// Check special types
@@ -669,6 +662,8 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 			hasUUID = true
 		case "inet":
 			hasIP = true
+		case "date", "datetime", "timestamp":
+			hasTime = true
 		}
 
 		if col.IsPrimaryKey {
@@ -690,6 +685,7 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 		HasDecimal:   hasDecimal,
 		HasUUID:      hasUUID,
 		HasIP:        hasIP,
+		HasTime:      hasTime,
 	}, nil
 }
 
@@ -720,7 +716,11 @@ func (f *Factory) GetTables(db *sql.DB, pattern string) ([]string, error) {
 	if pattern == "" {
 		pattern = "%"
 	}
-	rows, err := db.Query("SHOW TABLES")
+	query := "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()"
+	if pattern != "%" {
+		query += fmt.Sprintf(" AND TABLE_NAME LIKE '%s'", pattern)
+	}
+	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -732,9 +732,7 @@ func (f *Factory) GetTables(db *sql.DB, pattern string) ([]string, error) {
 		if err := rows.Scan(&tableName); err != nil {
 			return nil, err
 		}
-		if strings.Contains(tableName, strings.ReplaceAll(pattern, "%", "")) {
-			tables = append(tables, tableName)
-		}
+		tables = append(tables, tableName)
 	}
 	return tables, rows.Err()
 }
@@ -757,4 +755,105 @@ func (f *Factory) BuildOrderBy(orders []define.OrderBy) string {
 	}
 
 	return "ORDER BY " + strings.Join(parts, ", ")
+}
+
+// GenerateStruct generates Go struct code from MySQL table schema
+func (f *Factory) GenerateStruct(db *sql.DB, tableName string, outputDir string, packageName string) error {
+	// Get table info
+	tableInfo, err := f.GetTableInfo(db, tableName)
+	if err != nil {
+		return fmt.Errorf("failed to get table info: %v", err)
+	}
+
+	// Generate struct code
+	var code strings.Builder
+	code.WriteString(fmt.Sprintf("package %s\n\n", packageName))
+	code.WriteString("import (\n")
+	if tableInfo.HasDecimal {
+		code.WriteString("\t\"database/sql\"\n")
+	}
+	if tableInfo.HasTime {
+		code.WriteString("\t\"time\"\n")
+	}
+	code.WriteString(")\n\n")
+
+	// Generate struct definition
+	structName := strings.Title(tableName)
+	code.WriteString(fmt.Sprintf("// %s represents the %s table\n", structName, tableName))
+	if tableInfo.TableComment != "" {
+		code.WriteString(fmt.Sprintf("// %s\n", tableInfo.TableComment))
+	}
+	code.WriteString(fmt.Sprintf("type %s struct {\n", structName))
+
+	// Generate struct fields
+	for _, col := range tableInfo.Columns {
+		// Generate field comment
+		if col.Comment != "" {
+			code.WriteString(fmt.Sprintf("\t// %s\n", col.Comment))
+		}
+
+		// Convert MySQL type to Go type
+		goType := f.mysqlTypeToGoType(col)
+		fieldName := strings.Title(col.Name)
+
+		// Generate field definition with gom tag
+		code.WriteString(fmt.Sprintf("\t%s %s `gom:\"%s\"`\n", fieldName, goType, col.Name))
+	}
+	code.WriteString("}\n")
+
+	// Create output directory if it doesn't exist
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %v", err)
+	}
+
+	// Write to file
+	filename := filepath.Join(outputDir, strings.ToLower(tableName)+".go")
+	if err := os.WriteFile(filename, []byte(code.String()), 0644); err != nil {
+		return fmt.Errorf("failed to write file: %v", err)
+	}
+
+	return nil
+}
+
+// mysqlTypeToGoType converts MySQL column type to Go type
+func (f *Factory) mysqlTypeToGoType(col define.ColumnInfo) string {
+	switch strings.ToLower(col.TypeName) {
+	case "tinyint", "smallint", "mediumint", "int", "integer":
+		if col.IsNullable {
+			return "sql.NullInt32"
+		}
+		return "int32"
+	case "bigint":
+		if col.IsNullable {
+			return "sql.NullInt64"
+		}
+		return "int64"
+	case "decimal", "numeric", "float", "double":
+		if col.IsNullable {
+			return "sql.NullFloat64"
+		}
+		return "float64"
+	case "char", "varchar", "tinytext", "text", "mediumtext", "longtext":
+		if col.IsNullable {
+			return "sql.NullString"
+		}
+		return "string"
+	case "date", "datetime", "timestamp":
+		if col.IsNullable {
+			return "*time.Time"
+		}
+		return "time.Time"
+	case "binary", "varbinary", "tinyblob", "blob", "mediumblob", "longblob":
+		return "[]byte"
+	case "bit", "bool", "boolean":
+		if col.IsNullable {
+			return "sql.NullBool"
+		}
+		return "bool"
+	default:
+		if col.IsNullable {
+			return "sql.NullString"
+		}
+		return "string"
+	}
 }

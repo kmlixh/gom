@@ -338,7 +338,7 @@ func TestTypeEdgeCases(t *testing.T) {
 		}
 
 		obj := TestStruct{}
-		result, err := StructToMap(obj)
+		result, err := StructToMapWithZero(obj)
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
 
@@ -352,13 +352,13 @@ func TestTypeEdgeCases(t *testing.T) {
 
 	t.Run("Invalid_Types", func(t *testing.T) {
 		// Test with non-struct types
-		_, err := StructToMap(42)
+		_, err := StructToMapWithZero(42)
 		assert.Error(t, err)
 
-		_, err = StructToMap("string")
+		_, err = StructToMapWithZero("string")
 		assert.Error(t, err)
 
-		_, err = StructToMap(nil)
+		_, err = StructToMapWithZero(nil)
 		assert.Error(t, err)
 	})
 }

@@ -99,8 +99,11 @@ func runBatchOperationsTest(t *testing.T, db *DB, tableName string) {
 	type BatchTestModel struct {
 		ID        int64     `gom:"id"`
 		Name      string    `gom:"name"`
-		Age       int       `gom:"age"`
+		Age       int64     `gom:"age"`
+		Email     string    `gom:"email"`
 		CreatedAt time.Time `gom:"created_at"`
+		UpdatedAt time.Time `gom:"updated_at"`
+		IsActive  bool      `gom:"is_active"`
 	}
 
 	// Drop table if exists
@@ -113,11 +116,15 @@ func runBatchOperationsTest(t *testing.T, db *DB, tableName string) {
 
 	// Prepare test data
 	values := make([]map[string]interface{}, 0, 100)
+	now := time.Now()
 	for i := 0; i < 100; i++ {
 		values = append(values, map[string]interface{}{
 			"name":       fmt.Sprintf("Test%d", i),
 			"age":        20 + i,
-			"created_at": time.Now(),
+			"email":      fmt.Sprintf("test%d@example.com", i),
+			"created_at": now,
+			"updated_at": now,
+			"is_active":  true,
 		})
 	}
 
@@ -131,11 +138,15 @@ func runBatchOperationsTest(t *testing.T, db *DB, tableName string) {
 	// Test batch update
 	t.Run("BatchUpdate", func(t *testing.T) {
 		updateValues := make([]map[string]interface{}, 0)
+		updateTime := time.Now()
 		for i := 0; i < 100; i++ {
 			updateValues = append(updateValues, map[string]interface{}{
-				"id":   int64(i + 1), // Assuming auto-incrementing IDs
-				"name": fmt.Sprintf("updated_%d", i),
-				"age":  i + 100,
+				"id":         int64(i + 1),
+				"name":       fmt.Sprintf("updated_%d", i),
+				"age":        i + 100,
+				"email":      fmt.Sprintf("updated%d@example.com", i),
+				"updated_at": updateTime,
+				"is_active":  true,
 			})
 		}
 		affected, err := db.Chain().Table(tableName).BatchValues(updateValues).BatchUpdate(10)
@@ -194,11 +205,15 @@ func runBatchInsertTest(t *testing.T, db *DB) {
 
 	// Insert test data
 	values := make([]map[string]interface{}, 0)
+	now := time.Now()
 	for i := 0; i < 100; i++ {
 		values = append(values, map[string]interface{}{
 			"name":       "test",
 			"age":        i,
-			"created_at": time.Now(),
+			"email":      fmt.Sprintf("test%d@example.com", i),
+			"created_at": now,
+			"updated_at": now,
+			"is_active":  true,
 		})
 	}
 	affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10)
@@ -246,24 +261,32 @@ func runBatchUpdateTest(t *testing.T, db *DB) {
 
 	// Insert test data
 	values := make([]map[string]interface{}, 0)
+	now := time.Now()
 	for i := 0; i < 100; i++ {
 		values = append(values, map[string]interface{}{
-			"name":       "test",
+			"name":       fmt.Sprintf("test%d", i),
 			"age":        i,
-			"created_at": time.Now(),
+			"email":      fmt.Sprintf("test%d@example.com", i),
+			"created_at": now,
+			"updated_at": now,
+			"is_active":  true,
 		})
 	}
 	affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(100), affected)
 
-	// Test batch update
+	// Update test data
 	updateValues := make([]map[string]interface{}, 0)
+	updateTime := time.Now()
 	for i := 0; i < 100; i++ {
 		updateValues = append(updateValues, map[string]interface{}{
-			"id":   int64(i + 1), // Assuming auto-incrementing IDs
-			"name": fmt.Sprintf("updated_%d", i),
-			"age":  i + 100,
+			"id":         int64(i + 1),
+			"name":       fmt.Sprintf("updated_%d", i),
+			"age":        i + 100,
+			"email":      fmt.Sprintf("updated%d@example.com", i),
+			"updated_at": updateTime,
+			"is_active":  true,
 		})
 	}
 	affected, err = db.Chain().Table("tests").BatchValues(updateValues).BatchUpdate(10)
@@ -311,11 +334,15 @@ func runBatchDeleteTest(t *testing.T, db *DB) {
 
 	// Insert test data
 	values := make([]map[string]interface{}, 0)
+	now := time.Now()
 	for i := 0; i < 100; i++ {
 		values = append(values, map[string]interface{}{
 			"name":       "test",
 			"age":        i,
-			"created_at": time.Now(),
+			"email":      fmt.Sprintf("test%d@example.com", i),
+			"created_at": now,
+			"updated_at": now,
+			"is_active":  true,
 		})
 	}
 	affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10)
@@ -371,11 +398,15 @@ func runBatchTransactionTest(t *testing.T, db *DB) {
 	err = db.Chain().Transaction(func(tx *Chain) error {
 		// Insert test data in transaction
 		values := make([]map[string]interface{}, 0)
+		now := time.Now()
 		for i := 0; i < 100; i++ {
 			values = append(values, map[string]interface{}{
 				"name":       "test",
 				"age":        i,
-				"created_at": time.Now(),
+				"email":      fmt.Sprintf("test%d@example.com", i),
+				"created_at": now,
+				"updated_at": now,
+				"is_active":  true,
 			})
 		}
 		affected, err := tx.Table("tests").BatchValues(values).BatchInsert(10)
@@ -468,8 +499,10 @@ func TestBatchOperationsEdgeCases(t *testing.T) {
 		values := make([]map[string]interface{}, 5)
 		for i := 0; i < 5; i++ {
 			values[i] = map[string]interface{}{
-				"name": fmt.Sprintf("test_%d", i),
-				"age":  20 + i,
+				"name":      fmt.Sprintf("test_%d", i),
+				"age":       20 + i,
+				"email":     fmt.Sprintf("test%d@example.com", i),
+				"is_active": true,
 			}
 		}
 		affected, err := chain.BatchValues(values).BatchInsert(2)
@@ -480,8 +513,10 @@ func TestBatchOperationsEdgeCases(t *testing.T) {
 	t.Run("Null_Values", func(t *testing.T) {
 		values := []map[string]interface{}{
 			{
-				"name": nil,
-				"age":  25,
+				"name":      nil,
+				"age":       25,
+				"email":     "test@example.com",
+				"is_active": true,
 			},
 		}
 		_, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10)
@@ -491,8 +526,10 @@ func TestBatchOperationsEdgeCases(t *testing.T) {
 		// Test with non-null values
 		values = []map[string]interface{}{
 			{
-				"name": "test_null",
-				"age":  25,
+				"name":      "test_null",
+				"age":       25,
+				"email":     "test_null@example.com",
+				"is_active": true,
 			},
 		}
 		affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10)
@@ -515,8 +552,10 @@ func TestBatchOperationsEdgeCases(t *testing.T) {
 		values := make([]map[string]interface{}, 1000)
 		for i := 0; i < 1000; i++ {
 			values[i] = map[string]interface{}{
-				"name": fmt.Sprintf("large_test_%d", i),
-				"age":  20 + i%50,
+				"name":      fmt.Sprintf("large_test_%d", i),
+				"age":       20 + i%50,
+				"email":     fmt.Sprintf("large_test_%d@example.com", i),
+				"is_active": true,
 			}
 		}
 		affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(100)
@@ -563,7 +602,10 @@ func TestBatchOperationsEdgeCases(t *testing.T) {
 					values = append(values, map[string]interface{}{
 						"name":       fmt.Sprintf("concurrent_test_%d_%d", i, j),
 						"age":        j,
+						"email":      fmt.Sprintf("concurrent_test_%d_%d@example.com", i, j),
 						"created_at": time.Now(),
+						"updated_at": time.Now(),
+						"is_active":  true,
 					})
 				}
 				affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10)

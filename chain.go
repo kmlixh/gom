@@ -183,12 +183,21 @@ func (c *Chain) Offset(count int) *Chain {
 	return c
 }
 
-// Where adds a where condition with custom operator
+// Where adds a WHERE condition to the chain
 func (c *Chain) Where(field string, op define.OpType, value interface{}) *Chain {
-	cond := define.NewCondition(field, op, value)
-	if cond == nil {
-		c.err = fmt.Errorf("invalid condition: field=%s op=%v value=%v", field, op, value)
+	if value == nil && op != define.OpIsNull && op != define.OpIsNotNull {
+		c.err = fmt.Errorf("invalid condition: nil value not allowed")
 		return c
+	}
+	if op > define.OpCustom {
+		c.err = fmt.Errorf("invalid operator")
+		return c
+	}
+	cond := &define.Condition{
+		Field:    field,
+		Op:       op,
+		Value:    value,
+		JoinType: define.JoinAnd,
 	}
 	c.conds = append(c.conds, cond)
 	return c
@@ -591,81 +600,41 @@ func (c *Chain) List(dest ...interface{}) *define.Result {
 
 // list is the internal implementation of List
 func (c *Chain) list() *define.Result {
-	orderByExpr := c.buildOrderBy()
-	sqlStr, args := c.factory.BuildSelect(c.tableName, c.fieldList, c.conds, orderByExpr, c.limitCount, c.offsetCount)
-	if define.Debug {
-		log.Printf("[SQL] %s %v\n", sqlStr, args)
+	if c.err != nil {
+		return &define.Result{Error: c.err}
 	}
 
-	c.startQueryStats(sqlStr, args)
-	defer func() {
-		if c.queryStats != nil {
-			c.endQueryStats(0) // For SELECT queries, we don't track rows affected
-		}
-	}()
+	sqlStr, args, err := c.BuildSelect()
+	if err != nil {
+		return &define.Result{Error: err}
+	}
 
+	// Start query stats
+	c.startQueryStats(sqlStr, args)
+
+	// Execute query
 	var rows *sql.Rows
-	var err error
 	if c.tx != nil {
-		st, er := c.tx.Prepare(sqlStr)
-		if er != nil {
-			return &define.Result{Error: er}
-		}
-		rows, err = st.Query(args...)
+		rows, err = c.tx.Query(sqlStr, args...)
 	} else {
-		st, er := c.db.DB.Prepare(sqlStr)
-		if er != nil {
-			return &define.Result{Error: er}
-		}
-		rows, err = st.Query(args...)
+		rows, err = c.db.DB.Query(sqlStr, args...)
 	}
 	if err != nil {
 		return &define.Result{Error: err}
 	}
 	defer rows.Close()
 
-	// Get column types and names
-	columnTypes, err := rows.ColumnTypes()
+	// Create result
+	result := &define.Result{}
+	err = result.Scan(rows)
 	if err != nil {
-		return &define.Result{Error: fmt.Errorf("failed to get column types: %v", err)}
+		return &define.Result{Error: err}
 	}
 
-	columns := make([]string, len(columnTypes))
-	for i, ct := range columnTypes {
-		columns[i] = ct.Name()
-	}
+	// End query stats
+	c.endQueryStats(result.Affected)
 
-	// Create scanners for each column based on its type
-	scanners := make([]interface{}, len(columnTypes))
-	for i, ct := range columnTypes {
-		scanners[i] = createScanner(ct)
-	}
-
-	var result []map[string]interface{}
-	for rows.Next() {
-		// Scan the row into scanners
-		err = rows.Scan(scanners...)
-		if err != nil {
-			return &define.Result{Error: fmt.Errorf("failed to scan row: %v", err)}
-		}
-
-		// Convert scanned values to appropriate types
-		row := make(map[string]interface{})
-		for i, ct := range columnTypes {
-			value := extractValue(scanners[i], ct)
-			row[columns[i]] = value
-		}
-		result = append(result, row)
-	}
-
-	if err = rows.Err(); err != nil {
-		return &define.Result{Error: fmt.Errorf("error during row iteration: %v", err)}
-	}
-
-	return &define.Result{
-		Data:    result,
-		Columns: columns,
-	}
+	return result
 }
 
 // createScanner creates an appropriate scanner for the given column type
@@ -1832,11 +1801,17 @@ func (c *Chain) BatchInsert(batchSize int) (int64, error) {
 	}
 
 	// Create context with default timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	// Create progress tracker
 	progress := newProgressTracker(int64(len(values)))
+
+	// Calculate optimal number of goroutines based on batch size and total records
+	numGoroutines := 4
+	if len(values) > 10000 {
+		numGoroutines = 8
+	}
 
 	// Process function for each batch
 	processBatch := func(ctx context.Context, batch []map[string]interface{}) error {
@@ -1845,16 +1820,35 @@ func (c *Chain) BatchInsert(batchSize int) (int64, error) {
 		if err != nil {
 			return fmt.Errorf("failed to start transaction: %w", err)
 		}
-		defer tx.Rollback()
+		defer func() {
+			if tx != nil {
+				_ = tx.Rollback()
+			}
+		}()
 
 		// Create chain for transaction
 		txChain := c.clone()
 		txChain.tx = tx
 
 		// Build and execute insert query
-		affected, err := txChain.batchInsertChunk(batch)
+		sql, args := c.factory.BuildBatchInsert(c.tableName, batch)
+		if define.Debug {
+			log.Printf("[SQL] %s %v", sql, args)
+		}
+
+		var sqlResult interface {
+			LastInsertId() (int64, error)
+			RowsAffected() (int64, error)
+		}
+
+		sqlResult, err = tx.Exec(sql, args...)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to execute batch insert: %w", err)
+		}
+
+		affected, err := sqlResult.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to get affected rows: %w", err)
 		}
 
 		// Update progress
@@ -1864,6 +1858,7 @@ func (c *Chain) BatchInsert(batchSize int) (int64, error) {
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("failed to commit transaction: %w", err)
 		}
+		tx = nil
 
 		return nil
 	}
@@ -1873,8 +1868,8 @@ func (c *Chain) BatchInsert(batchSize int) (int64, error) {
 		ctx,
 		values,
 		batchSize,
-		4, // Use 4 concurrent goroutines
-		30*time.Second,
+		numGoroutines,
+		60*time.Second,
 		processBatch,
 	)
 
@@ -2869,20 +2864,10 @@ func (c *Chain) BuildSelect() (string, []interface{}, error) {
 	if c.err != nil {
 		return "", nil, c.err
 	}
+
 	if c.tableName == "" {
-		return "", nil, fmt.Errorf("empty table name")
+		return "", nil, define.ErrEmptyTableName
 	}
 
-	// Use default fields if none specified
-	fields := c.fieldList
-	if len(fields) == 0 {
-		fields = []string{"*"}
-	}
-
-	// Build order by clause
-	orderBy := c.factory.BuildOrderBy(c.orderByExprs)
-
-	// Build the query using the factory
-	sql, args := c.factory.BuildSelect(c.tableName, fields, c.conds, orderBy, c.limitCount, c.offsetCount)
-	return sql, args, nil
+	return c.factory.BuildSelect(c.tableName, c.fieldList, c.conds, c.buildOrderBy(), c.limitCount, c.offsetCount)
 }

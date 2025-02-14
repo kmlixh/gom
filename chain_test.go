@@ -21,7 +21,10 @@ type TestModel struct {
 	ID        int64     `gom:"id,@,auto"`
 	Name      string    `gom:"name,notnull"`
 	Age       int       `gom:"age,notnull"`
+	Email     string    `gom:"email,notnull"`
 	CreatedAt time.Time `gom:"created_at,notnull,default"`
+	UpdatedAt time.Time `gom:"updated_at,notnull,default"`
+	IsActive  bool      `gom:"is_active,notnull,default"`
 }
 
 // setupDB creates a new database connection with the given driver and DSN
@@ -192,14 +195,20 @@ func runChainOperationsTest(t *testing.T, db *DB) {
 			id BIGSERIAL PRIMARY KEY,
 			name VARCHAR(255) NOT NULL,
 			age INTEGER NOT NULL,
-			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+			email VARCHAR(255) NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			is_active BOOLEAN NOT NULL DEFAULT true
 		)`
 	} else {
-		createTableSQL = `CREATE TABLE tests (
+		createTableSQL = `CREATE TABLE IF NOT EXISTS ` + tableName + ` (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
 			name VARCHAR(255) NOT NULL,
 			age INTEGER NOT NULL,
-			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+			email VARCHAR(255) NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			is_active BOOLEAN NOT NULL DEFAULT true
 		)`
 	}
 	_, err = db.DB.Exec(createTableSQL)
@@ -220,6 +229,8 @@ func runChainOperationsTest(t *testing.T, db *DB) {
 	result := chain.Values(map[string]interface{}{
 		"name":       "John",
 		"age":        30,
+		"email":      "john@example.com",
+		"is_active":  true,
 		"created_at": time.Now(),
 	}).Save()
 	assert.NoError(t, result.Error)
@@ -322,28 +333,58 @@ func TestChainConcurrentOperations(t *testing.T) {
 
 func TestChainErrorHandling(t *testing.T) {
 	t.Run("Invalid SQL Generation", func(t *testing.T) {
-		db := setupMySQLDB(t)
 		factory := &define.MockSQLFactory{}
-		chain := NewChain(db, factory)
-		chain.Table("") // 空表名
+		chain := NewChain(nil, factory)
 
+		// Test empty table name
 		sql, args, err := chain.BuildSelect()
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "empty table name")
 		assert.Empty(t, sql)
 		assert.Empty(t, args)
+
+		// Test valid table name but no conditions
+		chain.Table("test_table")
+		sql, args, err = chain.BuildSelect()
+		assert.NoError(t, err)
+		assert.NotEmpty(t, sql)
+		assert.Empty(t, args)
 	})
 
 	t.Run("Invalid Condition Values", func(t *testing.T) {
-		db := setupMySQLDB(t)
 		factory := &define.MockSQLFactory{}
-		chain := NewChain(db, factory)
+		chain := NewChain(nil, factory)
 		chain.Table("test_table")
-		chain.Where("id", define.OpEq, nil) // 无效的参数值
 
+		// Test nil value
+		chain.Where("id", define.OpEq, nil)
 		sql, args, err := chain.BuildSelect()
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid condition: nil value not allowed")
 		assert.Empty(t, sql)
 		assert.Empty(t, args)
+
+		// Reset chain for next test
+		chain = NewChain(nil, factory)
+		chain.Table("test_table")
+
+		// Test invalid operator
+		chain.Where("id", define.OpType(999), 1)
+		sql, args, err = chain.BuildSelect()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid operator")
+		assert.Empty(t, sql)
+		assert.Empty(t, args)
+
+		// Reset chain for next test
+		chain = NewChain(nil, factory)
+		chain.Table("test_table")
+
+		// Test valid condition
+		chain.Where("id", define.OpEq, 1)
+		sql, args, err = chain.BuildSelect()
+		assert.NoError(t, err)
+		assert.NotEmpty(t, sql)
+		assert.NotEmpty(t, args)
 	})
 }

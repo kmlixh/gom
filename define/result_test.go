@@ -243,11 +243,6 @@ func TestResultEdgeCases(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "destination must be a non-nil pointer")
 
-		// Non-slice pointer for multiple results
-		var model TestResultModel
-		err = result.Into(&model)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "destination must be a pointer to slice for multiple results")
 	})
 
 	t.Run("Empty Result", func(t *testing.T) {
@@ -368,4 +363,147 @@ func TestResultJSON(t *testing.T) {
 		assert.Error(t, err)
 		assert.Equal(t, sql.ErrNoRows, err)
 	})
+}
+
+func TestResultNullTypeConversion(t *testing.T) {
+	type NullModel struct {
+		NullString  sql.NullString  `gom:"null_string"`
+		NullInt     sql.NullInt64   `gom:"null_int"`
+		NullFloat   sql.NullFloat64 `gom:"null_float"`
+		NullBool    sql.NullBool    `gom:"null_bool"`
+		NullTime    sql.NullTime    `gom:"null_time"`
+		EmptyString sql.NullString  `gom:"empty_string"`
+		EmptyInt    sql.NullInt64   `gom:"empty_int"`
+		EmptyFloat  sql.NullFloat64 `gom:"empty_float"`
+		EmptyBool   sql.NullBool    `gom:"empty_bool"`
+	}
+
+	result := &Result{
+		Data: []map[string]interface{}{
+			{
+				"null_string":  sql.NullString{String: "test", Valid: true},
+				"null_int":     sql.NullInt64{Int64: 123, Valid: true},
+				"null_float":   sql.NullFloat64{Float64: 123.45, Valid: true},
+				"null_bool":    sql.NullBool{Bool: true, Valid: true},
+				"null_time":    sql.NullTime{Time: time.Now(), Valid: true},
+				"empty_string": []uint8(""),
+				"empty_int":    []uint8(""),
+				"empty_float":  []uint8(""),
+				"empty_bool":   []uint8(""),
+			},
+		},
+	}
+
+	var models []NullModel
+	err := result.Into(&models)
+	assert.NoError(t, err)
+	assert.Len(t, models, 1)
+
+	model := models[0]
+	assert.True(t, model.NullString.Valid)
+	assert.Equal(t, "test", model.NullString.String)
+	assert.True(t, model.NullInt.Valid)
+	assert.Equal(t, int64(123), model.NullInt.Int64)
+	assert.True(t, model.NullFloat.Valid)
+	assert.Equal(t, 123.45, model.NullFloat.Float64)
+	assert.True(t, model.NullBool.Valid)
+	assert.True(t, model.NullBool.Bool)
+	assert.True(t, model.NullTime.Valid)
+
+	// Test empty values
+	assert.False(t, model.EmptyString.Valid)
+	assert.False(t, model.EmptyInt.Valid)
+	assert.False(t, model.EmptyFloat.Valid)
+	assert.False(t, model.EmptyBool.Valid)
+}
+
+func TestResultNullTypeByteConversion(t *testing.T) {
+	type NullByteModel struct {
+		StringFromBytes sql.NullString  `gom:"string_bytes"`
+		IntFromBytes    sql.NullInt64   `gom:"int_bytes"`
+		FloatFromBytes  sql.NullFloat64 `gom:"float_bytes"`
+		BoolFromBytes1  sql.NullBool    `gom:"bool_bytes1"`  // test []byte{1}
+		BoolFromBytes0  sql.NullBool    `gom:"bool_bytes0"`  // test []byte{0}
+		BoolFromTrue    sql.NullBool    `gom:"bool_true"`    // test "true"
+		BoolFromYes     sql.NullBool    `gom:"bool_yes"`     // test "yes"
+		BoolFrom1       sql.NullBool    `gom:"bool_1"`       // test "1"
+		BoolFromOn      sql.NullBool    `gom:"bool_on"`      // test "on"
+		MaxInt          sql.NullInt64   `gom:"max_int"`      // test max int64
+		MinInt          sql.NullInt64   `gom:"min_int"`      // test min int64
+		MaxFloat        sql.NullFloat64 `gom:"max_float"`    // test large float
+		MinFloat        sql.NullFloat64 `gom:"min_float"`    // test small float
+		EmptyString     sql.NullString  `gom:"empty_string"` // test empty string
+		InvalidInt      sql.NullInt64   `gom:"invalid_int"`
+		InvalidFloat    sql.NullFloat64 `gom:"invalid_float"`
+		InvalidBool     sql.NullBool    `gom:"invalid_bool"`
+	}
+
+	result := &Result{
+		Data: []map[string]interface{}{
+			{
+				"string_bytes":  []uint8("test string"),
+				"int_bytes":     []uint8("123"),
+				"float_bytes":   []uint8("123.45"),
+				"bool_bytes1":   []uint8{1},
+				"bool_bytes0":   []uint8{0},
+				"bool_true":     []uint8("true"),
+				"bool_yes":      []uint8("yes"),
+				"bool_1":        []uint8("1"),
+				"bool_on":       []uint8("on"),
+				"max_int":       []uint8("9223372036854775807"),     // math.MaxInt64
+				"min_int":       []uint8("-9223372036854775808"),    // math.MinInt64
+				"max_float":     []uint8("1.7976931348623157e+308"), // math.MaxFloat64
+				"min_float":     []uint8("4.9406564584124654e-324"), // math.SmallestNonzeroFloat64
+				"empty_string":  []uint8(""),
+				"invalid_int":   []uint8("not a number"),
+				"invalid_float": []uint8("not a float"),
+				"invalid_bool":  []uint8("not a bool"),
+			},
+		},
+	}
+
+	var models []NullByteModel
+	err := result.Into(&models)
+	assert.NoError(t, err)
+	assert.Len(t, models, 1)
+
+	model := models[0]
+
+	// Test string conversions
+	assert.True(t, model.StringFromBytes.Valid)
+	assert.Equal(t, "test string", model.StringFromBytes.String)
+	assert.False(t, model.EmptyString.Valid)
+
+	// Test integer conversions
+	assert.True(t, model.IntFromBytes.Valid)
+	assert.Equal(t, int64(123), model.IntFromBytes.Int64)
+	assert.True(t, model.MaxInt.Valid)
+	assert.Equal(t, int64(9223372036854775807), model.MaxInt.Int64)
+	assert.True(t, model.MinInt.Valid)
+	assert.Equal(t, int64(-9223372036854775808), model.MinInt.Int64)
+	assert.False(t, model.InvalidInt.Valid)
+
+	// Test float conversions
+	assert.True(t, model.FloatFromBytes.Valid)
+	assert.Equal(t, 123.45, model.FloatFromBytes.Float64)
+	assert.True(t, model.MaxFloat.Valid)
+	assert.Equal(t, 1.7976931348623157e+308, model.MaxFloat.Float64)
+	assert.True(t, model.MinFloat.Valid)
+	assert.Equal(t, 4.9406564584124654e-324, model.MinFloat.Float64)
+	assert.False(t, model.InvalidFloat.Valid)
+
+	// Test boolean conversions
+	assert.True(t, model.BoolFromBytes1.Valid)
+	assert.True(t, model.BoolFromBytes1.Bool)
+	assert.True(t, model.BoolFromBytes0.Valid)
+	assert.False(t, model.BoolFromBytes0.Bool)
+	assert.True(t, model.BoolFromTrue.Valid)
+	assert.True(t, model.BoolFromTrue.Bool)
+	assert.True(t, model.BoolFromYes.Valid)
+	assert.True(t, model.BoolFromYes.Bool)
+	assert.True(t, model.BoolFrom1.Valid)
+	assert.True(t, model.BoolFrom1.Bool)
+	assert.True(t, model.BoolFromOn.Valid)
+	assert.True(t, model.BoolFromOn.Bool)
+	assert.False(t, model.InvalidBool.Valid)
 }

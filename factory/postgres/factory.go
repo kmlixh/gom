@@ -232,7 +232,11 @@ func (f *Factory) quoteIdentifier(identifier string) string {
 }
 
 // BuildSelect builds a SELECT query for PostgreSQL
-func (f *Factory) BuildSelect(table string, fields []string, conditions []*define.Condition, orderBy string, limit, offset int) (string, []interface{}) {
+func (f *Factory) BuildSelect(table string, fields []string, conditions []*define.Condition, orderBy string, limit, offset int) (string, []interface{}, error) {
+	if table == "" {
+		return "", nil, define.ErrEmptyTableName
+	}
+
 	var args []interface{}
 	query := "SELECT "
 
@@ -257,44 +261,54 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 	// Add table
 	query += fmt.Sprintf(" FROM %s", f.quoteIdentifier(table))
 
-	// Add conditions
-	if len(conditions) > 0 && conditions[0] != nil {
-		query += " WHERE "
-		var condStrings []string
-		currentParamIndex := 1
-		for i, cond := range conditions {
+	// Add WHERE conditions
+	if len(conditions) > 0 {
+		var whereConditions []string
+		var hasOr bool
+		paramIndex := 1
+		for _, cond := range conditions {
 			if cond == nil {
 				continue
 			}
-			condStr, condArgs := f.buildCondition(cond, currentParamIndex)
+			condStr, condArgs := f.buildCondition(cond, paramIndex)
 			if condStr != "" {
-				if i > 0 {
-					if cond.JoinType == define.JoinOr {
-						condStrings = append(condStrings, "OR")
-					} else {
-						condStrings = append(condStrings, "AND")
-					}
+				if strings.HasPrefix(condStr, "HAVING") {
+					// Store HAVING conditions for later
+					continue
 				}
-				condStrings = append(condStrings, condStr)
+				if len(whereConditions) > 0 {
+					if cond.JoinType == define.JoinOr {
+						hasOr = true
+						whereConditions = append(whereConditions, "OR", condStr)
+					} else {
+						whereConditions = append(whereConditions, "AND", condStr)
+					}
+				} else {
+					whereConditions = append(whereConditions, condStr)
+				}
 				args = append(args, condArgs...)
-				currentParamIndex += len(condArgs)
+				paramIndex += len(condArgs)
 			}
 		}
-		if len(condStrings) > 0 {
-			query += strings.Join(condStrings, " ")
+		if len(whereConditions) > 0 {
+			if hasOr {
+				query += " WHERE (" + strings.Join(whereConditions, " ") + ")"
+			} else {
+				query += " WHERE " + strings.Join(whereConditions, " ")
+			}
 		}
 	}
 
-	// Add order by
+	// Add ORDER BY
 	if orderBy != "" {
-		if strings.HasPrefix(strings.ToUpper(orderBy), "ORDER BY") {
-			query += " " + orderBy
-		} else {
+		if !strings.HasPrefix(strings.ToUpper(orderBy), "ORDER BY") {
 			query += " ORDER BY " + orderBy
+		} else {
+			query += " " + orderBy
 		}
 	}
 
-	// Add limit and offset
+	// Add LIMIT and OFFSET
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 		if offset > 0 {
@@ -302,7 +316,7 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 		}
 	}
 
-	return query, args
+	return query, args, nil
 }
 
 // BuildUpdate builds an UPDATE query for PostgreSQL

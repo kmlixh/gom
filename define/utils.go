@@ -65,6 +65,9 @@ func StructToMap(obj interface{}) (map[string]interface{}, error) {
 
 	val := reflect.ValueOf(obj)
 	if val.Kind() == reflect.Ptr {
+		if val.IsNil() {
+			return nil, errors.New("input pointer is nil")
+		}
 		val = val.Elem()
 	}
 	if val.Kind() != reflect.Struct {
@@ -103,6 +106,46 @@ func StructToMap(obj interface{}) (map[string]interface{}, error) {
 
 	return result, nil
 }
+
+// StructToMapWithZero converts a struct to a map[string]interface{}, including zero values
+func StructToMapWithZero(obj interface{}) (map[string]interface{}, error) {
+	if obj == nil {
+		return nil, errors.New("input object is nil")
+	}
+
+	val := reflect.ValueOf(obj)
+	if val.Kind() == reflect.Ptr {
+		if val.IsNil() {
+			return nil, errors.New("input pointer is nil")
+		}
+		val = val.Elem()
+	}
+	if val.Kind() != reflect.Struct {
+		return nil, errors.New("input object is not a struct")
+	}
+
+	result := make(map[string]interface{})
+	typ := val.Type()
+
+	for i := 0; i < val.NumField(); i++ {
+		field := val.Field(i)
+		fieldType := typ.Field(i)
+
+		// Skip unexported fields
+		if !fieldType.IsExported() {
+			continue
+		}
+
+		// Use struct field name
+		fieldName := fieldType.Name
+
+		// Add value to result, including zero values
+		result[fieldName] = field.Interface()
+	}
+
+	return result, nil
+}
+
 func GetFieldToColMap(i any, tableInfo *TableInfo) (map[string]string, map[string]string, error) {
 	fieldMap := make(map[string]string)
 	colMap := make(map[string]string)

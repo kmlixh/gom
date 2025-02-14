@@ -40,6 +40,7 @@ type TableInfo struct {
 	HasDecimal   bool         // 是否包含 Decimal 类型
 	HasUUID      bool         // 是否包含 UUID 类型
 	HasIP        bool         // 是否包含 IP 类型
+	HasTime      bool         // 是否包含时间类型
 }
 
 // ColumnInfo 列信息
@@ -72,7 +73,7 @@ type SQLFactory interface {
 	GetType() string
 
 	// BuildSelect builds a SELECT query
-	BuildSelect(table string, fields []string, conditions []*Condition, orderBy string, limit, offset int) (string, []interface{})
+	BuildSelect(table string, fields []string, conditions []*Condition, orderBy string, limit, offset int) (string, []interface{}, error)
 
 	// BuildUpdate builds an UPDATE query
 	BuildUpdate(table string, fields map[string]interface{}, fieldOrder []string, conditions []*Condition) (string, []interface{})

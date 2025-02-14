@@ -1,0 +1,10 @@
+---
+description: 修改过代码必须运行全局测试，保证测试没有错误
+globs: 
+---
+
+# Your rule content
+
+- You can @ files here
+- You can use markdown but dont have to
+修改过代码必须运行全局测试，保证测试没有错误

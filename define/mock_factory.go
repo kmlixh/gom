@@ -3,8 +3,9 @@ package define
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"reflect"
-	"sort"
+	"strings"
 )
 
 // ErrEmptyTableName is returned when a table name is empty
@@ -14,8 +15,7 @@ var ErrEmptyTableName = errors.New("empty table name")
 type MockSQLFactory struct{}
 
 func (f *MockSQLFactory) GetColumns(tableName string, db *sql.DB) ([]Column, error) {
-	//TODO implement me
-	panic("implement me")
+	return nil, nil
 }
 
 func (f *MockSQLFactory) Connect(dsn string) (*sql.DB, error) {
@@ -26,8 +26,40 @@ func (f *MockSQLFactory) GetType() string {
 	return "mock"
 }
 
-func (f *MockSQLFactory) BuildSelect(table string, fields []string, conditions []*Condition, orderBy string, limit, offset int) (string, []interface{}) {
-	return "", nil
+func (f *MockSQLFactory) BuildSelect(table string, fields []string, conditions []*Condition, orderBy string, limit, offset int) (string, []interface{}, error) {
+	if table == "" {
+		return "", nil, ErrEmptyTableName
+	}
+
+	var args []interface{}
+	var where []string
+
+	// Validate and build conditions
+	if len(conditions) > 0 {
+		for _, cond := range conditions {
+			if cond != nil {
+				// Check for nil value
+				if cond.Value == nil && cond.Op != OpIsNull && cond.Op != OpIsNotNull {
+					return "", nil, fmt.Errorf("invalid condition: nil value not allowed")
+				}
+				// Check for invalid operator
+				if cond.Op > OpCustom {
+					return "", nil, fmt.Errorf("invalid operator")
+				}
+				// Add condition
+				where = append(where, fmt.Sprintf("%s = ?", cond.Field))
+				args = append(args, cond.Value)
+			}
+		}
+	}
+
+	// Build query
+	query := "SELECT * FROM mock_table"
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+
+	return query, args, nil
 }
 
 func (f *MockSQLFactory) BuildUpdate(table string, fields map[string]interface{}, fieldOrder []string, conditions []*Condition) (string, []interface{}) {
@@ -43,35 +75,30 @@ func (f *MockSQLFactory) BuildBatchInsert(table string, values []map[string]inte
 		return "", nil
 	}
 
-	// Get all field names
-	fieldSet := make(map[string]struct{})
-	for _, row := range values {
-		for field := range row {
-			fieldSet[field] = struct{}{}
-		}
+	// Get all unique field names from the first row
+	var fieldOrder []string
+	for field := range values[0] {
+		fieldOrder = append(fieldOrder, field)
 	}
 
-	// Convert to sorted slice
-	var fields []string
-	for field := range fieldSet {
-		fields = append(fields, field)
-	}
-	sort.Strings(fields)
-
-	// Build placeholders and args
 	var args []interface{}
-	for _, row := range values {
-		for _, field := range fields {
-			if value, ok := row[field]; ok {
-				args = append(args, value)
-			} else {
-				args = append(args, nil)
-			}
+	var placeholders []string
+
+	// Build field list
+	fields := strings.Join(fieldOrder, ", ")
+
+	// Build placeholders and collect args
+	for _, value := range values {
+		var rowPlaceholders []string
+		for _, field := range fieldOrder {
+			rowPlaceholders = append(rowPlaceholders, "?")
+			args = append(args, value[field])
 		}
+		placeholders = append(placeholders, "("+strings.Join(rowPlaceholders, ", ")+")")
 	}
 
-	// Return mock SQL and args
-	return "INSERT INTO mock_table VALUES (?)", args
+	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s", table, fields, strings.Join(placeholders, ", "))
+	return sql, args
 }
 
 func (f *MockSQLFactory) BuildDelete(table string, conditions []*Condition) (string, []interface{}) {
@@ -83,7 +110,7 @@ func (f *MockSQLFactory) BuildCreateTable(table string, modelType reflect.Type) 
 }
 
 func (f *MockSQLFactory) GetTableInfo(db *sql.DB, tableName string) (*TableInfo, error) {
-	return nil, nil
+	return nil, fmt.Errorf("table %s not found", tableName)
 }
 
 func (f *MockSQLFactory) GetTables(db *sql.DB, pattern string) ([]string, error) {
