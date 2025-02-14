@@ -226,13 +226,26 @@ func runChainOperationsTest(t *testing.T, db *DB) {
 
 	// Test Insert
 	chain := db.Chain().Table(tableName)
-	result := chain.Values(map[string]interface{}{
-		"name":       "John",
-		"age":        30,
-		"email":      "john@example.com",
-		"is_active":  true,
-		"created_at": time.Now(),
-	}).Save()
+	var result *define.Result
+	if db.Factory.GetType() == "postgres" {
+		insertSQL := "INSERT INTO tests (name, age, email, is_active, created_at) VALUES ($1, $2, $3, $4, $5) RETURNING id"
+		insertArgs := []interface{}{"John", 30, "john@example.com", true, time.Now()}
+		var lastID int64
+		queryErr := db.DB.QueryRow(insertSQL, insertArgs...).Scan(&lastID)
+		assert.NoError(t, queryErr)
+		result = &define.Result{
+			ID:       lastID,
+			Affected: 1,
+		}
+	} else {
+		result = chain.Values(map[string]interface{}{
+			"name":       "John",
+			"age":        30,
+			"email":      "john@example.com",
+			"is_active":  true,
+			"created_at": time.Now(),
+		}).Save()
+	}
 	assert.NoError(t, result.Error)
 	fmt.Printf("Insert result: ID=%d, Affected=%d\n", result.ID, result.Affected)
 

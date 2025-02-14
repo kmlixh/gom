@@ -864,3 +864,24 @@ func (t *Transfer) First(rows *sql.Rows) (interface{}, error) {
 
 	return result, nil
 }
+
+// GetFieldTag returns the gom tag for a given field name
+func (t *Transfer) GetFieldTag(fieldName string) string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	for _, info := range t.Fields {
+		if info.Name == fieldName {
+			if modelType := reflect.TypeOf(t.model); modelType != nil {
+				if modelType.Kind() == reflect.Ptr {
+					modelType = modelType.Elem()
+				}
+				if field, ok := modelType.FieldByName(fieldName); ok {
+					return field.Tag.Get("gom")
+				}
+			}
+			break
+		}
+	}
+	return ""
+}

@@ -356,50 +356,77 @@ func (sm *SecurityManager) RotateKey() error {
 	return nil
 }
 
-// EncryptValue enhances encryption with ChaCha20-Poly1305 support
+// EncryptValue 使用指定的配置加密值
 func EncryptValue(value string, config *EncryptionConfig) (string, error) {
 	if config == nil {
-		return "", newDBError(ErrConfiguration, "encryptValue", nil, "encryption configuration is required")
+		return "", newDBError(ErrConfiguration, "EncryptValue", nil, "encryption configuration is required")
 	}
 
+	// 验证加密算法
+	switch config.Algorithm {
+	case AES256, AES192, AES128, ChaCha20Poly1305:
+		// 有效的算法
+	default:
+		return "", newDBError(ErrConfiguration, "EncryptValue", nil, fmt.Sprintf("invalid algorithm: %s", config.Algorithm))
+	}
+
+	// 验证密钥源
+	if config.KeySource == "" {
+		return "", newDBError(ErrConfiguration, "EncryptValue", nil, "key source is required")
+	}
+
+	// 获取加密密钥
 	key, err := getEncryptionKey(config)
 	if err != nil {
-		return "", newDBError(ErrConfiguration, "encryptValue", err, "failed to get encryption key")
+		return "", newDBError(ErrConfiguration, "EncryptValue", err, "failed to get encryption key")
 	}
 
-	var aead cipher.AEAD
+	// 根据算法选择加密方式
 	switch config.Algorithm {
+	case AES256:
+		if len(key) != 32 {
+			return "", newDBError(ErrConfiguration, "EncryptValue", nil, "AES-256 requires 32-byte key")
+		}
+		encryptor, err := NewAESEncryptor(key)
+		if err != nil {
+			return "", newDBError(ErrEncryption, "EncryptValue", err, "failed to create AES encryptor")
+		}
+		return encryptor.Encrypt(value)
+	case AES192:
+		if len(key) != 24 {
+			return "", newDBError(ErrConfiguration, "EncryptValue", nil, "AES-192 requires 24-byte key")
+		}
+		encryptor, err := NewAESEncryptor(key)
+		if err != nil {
+			return "", newDBError(ErrEncryption, "EncryptValue", err, "failed to create AES encryptor")
+		}
+		return encryptor.Encrypt(value)
+	case AES128:
+		if len(key) != 16 {
+			return "", newDBError(ErrConfiguration, "EncryptValue", nil, "AES-128 requires 16-byte key")
+		}
+		encryptor, err := NewAESEncryptor(key)
+		if err != nil {
+			return "", newDBError(ErrEncryption, "EncryptValue", err, "failed to create AES encryptor")
+		}
+		return encryptor.Encrypt(value)
 	case ChaCha20Poly1305:
 		if len(key) != chacha20poly1305.KeySize {
-			return "", newDBError(ErrConfiguration, "encryptValue", nil, fmt.Sprintf("invalid key size for ChaCha20-Poly1305: must be %d bytes", chacha20poly1305.KeySize))
+			return "", newDBError(ErrConfiguration, "EncryptValue", nil, fmt.Sprintf("ChaCha20-Poly1305 requires %d-byte key", chacha20poly1305.KeySize))
 		}
-		aead, err = chacha20poly1305.New(key)
+		aead, err := chacha20poly1305.New(key)
 		if err != nil {
-			return "", newDBError(ErrConfiguration, "encryptValue", err, "failed to create ChaCha20-Poly1305")
+			return "", newDBError(ErrEncryption, "EncryptValue", err, "failed to create ChaCha20-Poly1305")
 		}
-	case AES256, AES192, AES128:
-		var block cipher.Block
-		block, err = aes.NewCipher(key)
-		if err != nil {
-			return "", newDBError(ErrConfiguration, "encryptValue", err, "failed to create cipher")
+		nonce := make([]byte, aead.NonceSize())
+		if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+			return "", newDBError(ErrEncryption, "EncryptValue", err, "failed to generate nonce")
 		}
-		aead, err = cipher.NewGCM(block)
-		if err != nil {
-			return "", newDBError(ErrConfiguration, "encryptValue", err, "failed to create GCM")
-		}
+		ciphertext := aead.Seal(nonce, nonce, []byte(value), nil)
+		return base64.StdEncoding.EncodeToString(ciphertext), nil
 	default:
-		return "", newDBError(ErrConfiguration, "encryptValue", nil, "unsupported encryption algorithm")
+		return "", newDBError(ErrConfiguration, "EncryptValue", nil, fmt.Sprintf("unsupported algorithm: %s", config.Algorithm))
 	}
-
-	// Create nonce
-	nonce := make([]byte, aead.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", newDBError(ErrConfiguration, "encryptValue", err, "failed to generate nonce")
-	}
-
-	// Encrypt and combine nonce with ciphertext
-	ciphertext := aead.Seal(nonce, nonce, []byte(value), nil)
-	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
 // DecryptValue enhances decryption with ChaCha20-Poly1305 support

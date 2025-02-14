@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/kmlixh/gom/v4/define"
+	"github.com/kmlixh/gom/v4/security"
 )
 
 // QueryStats tracks statistics for a single query execution
@@ -71,7 +72,8 @@ type Chain struct {
 	batchValues []map[string]interface{}
 
 	// Sensitive data handling
-	sensitiveFields map[string]SensitiveOptions
+	sensitiveFields  map[string]SensitiveOptions
+	encryptionConfig *EncryptionConfig
 
 	// Context for transaction
 	ctx context.Context
@@ -106,6 +108,8 @@ const (
 	SensitiveAddress
 	// SensitiveEncrypted for encrypted data
 	SensitiveEncrypted
+	// SensitiveMasked for masked data
+	SensitiveMasked
 )
 
 // EncryptionAlgorithm defines the encryption algorithm to use
@@ -143,7 +147,7 @@ type EncryptionConfig struct {
 // SensitiveOptions represents options for sensitive data handling
 type SensitiveOptions struct {
 	Type       SensitiveType
-	Encryption *EncryptionConfig
+	Encryption *security.EncryptionConfig
 	Mask       string
 }
 
@@ -730,6 +734,14 @@ func (c *Chain) Save(fieldsOrModel ...interface{}) *define.Result {
 		if len(c.fieldMap) == 0 {
 			return &define.Result{Error: fmt.Errorf("no fields to save")}
 		}
+
+		// 处理敏感字段
+		if len(c.sensitiveFields) > 0 {
+			if err := c.processSensitiveData(c.fieldMap); err != nil {
+				return &define.Result{Error: err}
+			}
+		}
+
 		if len(c.conds) > 0 {
 			return c.executeUpdate()
 		}
@@ -799,6 +811,25 @@ func (c *Chain) Save(fieldsOrModel ...interface{}) *define.Result {
 				return &define.Result{Error: fmt.Errorf("no fields to save")}
 			}
 
+			// Process encrypted fields
+			if c.encryptionConfig != nil {
+				for fieldName, fieldValue := range fields {
+					// Check if field needs encryption
+					if tag := transfer.GetFieldTag(fieldName); tag != "" {
+						for _, opt := range strings.Split(tag, ",") {
+							if opt == "encrypt" {
+								encryptedValue, err := c.encryptField(fieldValue)
+								if err != nil {
+									return &define.Result{Error: fmt.Errorf("failed to encrypt field %s: %v", fieldName, err)}
+								}
+								fields[fieldName] = encryptedValue
+								break
+							}
+						}
+					}
+				}
+			}
+
 			// Convert boolean values to integers for MySQL
 			for k, v := range fields {
 				if b, ok := v.(bool); ok {
@@ -852,184 +883,41 @@ func (c *Chain) executeInsert() *define.Result {
 		return &define.Result{Error: fmt.Errorf("database connection is not initialized")}
 	}
 
-	// Start a transaction if not already in one
-	var tx *sql.Tx
-	var err error
-	if c.tx == nil {
-		tx, err = c.db.DB.Begin()
-		if err != nil {
-			return &define.Result{Error: fmt.Errorf("failed to begin transaction: %v", err)}
+	// 处理敏感字段
+	if len(c.sensitiveFields) > 0 {
+		if err := c.processSensitiveData(c.fieldMap); err != nil {
+			return &define.Result{Error: err}
 		}
-		defer func() {
-			if err != nil {
-				tx.Rollback()
-			}
-		}()
-	} else {
-		tx = c.tx
 	}
 
-	sqlStr, args := c.factory.BuildInsert(c.tableName, c.fieldMap, c.fieldOrder)
+	// 生成 SQL 和参数
+	sql, args := c.factory.BuildInsert(c.tableName, c.fieldMap, c.fieldOrder)
 	if define.Debug {
-		log.Printf("[SQL] %s %v", sqlStr, args)
+		log.Printf("[SQL] %s %v", sql, args)
 	}
 
-	result, err := tx.Exec(sqlStr, args...)
-	if err != nil {
-		return &define.Result{Error: fmt.Errorf("failed to execute insert: %v", err)}
+	// 执行 SQL
+	var sqlResult interface {
+		LastInsertId() (int64, error)
+		RowsAffected() (int64, error)
 	}
-
-	lastID, _ := result.LastInsertId()
-	affected, _ := result.RowsAffected()
-
-	// For PostgreSQL, if LastInsertId is not supported, try to get it from the RETURNING clause
-	if lastID == 0 && c.factory.GetType() == "postgres" {
-		var id int64
-		err = tx.QueryRow("SELECT lastval()").Scan(&id)
-		if err == nil {
-			lastID = id
-		}
-	}
-
-	// Commit transaction if we started it
-	if c.tx == nil {
-		err = tx.Commit()
-		if err != nil {
-			return &define.Result{Error: fmt.Errorf("failed to commit transaction: %v", err)}
-		}
-	}
-
-	return &define.Result{
-		ID:       lastID,
-		Affected: affected,
-	}
-}
-
-// executeUpdate executes an UPDATE query
-func (c *Chain) executeUpdate() *define.Result {
-	sqlStr, args := c.factory.BuildUpdate(c.tableName, c.fieldMap, c.fieldOrder, c.conds)
-	if define.Debug {
-		log.Printf("[SQL] %s %v", sqlStr, args)
-	}
-
-	var result sql.Result
 	var err error
 	if c.tx != nil {
-		result, err = c.tx.Exec(sqlStr, args...)
+		sqlResult, err = c.tx.Exec(sql, args...)
 	} else {
-		result, err = c.db.DB.Exec(sqlStr, args...)
+		sqlResult, err = c.db.DB.Exec(sql, args...)
 	}
-
 	if err != nil {
 		return &define.Result{Error: err}
 	}
 
-	lastID, _ := result.LastInsertId()
-	affected, _ := result.RowsAffected()
-
-	return &define.Result{
-		ID:       lastID,
-		Affected: affected,
-	}
-}
-
-// Update updates records with the given fields or model
-func (c *Chain) Update(fieldsOrModel ...interface{}) *define.Result {
-	// If no arguments provided, use existing fieldMap
-	if len(fieldsOrModel) == 0 {
-		if c.fieldMap == nil {
-			return &define.Result{Error: fmt.Errorf("no fields to update")}
-		}
-		if len(c.conds) > 0 {
-			return c.executeUpdate()
-		}
-		return c.executeInsert()
+	lastID, _ := sqlResult.LastInsertId()
+	affected, err := sqlResult.RowsAffected()
+	if err != nil {
+		return &define.Result{Error: err}
 	}
 
-	// Handle the first argument
-	switch v := fieldsOrModel[0].(type) {
-	case map[string]interface{}:
-		return c.Sets(v).Update()
-	case nil:
-		return &define.Result{Error: fmt.Errorf("nil argument provided")}
-	default:
-		// Try to convert struct to map using transfer
-		if transfer := define.GetTransfer(v); transfer != nil {
-			// Set table name if not set
-			if c.tableName == "" {
-				c.tableName = transfer.GetTableName()
-			}
-
-			// Convert struct to map using transfer
-			fields := transfer.ToMap(v)
-			if fields == nil || len(fields) == 0 {
-				return &define.Result{Error: fmt.Errorf("no fields to update")}
-			}
-
-			// Remove primary key field from update fields
-			if transfer.PrimaryKey != nil {
-				delete(fields, transfer.PrimaryKey.Column)
-			}
-
-			// Convert boolean values to integers for MySQL
-			for k, v := range fields {
-				if b, ok := v.(bool); ok {
-					if b {
-						fields[k] = 1
-					} else {
-						fields[k] = 0
-					}
-				}
-			}
-
-			// Extract ID for condition if no conditions are set
-			if len(c.conds) == 0 {
-				if pkValue, _ := transfer.GetPrimaryKeyValue(v); pkValue != nil {
-					c.Where(transfer.PrimaryKey.Column, define.OpEq, pkValue)
-				}
-			}
-
-			return c.Sets(fields).Update()
-		}
-		return &define.Result{Error: fmt.Errorf("unsupported argument type: %T", v)}
-	}
-}
-
-// Delete executes a DELETE query
-func (c *Chain) Delete(models ...interface{}) *define.Result {
-	// If no arguments provided, use existing conditions
-	if len(models) == 0 {
-		sql, args := c.factory.BuildDelete(c.tableName, c.conds)
-		if define.Debug {
-			log.Printf("[SQL] %s %v", sql, args)
-		}
-		var sqlResult interface {
-			LastInsertId() (int64, error)
-			RowsAffected() (int64, error)
-		}
-		var err error
-		if c.tx != nil {
-			sqlResult, err = c.tx.Exec(sql, args...)
-		} else {
-			sqlResult, err = c.db.DB.Exec(sql, args...)
-		}
-		if err != nil {
-			return &define.Result{Error: err}
-		}
-		affected, err := sqlResult.RowsAffected()
-		if err != nil {
-			return &define.Result{Error: err}
-		}
-		return &define.Result{Affected: affected}
-	}
-
-	// If only one model, no need for transaction
-	if len(models) == 1 {
-		return c.deleteSingleModel(models[0])
-	}
-
-	// Multiple models need transaction
-	return c.deleteMultipleModels(models)
+	return &define.Result{ID: lastID, Affected: affected}
 }
 
 // deleteSingleModel deletes a single model without transaction
@@ -1045,6 +933,20 @@ func (c *Chain) deleteSingleModel(model interface{}) *define.Result {
 		if len(c.conds) == 0 {
 			if pkValue, _ := transfer.GetPrimaryKeyValue(model); pkValue != nil {
 				c.Where(transfer.PrimaryKey.Column, define.OpEq, pkValue)
+			} else {
+				// If no primary key, try to use other non-zero fields as conditions
+				fields := transfer.ToMap(model)
+				if len(fields) == 0 {
+					return &define.Result{Error: fmt.Errorf("no fields available for delete condition")}
+				}
+				for field, value := range fields {
+					if !reflect.ValueOf(value).IsZero() {
+						c.Where(field, define.OpEq, value)
+					}
+				}
+				if len(c.conds) == 0 {
+					return &define.Result{Error: fmt.Errorf("delete without conditions is not allowed")}
+				}
 			}
 		}
 
@@ -1063,8 +965,20 @@ func (c *Chain) deleteSingleModel(model interface{}) *define.Result {
 			}
 		}
 
-		if pkField != "" {
-			c.Where(pkField, define.OpEq, pkValue)
+		if len(c.conds) == 0 {
+			if pkField != "" && pkValue != nil {
+				c.Where(pkField, define.OpEq, pkValue)
+			} else {
+				// If no primary key, use other non-zero fields as conditions
+				for field, value := range fields {
+					if !reflect.ValueOf(value).IsZero() {
+						c.Where(field, define.OpEq, value)
+					}
+				}
+				if len(c.conds) == 0 {
+					return &define.Result{Error: fmt.Errorf("delete without conditions is not allowed")}
+				}
+			}
 		}
 
 		return c.Delete()
@@ -2446,17 +2360,71 @@ func (c *Chain) processSensitiveData(data map[string]interface{}) error {
 				continue
 			}
 
-			switch options.Type {
-			case SensitiveEncrypted:
-				if len(options.Encryption.KeySourceConfig["key_name"]) == 0 {
-					return fmt.Errorf("encryption key not provided for field %s", field)
+			if options.Type == SensitiveEncrypted {
+				if options.Encryption == nil {
+					return &security.DBError{
+						Code:    security.ErrConfiguration,
+						Op:      "processSensitiveData",
+						Message: fmt.Sprintf("encryption configuration required for field %s", field),
+					}
 				}
-				encrypted, err := encryptValue(strValue, options.Encryption)
+
+				// 验证加密配置
+				if options.Encryption.Algorithm == "" {
+					return &security.DBError{
+						Code:    security.ErrConfiguration,
+						Op:      "processSensitiveData",
+						Message: fmt.Sprintf("encryption algorithm is required for field %s", field),
+					}
+				}
+
+				// 验证加密算法
+				switch options.Encryption.Algorithm {
+				case security.AES256, security.AES192, security.AES128, security.ChaCha20Poly1305:
+					// 有效的算法
+				default:
+					return &security.DBError{
+						Code:    security.ErrConfiguration,
+						Op:      "processSensitiveData",
+						Message: fmt.Sprintf("invalid algorithm for field %s: %s", field, options.Encryption.Algorithm),
+					}
+				}
+
+				// 验证密钥源
+				if options.Encryption.KeySource == "" {
+					return &security.DBError{
+						Code:    security.ErrConfiguration,
+						Op:      "processSensitiveData",
+						Message: fmt.Sprintf("encryption key source is required for field %s", field),
+					}
+				}
+
+				// 验证密钥源类型
+				switch options.Encryption.KeySource {
+				case string(KeySourceEnv), string(KeySourceFile), string(KeySourceVault):
+					// 有效的密钥源
+				default:
+					return &security.DBError{
+						Code:    security.ErrConfiguration,
+						Op:      "processSensitiveData",
+						Message: fmt.Sprintf("unsupported key source for field %s: %s", field, options.Encryption.KeySource),
+					}
+				}
+
+				encrypted, err := security.EncryptValue(strValue, options.Encryption)
 				if err != nil {
-					return fmt.Errorf("failed to encrypt field %s: %v", field, err)
+					if dbErr, ok := err.(*security.DBError); ok {
+						return dbErr
+					}
+					return &security.DBError{
+						Code:    security.ErrEncryption,
+						Op:      "processSensitiveData",
+						Err:     err,
+						Message: fmt.Sprintf("failed to encrypt field %s", field),
+					}
 				}
 				data[field] = encrypted
-			default:
+			} else if options.Type == SensitiveMasked {
 				data[field] = maskValue(strValue, options.Type)
 			}
 		}
@@ -2466,8 +2434,8 @@ func (c *Chain) processSensitiveData(data map[string]interface{}) error {
 
 // processSensitiveResults processes sensitive data after querying
 func (c *Chain) processSensitiveResults(results []map[string]interface{}) error {
-	for _, row := range results {
-		for field, value := range row {
+	for _, result := range results {
+		for field, value := range result {
 			if options, ok := c.sensitiveFields[field]; ok {
 				strValue, ok := value.(string)
 				if !ok {
@@ -2475,14 +2443,14 @@ func (c *Chain) processSensitiveResults(results []map[string]interface{}) error 
 				}
 
 				if options.Type == SensitiveEncrypted {
-					if len(options.Encryption.KeySourceConfig["key_name"]) == 0 {
-						return fmt.Errorf("encryption key not provided for field %s", field)
+					if options.Encryption == nil {
+						return fmt.Errorf("encryption configuration required for field %s", field)
 					}
-					decrypted, err := decryptValue(strValue, options.Encryption)
+					decrypted, err := security.DecryptValue(strValue, options.Encryption)
 					if err != nil {
 						return fmt.Errorf("failed to decrypt field %s: %v", field, err)
 					}
-					row[field] = decrypted
+					result[field] = decrypted
 				}
 			}
 		}
@@ -2870,4 +2838,266 @@ func (c *Chain) BuildSelect() (string, []interface{}, error) {
 	}
 
 	return c.factory.BuildSelect(c.tableName, c.fieldList, c.conds, c.buildOrderBy(), c.limitCount, c.offsetCount)
+}
+
+// encryptField encrypts a field value using the configured encryption settings
+func (c *Chain) encryptField(value interface{}) (string, error) {
+	if c.encryptionConfig == nil {
+		return "", fmt.Errorf("encryption configuration is not set")
+	}
+
+	// Convert value to string
+	var strValue string
+	switch v := value.(type) {
+	case string:
+		strValue = v
+	case []byte:
+		strValue = string(v)
+	default:
+		strValue = fmt.Sprintf("%v", v)
+	}
+
+	// Get encryption key
+	key, err := c.getEncryptionKey()
+	if err != nil {
+		return "", err
+	}
+
+	// Encrypt the value
+	encrypted, err := c.encryptAES([]byte(strValue), key)
+	if err != nil {
+		return "", err
+	}
+
+	// Return base64 encoded encrypted value
+	return base64.StdEncoding.EncodeToString(encrypted), nil
+}
+
+// getEncryptionKey retrieves the encryption key from the configured source
+func (c *Chain) getEncryptionKey() ([]byte, error) {
+	if c.encryptionConfig == nil {
+		return nil, fmt.Errorf("encryption configuration is not set")
+	}
+
+	switch c.encryptionConfig.KeySource {
+	case KeySourceEnv:
+		key := os.Getenv(c.encryptionConfig.KeySourceConfig["key_name"])
+		if key == "" {
+			return nil, fmt.Errorf("encryption key not found in environment variable: %s", c.encryptionConfig.KeySourceConfig["key_name"])
+		}
+		return []byte(key), nil
+	case KeySourceFile:
+		keyPath := c.encryptionConfig.KeySourceConfig["key_path"]
+		key, err := os.ReadFile(keyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read encryption key from file: %v", err)
+		}
+		return key, nil
+	default:
+		return nil, fmt.Errorf("unsupported key source: %s", c.encryptionConfig.KeySource)
+	}
+}
+
+// encryptAES encrypts data using AES in GCM mode
+func (c *Chain) encryptAES(data, key []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+
+	return gcm.Seal(nonce, nonce, data, nil), nil
+}
+
+// processEncryptedFields processes encrypted fields in the model
+func (c *Chain) processEncryptedFields(model interface{}) error {
+	if c.encryptionConfig == nil {
+		return nil
+	}
+
+	transfer := define.GetTransfer(model)
+	if transfer == nil {
+		return fmt.Errorf("failed to get transfer for model")
+	}
+
+	modelValue := reflect.ValueOf(model)
+	if modelValue.Kind() == reflect.Ptr {
+		modelValue = modelValue.Elem()
+	}
+
+	modelType := modelValue.Type()
+	for i := 0; i < modelType.NumField(); i++ {
+		field := modelType.Field(i)
+		fieldValue := modelValue.Field(i)
+
+		tag := field.Tag.Get("gom")
+		if tag == "" {
+			continue
+		}
+
+		for _, opt := range strings.Split(tag, ",") {
+			if opt == "encrypt" {
+				encryptedValue, err := c.encryptField(fieldValue.Interface())
+				if err != nil {
+					return fmt.Errorf("failed to encrypt field %s: %v", field.Name, err)
+				}
+				if fieldValue.CanSet() {
+					fieldValue.SetString(encryptedValue)
+				}
+				break
+			}
+		}
+	}
+
+	return nil
+}
+
+// Insert inserts a new record into the database
+func (c *Chain) Insert(model interface{}) *define.Result {
+	if c.err != nil {
+		return &define.Result{Error: c.err}
+	}
+
+	// Process encrypted fields
+	if err := c.processEncryptedFields(model); err != nil {
+		return &define.Result{Error: err}
+	}
+
+	// Convert model to map
+	transfer := define.GetTransfer(model)
+	if transfer == nil {
+		return &define.Result{Error: fmt.Errorf("failed to get transfer for model")}
+	}
+
+	fields := transfer.ToMap(model)
+	if fields == nil || len(fields) == 0 {
+		return &define.Result{Error: fmt.Errorf("no fields to insert")}
+	}
+
+	// Set table name if not set
+	if c.tableName == "" {
+		c.tableName = transfer.GetTableName()
+	}
+
+	// Store model for potential ID callback
+	c.model = model
+
+	// Perform insert
+	return c.Sets(fields).executeInsert()
+}
+
+// SetEncryptionConfig sets the encryption configuration for the chain
+func (c *Chain) SetEncryptionConfig(config *EncryptionConfig) *Chain {
+	c.encryptionConfig = config
+	return c
+}
+
+// executeUpdate executes an UPDATE query
+func (c *Chain) executeUpdate() *define.Result {
+	if len(c.fieldMap) == 0 {
+		return &define.Result{Error: fmt.Errorf("no fields to update")}
+	}
+
+	if c.factory == nil {
+		return &define.Result{Error: fmt.Errorf("SQL factory is not initialized")}
+	}
+
+	if c.db == nil {
+		return &define.Result{Error: fmt.Errorf("database connection is not initialized")}
+	}
+
+	// 处理敏感字段
+	if len(c.sensitiveFields) > 0 {
+		if err := c.processSensitiveData(c.fieldMap); err != nil {
+			return &define.Result{Error: err}
+		}
+	}
+
+	// 生成 SQL 和参数
+	sql, args := c.factory.BuildUpdate(c.tableName, c.fieldMap, c.fieldOrder, c.conds)
+	if define.Debug {
+		log.Printf("[SQL] %s %v", sql, args)
+	}
+
+	// 执行 SQL
+	var sqlResult interface {
+		LastInsertId() (int64, error)
+		RowsAffected() (int64, error)
+	}
+	var err error
+	if c.tx != nil {
+		sqlResult, err = c.tx.Exec(sql, args...)
+	} else {
+		sqlResult, err = c.db.DB.Exec(sql, args...)
+	}
+	if err != nil {
+		return &define.Result{Error: err}
+	}
+
+	affected, err := sqlResult.RowsAffected()
+	if err != nil {
+		return &define.Result{Error: err}
+	}
+
+	return &define.Result{Affected: affected}
+}
+
+// Update updates records based on the current conditions
+func (c *Chain) Update(models ...interface{}) *define.Result {
+	if len(models) > 0 {
+		// If model is provided, use it to set fields
+		return c.From(models[0]).executeUpdate()
+	}
+	return c.executeUpdate()
+}
+
+// Delete deletes records based on the current conditions
+func (c *Chain) Delete(models ...interface{}) *define.Result {
+	if len(models) > 0 {
+		// If model is provided, use it to set conditions
+		return c.From(models[0]).Delete()
+	}
+
+	if c.factory == nil {
+		return &define.Result{Error: fmt.Errorf("SQL factory is not initialized")}
+	}
+
+	if c.db == nil {
+		return &define.Result{Error: fmt.Errorf("database connection is not initialized")}
+	}
+
+	sql, args := c.factory.BuildDelete(c.tableName, c.conds)
+	if define.Debug {
+		log.Printf("[SQL] %s %v", sql, args)
+	}
+
+	var sqlResult interface {
+		LastInsertId() (int64, error)
+		RowsAffected() (int64, error)
+	}
+	var err error
+	if c.tx != nil {
+		sqlResult, err = c.tx.Exec(sql, args...)
+	} else {
+		sqlResult, err = c.db.DB.Exec(sql, args...)
+	}
+	if err != nil {
+		return &define.Result{Error: err}
+	}
+
+	affected, err := sqlResult.RowsAffected()
+	if err != nil {
+		return &define.Result{Error: err}
+	}
+
+	return &define.Result{Affected: affected}
 }

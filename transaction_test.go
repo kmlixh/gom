@@ -13,6 +13,35 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// TransactionTestModel represents a test model
+type TransactionTestModel struct {
+	ID        int64     `gom:"id,@,auto"`
+	Name      string    `gom:"name"`
+	Age       int       `gom:"age"`
+	Email     string    `gom:"email"`
+	CreatedAt time.Time `gom:"created_at"`
+	UpdatedAt time.Time `gom:"updated_at"`
+	IsActive  bool      `gom:"is_active"`
+}
+
+// TableName returns the table name
+func (m *TransactionTestModel) TableName() string {
+	return "tests"
+}
+
+// CreateSql returns the SQL to create the table
+func (m *TransactionTestModel) CreateSql() string {
+	return `CREATE TABLE IF NOT EXISTS tests (
+		id BIGINT AUTO_INCREMENT PRIMARY KEY,
+		name VARCHAR(255) NOT NULL,
+		age INT NOT NULL,
+		email VARCHAR(255) NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		is_active BOOLEAN NOT NULL DEFAULT true
+	)`
+}
+
 func setupTestDB(t *testing.T) *DB {
 	opts := &define.DBOptions{
 		MaxOpenConns:    10,
@@ -42,10 +71,6 @@ func setupTestDB(t *testing.T) *DB {
 	return nil
 }
 
-func getTestDB() *DB {
-	return setupTestDB(nil)
-}
-
 // TestTransactionSavepoints 测试事务保存点操作
 func TestTransactionSavepoints(t *testing.T) {
 	db := setupTestDB(t)
@@ -59,7 +84,7 @@ func TestTransactionSavepoints(t *testing.T) {
 	}()
 
 	// Create test table
-	err := db.Chain().CreateTable(&TestModel{})
+	err := db.Chain().CreateTable(&TransactionTestModel{})
 	assert.NoError(t, err)
 
 	// Start a transaction
@@ -67,7 +92,7 @@ func TestTransactionSavepoints(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Insert first record
-	model1 := &TestModel{
+	model1 := &TransactionTestModel{
 		Name:      "First",
 		Age:       25,
 		CreatedAt: time.Now(),
@@ -80,7 +105,7 @@ func TestTransactionSavepoints(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Insert second record
-	model2 := &TestModel{
+	model2 := &TransactionTestModel{
 		Name:      "Second",
 		Age:       30,
 		CreatedAt: time.Now(),
@@ -93,7 +118,7 @@ func TestTransactionSavepoints(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Insert different second record
-	model3 := &TestModel{
+	model3 := &TransactionTestModel{
 		Name:      "Third",
 		Age:       35,
 		CreatedAt: time.Now(),
@@ -110,7 +135,7 @@ func TestTransactionSavepoints(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify results
-	var models []TestModel
+	var models []TransactionTestModel
 	qr := db.Chain().Table("tests").OrderBy("age").List(&models)
 	assert.NoError(t, qr.Error)
 	assert.Equal(t, 2, len(models))
@@ -150,7 +175,7 @@ func TestTransactionIsolationLevels(t *testing.T) {
 
 func runTransactionIsolationLevelsTest(t *testing.T, db *DB) {
 	// Create test table
-	err := db.Chain().CreateTable(&TestModel{})
+	err := db.Chain().CreateTable(&TransactionTestModel{})
 	assert.NoError(t, err)
 	defer testutils.CleanupTestDB(db.DB, "tests")
 
@@ -220,14 +245,14 @@ func TestTransactionRollback(t *testing.T) {
 	defer db.Close()
 
 	// 创建测试表
-	err := db.Chain().CreateTable(&TestModel{})
+	err := db.Chain().CreateTable(&TransactionTestModel{})
 	assert.NoError(t, err)
 
 	// 测试正常回滚
 	chain, err := db.Chain().Begin()
 	assert.NoError(t, err)
 
-	model := &TestModel{Name: "Test", Age: 25, CreatedAt: time.Now()}
+	model := &TransactionTestModel{Name: "Test", Age: 25, CreatedAt: time.Now()}
 	result := chain.Table("tests").From(model).Save()
 	assert.NoError(t, result.Error)
 
@@ -263,13 +288,13 @@ func TestNestedTransactions(t *testing.T) {
 	}()
 
 	// Create test table
-	err := db.Chain().CreateTable(&TestModel{})
+	err := db.Chain().CreateTable(&TransactionTestModel{})
 	assert.NoError(t, err)
 
 	// Test nested transactions
 	err = db.Chain().Transaction(func(tx1 *Chain) error {
 		// Insert in outer transaction
-		model1 := &TestModel{
+		model1 := &TransactionTestModel{
 			Name:      "Test1",
 			Age:       25,
 			CreatedAt: time.Now(),
@@ -282,7 +307,7 @@ func TestNestedTransactions(t *testing.T) {
 		// Start nested transaction
 		return tx1.Transaction(func(tx2 *Chain) error {
 			// Insert in inner transaction
-			model2 := &TestModel{
+			model2 := &TransactionTestModel{
 				Name:      "Test2",
 				Age:       30,
 				CreatedAt: time.Now(),
@@ -321,7 +346,7 @@ func TestTransactionErrorHandling(t *testing.T) {
 	defer db.Close()
 
 	// Create test table
-	err := db.Chain().CreateTable(&TestModel{})
+	err := db.Chain().CreateTable(&TransactionTestModel{})
 	assert.NoError(t, err)
 	defer testutils.CleanupTestDB(db.DB, "tests")
 
@@ -424,13 +449,13 @@ func TestTransactionErrorHandling(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Verify only outer transaction record exists
-		var records []TestModel
+		var records []TransactionTestModel
 		rows, err := tx1.Query("SELECT * FROM tests")
 		assert.NoError(t, err)
 		defer rows.Close()
 
 		for rows.Next() {
-			var record TestModel
+			var record TransactionTestModel
 			err = rows.Scan(&record.ID, &record.Name, &record.Age, &record.Email, &record.CreatedAt, &record.UpdatedAt, &record.IsActive)
 			assert.NoError(t, err)
 			records = append(records, record)
@@ -476,7 +501,7 @@ func TestTransactionPropagation(t *testing.T) {
 	}()
 
 	// Create test table
-	err := db.Chain().CreateTable(&TestModel{})
+	err := db.Chain().CreateTable(&TransactionTestModel{})
 	assert.NoError(t, err)
 
 	// Test transaction propagation with savepoints
@@ -484,7 +509,7 @@ func TestTransactionPropagation(t *testing.T) {
 		PropagationMode: define.PropagationRequired,
 	}, func(tx1 *Chain) error {
 		// Insert in outer transaction
-		model1 := &TestModel{
+		model1 := &TransactionTestModel{
 			Name:      "Test1",
 			Age:       25,
 			CreatedAt: time.Now(),
@@ -499,7 +524,7 @@ func TestTransactionPropagation(t *testing.T) {
 			PropagationMode: define.PropagationNested,
 		}, func(tx2 *Chain) error {
 			// Insert in inner transaction
-			model2 := &TestModel{
+			model2 := &TransactionTestModel{
 				Name:      "Test2",
 				Age:       30,
 				CreatedAt: time.Now(),
@@ -659,4 +684,117 @@ func dropTestTable(t *testing.T, db *DB, tableName string) {
 	if result.Error != nil {
 		t.Fatalf("Failed to drop test table: %v", result.Error)
 	}
+}
+
+// TestHelper encapsulates common test setup and cleanup
+type TestHelper struct {
+	t  *testing.T
+	db *DB
+}
+
+// NewTestHelper creates a new test helper
+func NewTestHelper(t *testing.T) *TestHelper {
+	db := setupTestDB(t)
+	if db == nil {
+		t.Skip("Skipping test due to database connection error")
+	}
+	return &TestHelper{t: t, db: db}
+}
+
+// Cleanup performs cleanup after test
+func (h *TestHelper) Cleanup() {
+	if h.db != nil {
+		_ = testutils.CleanupTestDB(h.db.DB, "tests", "test_details", "test_categories")
+		h.db.Close()
+	}
+}
+
+// SetupTestTable creates test table
+func (h *TestHelper) SetupTestTable() {
+	err := h.db.Chain().CreateTable(&TransactionTestModel{})
+	assert.NoError(h.t, err)
+}
+
+// GetDB returns the database instance
+func (h *TestHelper) GetDB() *DB {
+	return h.db
+}
+
+func TestTransaction(t *testing.T) {
+	helper := NewTestHelper(t)
+	defer helper.Cleanup()
+	helper.SetupTestTable()
+
+	db := helper.GetDB()
+
+	t.Run("Basic Transaction", func(t *testing.T) {
+		chain := db.Chain()
+		tx, err := chain.Begin()
+		assert.NoError(t, err)
+
+		model := &TransactionTestModel{Name: "test1", IsActive: true}
+		result := tx.From(model).Save(model)
+		assert.NoError(t, result.Error)
+
+		var count int64
+		count, err = tx.From(&TransactionTestModel{}).Count()
+		assert.NoError(t, err)
+		assert.Equal(t, int64(1), count)
+
+		err = tx.Rollback()
+		assert.NoError(t, err)
+
+		count, err = chain.From(&TransactionTestModel{}).Count()
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), count)
+	})
+
+	t.Run("Nested Transaction", func(t *testing.T) {
+		chain := db.Chain()
+		tx1, err := chain.Begin()
+		assert.NoError(t, err)
+
+		model1 := &TransactionTestModel{Name: "test1", IsActive: true}
+		result := tx1.From(model1).Save(model1)
+		assert.NoError(t, result.Error)
+
+		tx2, err := tx1.BeginNested()
+		assert.NoError(t, err)
+
+		model2 := &TransactionTestModel{Name: "test2", IsActive: true}
+		result = tx2.From(model2).Save(model2)
+		assert.NoError(t, result.Error)
+
+		err = tx2.CommitNested()
+		assert.NoError(t, err)
+		err = tx1.Rollback()
+		assert.NoError(t, err)
+
+		var count int64
+		count, err = chain.From(&TransactionTestModel{}).Count()
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), count)
+	})
+
+	t.Run("Transaction Isolation", func(t *testing.T) {
+		chain := db.Chain()
+		tx1, err := chain.Begin()
+		assert.NoError(t, err)
+
+		model := &TransactionTestModel{Name: "test1", IsActive: true}
+		result := tx1.From(model).Save(model)
+		assert.NoError(t, result.Error)
+
+		var count int64
+		count, err = chain.From(&TransactionTestModel{}).Count()
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), count, "Changes should not be visible outside transaction")
+
+		err = tx1.Commit()
+		assert.NoError(t, err)
+
+		count, err = chain.From(&TransactionTestModel{}).Count()
+		assert.NoError(t, err)
+		assert.Equal(t, int64(1), count, "Changes should be visible after commit")
+	})
 }
