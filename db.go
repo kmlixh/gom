@@ -357,7 +357,7 @@ import (
 // {{.StructName}} {{.TableInfo.TableComment}}
 type {{.StructName}} struct {
 	{{- range .TableInfo.Columns}}
-	{{toGoName .Name}} {{goType .Type .IsNullable}} ` + "`" + `gom:"{{.Name}}{{if .IsPrimaryKey}},@{{end}}{{if .IsAutoIncrement}},auto{{end}}{{if not .IsNullable}},notnull{{end}}"` + "`" + ` {{if .Comment}}// {{.Comment}}{{end}}
+	{{toGoName .Name}} {{goType .DataType .IsNullable}} ` + "`" + `gom:"{{.Name}}{{if .IsPrimaryKey}},@{{end}}{{if .IsAutoIncrement}},auto{{end}}{{if not .IsNullable}},notnull{{end}}"` + "`" + ` {{if .Comment}}// {{.Comment}}{{end}}
 	{{- end}}
 }
 

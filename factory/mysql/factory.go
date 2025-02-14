@@ -690,24 +690,24 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 }
 
 // getSQLDataType returns the standard SQL data type for a given MySQL type
-func getSQLDataType(mysqlType string) reflect.Type {
+func getSQLDataType(mysqlType string) string {
 	switch strings.ToLower(mysqlType) {
 	case "tinyint", "smallint", "mediumint", "int", "integer":
-		return reflect.TypeOf(sql.NullInt32{})
+		return "int32"
 	case "bigint":
-		return reflect.TypeOf(sql.NullInt64{})
+		return "int64"
 	case "decimal", "numeric", "float", "double":
-		return reflect.TypeOf(sql.NullFloat64{})
+		return "float64"
 	case "char", "varchar", "tinytext", "text", "mediumtext", "longtext":
-		return reflect.TypeOf(sql.NullString{})
+		return "string"
 	case "date", "datetime", "timestamp":
-		return reflect.TypeOf(sql.NullTime{})
+		return "time.Time"
 	case "binary", "varbinary", "tinyblob", "blob", "mediumblob", "longblob":
-		return reflect.TypeOf(sql.RawBytes{})
+		return "[]byte"
 	case "bit", "bool", "boolean":
-		return reflect.TypeOf(sql.NullBool{})
+		return "bool"
 	default:
-		return reflect.TypeOf(sql.NullString{})
+		return "string"
 	}
 }
 
@@ -835,44 +835,44 @@ func (f *Factory) GenerateStruct(db *sql.DB, tableName string, outputDir string,
 }
 
 // mysqlTypeToGoType converts MySQL column type to Go type
-func (f *Factory) mysqlTypeToGoType(col define.ColumnInfo) string {
+func (f *Factory) mysqlTypeToGoType(col define.ColumnInfo) reflect.Type {
 	switch strings.ToLower(col.TypeName) {
 	case "tinyint", "smallint", "mediumint", "int", "integer":
 		if col.IsNullable {
-			return "sql.NullInt32"
+			return reflect.TypeOf(sql.NullInt32{})
 		}
-		return "int32"
+		return reflect.TypeOf(int32(0))
 	case "bigint":
 		if col.IsNullable {
-			return "sql.NullInt64"
+			return reflect.TypeOf(sql.NullInt64{})
 		}
-		return "int64"
+		return reflect.TypeOf(int64(0))
 	case "decimal", "numeric", "float", "double":
 		if col.IsNullable {
-			return "sql.NullFloat64"
+			return reflect.TypeOf(sql.NullFloat64{})
 		}
-		return "float64"
+		return reflect.TypeOf(float64(0))
 	case "char", "varchar", "tinytext", "text", "mediumtext", "longtext":
 		if col.IsNullable {
-			return "sql.NullString"
+			return reflect.TypeOf(sql.NullString{})
 		}
-		return "string"
+		return reflect.TypeOf("")
 	case "date", "datetime", "timestamp":
 		if col.IsNullable {
-			return "*time.Time"
+			return reflect.TypeOf(sql.NullTime{})
 		}
-		return "time.Time"
+		return reflect.TypeOf(time.Time{})
 	case "binary", "varbinary", "tinyblob", "blob", "mediumblob", "longblob":
-		return "[]byte"
+		return reflect.TypeOf([]byte{})
 	case "bit", "bool", "boolean":
 		if col.IsNullable {
-			return "sql.NullBool"
+			return reflect.TypeOf(sql.NullBool{})
 		}
-		return "bool"
+		return reflect.TypeOf(false)
 	default:
 		if col.IsNullable {
-			return "sql.NullString"
+			return reflect.TypeOf(sql.NullString{})
 		}
-		return "string"
+		return reflect.TypeOf("")
 	}
 }

@@ -8,10 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"text/template"
 	"time"
 	"unicode"
+
+	"database/sql"
 
 	"github.com/kmlixh/gom/v4"
 	"github.com/kmlixh/gom/v4/define"
@@ -355,58 +358,108 @@ func snakeCase(s string) string {
 	return string(result)
 }
 
-func goType(dbType string, isNullable bool) string {
-	dbType = strings.ToLower(dbType)
-	var goType string
-
-	switch {
-	case strings.Contains(dbType, "int"):
-		if strings.Contains(dbType, "big") {
-			goType = "int64"
-		} else if strings.Contains(dbType, "small") {
-			goType = "int16"
-		} else if strings.Contains(dbType, "tiny") {
-			goType = "int8"
-		} else {
-			goType = "int"
-		}
-	case strings.Contains(dbType, "decimal"), strings.Contains(dbType, "numeric"):
-		goType = "decimal.Decimal"
-	case strings.Contains(dbType, "float"):
-		goType = "float32"
-	case strings.Contains(dbType, "double"):
-		goType = "float64"
-	case strings.Contains(dbType, "bool"):
-		goType = "bool"
-	case strings.Contains(dbType, "time"), strings.Contains(dbType, "date"):
-		goType = "time.Time"
-	case strings.Contains(dbType, "json"):
-		goType = "json.RawMessage"
-	case strings.Contains(dbType, "uuid"):
-		goType = "uuid.UUID"
-	case strings.Contains(dbType, "inet"):
-		goType = "net.IP"
-	default:
-		goType = "string"
+func goType(dataType reflect.Type, isNullable bool) string {
+	if dataType == nil {
+		return "interface{}"
 	}
 
-	if isNullable {
-		switch goType {
-		case "int":
+	// 处理 sql.Null* 类型
+	switch dataType {
+	case reflect.TypeOf(sql.NullInt32{}):
+		if isNullable {
 			return "*sql.NullInt32"
-		case "int64":
+		}
+		return "int32"
+	case reflect.TypeOf(sql.NullInt64{}):
+		if isNullable {
 			return "*sql.NullInt64"
-		case "float32", "float64":
+		}
+		return "int64"
+	case reflect.TypeOf(sql.NullFloat64{}):
+		if isNullable {
 			return "*sql.NullFloat64"
-		case "bool":
-			return "*sql.NullBool"
-		case "time.Time":
-			return "*sql.NullTime"
-		default:
+		}
+		return "float64"
+	case reflect.TypeOf(sql.NullString{}):
+		if isNullable {
 			return "*sql.NullString"
 		}
+		return "string"
+	case reflect.TypeOf(sql.NullBool{}):
+		if isNullable {
+			return "*sql.NullBool"
+		}
+		return "bool"
+	case reflect.TypeOf(sql.NullTime{}):
+		if isNullable {
+			return "*sql.NullTime"
+		}
+		return "time.Time"
+	case reflect.TypeOf(sql.RawBytes{}):
+		if isNullable {
+			return "*[]byte"
+		}
+		return "[]byte"
 	}
-	return goType
+
+	// 处理基本类型
+	switch dataType.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32:
+		if isNullable {
+			return "*sql.NullInt32"
+		}
+		return "int32"
+	case reflect.Int64:
+		if isNullable {
+			return "*sql.NullInt64"
+		}
+		return "int64"
+	case reflect.Float32, reflect.Float64:
+		if isNullable {
+			return "*sql.NullFloat64"
+		}
+		return "float64"
+	case reflect.Bool:
+		if isNullable {
+			return "*sql.NullBool"
+		}
+		return "bool"
+	case reflect.String:
+		if isNullable {
+			return "*sql.NullString"
+		}
+		return "string"
+	case reflect.Struct:
+		typeName := dataType.String()
+		switch {
+		case strings.Contains(typeName, "decimal.Decimal"):
+			if isNullable {
+				return "*decimal.Decimal"
+			}
+			return "decimal.Decimal"
+		case strings.Contains(typeName, "uuid.UUID"):
+			if isNullable {
+				return "*uuid.UUID"
+			}
+			return "uuid.UUID"
+		case strings.Contains(typeName, "net.IP"):
+			if isNullable {
+				return "*net.IP"
+			}
+			return "net.IP"
+		case strings.Contains(typeName, "time.Time"):
+			if isNullable {
+				return "*sql.NullTime"
+			}
+			return "time.Time"
+		}
+	}
+
+	// 默认处理
+	if isNullable {
+		return "*" + dataType.String()
+	}
+	return dataType.String()
 }
 
 func isTimeField(name string) bool {
@@ -468,7 +521,7 @@ import (
 // {{.StructName}} {{.TableInfo.TableComment}}
 type {{.StructName}} struct {
 	{{- range .TableInfo.Columns}}
-	{{toGoName .Name}} {{goType .TypeName .IsNullable}} ` + "`" + `{{buildTags .}}` + "`" + ` {{if .Comment}}// {{.Comment}}{{end}}
+	{{toGoName .Name}} {{goType .DataType .IsNullable}} ` + "`" + `{{buildTags .}}` + "`" + ` {{if .Comment}}// {{.Comment}}{{end}}
 	{{- end}}
 }
 

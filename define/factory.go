@@ -45,17 +45,17 @@ type TableInfo struct {
 
 // ColumnInfo 列信息
 type ColumnInfo struct {
-	Name            string       // 列名
-	TypeName        string       // 数据库类型名称
-	DataType        reflect.Type // 标准SQL数据类型
-	Length          int64        // 长度
-	Precision       int          // 精度
-	Scale           int          // 小数位数
-	IsNullable      bool         // 是否可空
-	IsPrimaryKey    bool         // 是否主键
-	IsAutoIncrement bool         // 是否自增
-	DefaultValue    string       // 默认值
-	Comment         string       // 注释
+	Name            string // 列名
+	TypeName        string // 数据库类型名称
+	DataType        string // 标准SQL数据类型
+	Length          int64  // 长度
+	Precision       int    // 精度
+	Scale           int    // 小数位数
+	IsNullable      bool   // 是否可空
+	IsPrimaryKey    bool   // 是否主键
+	IsAutoIncrement bool   // 是否自增
+	DefaultValue    string // 默认值
+	Comment         string // 注释
 }
 
 type TableStruct struct {

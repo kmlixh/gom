@@ -754,24 +754,36 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 }
 
 // getSQLDataType returns the standard SQL data type for a given PostgreSQL type
-func getSQLDataType(pgType string) reflect.Type {
+func getSQLDataType(pgType string) string {
 	switch strings.ToLower(pgType) {
-	case "smallint", "integer", "serial", "smallserial":
-		return reflect.TypeOf(sql.NullInt32{})
-	case "bigint", "bigserial":
-		return reflect.TypeOf(sql.NullInt64{})
-	case "decimal", "numeric", "real", "double precision":
-		return reflect.TypeOf(sql.NullFloat64{})
-	case "character", "character varying", "text", "uuid", "json", "jsonb", "xml", "inet":
-		return reflect.TypeOf(sql.NullString{})
-	case "timestamp", "timestamp with time zone", "date", "time", "time with time zone":
-		return reflect.TypeOf(sql.NullTime{})
+	case "int2", "smallint":
+		return "int32"
+	case "int4", "integer":
+		return "int32"
+	case "int8", "bigint":
+		return "int64"
+	case "decimal", "numeric":
+		return "float64"
+	case "real", "float4":
+		return "float32"
+	case "double precision", "float8":
+		return "float64"
+	case "char", "varchar", "text", "name":
+		return "string"
+	case "bool", "boolean":
+		return "bool"
+	case "date", "timestamp", "timestamptz", "time", "timetz":
+		return "time.Time"
 	case "bytea":
-		return reflect.TypeOf(sql.RawBytes{})
-	case "boolean":
-		return reflect.TypeOf(sql.NullBool{})
+		return "[]byte"
+	case "json", "jsonb":
+		return "json.RawMessage"
+	case "uuid":
+		return "uuid.UUID"
+	case "inet", "cidr":
+		return "net.IP"
 	default:
-		return reflect.TypeOf(sql.NullString{})
+		return "string"
 	}
 }
 
