@@ -1,6 +1,7 @@
 package gom
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -227,7 +228,7 @@ func TestFromWithBatchOperations(t *testing.T) {
 	// Test batch update
 	for i := range users {
 		users[i].Name = "Updated " + users[i].Name
-		result := db.Chain().Table("fromtestuser").Update(&users[i])
+		result := db.Chain().Table("fromtestuser").Where("id", define.OpEq, users[i].ID).Update(&users[i])
 		assert.NoError(t, result.Error)
 	}
 
@@ -236,8 +237,11 @@ func TestFromWithBatchOperations(t *testing.T) {
 	result := db.Chain().Table("fromtestuser").OrderBy("id").List(&fetchedUsers)
 	assert.NoError(t, result.Error)
 	assert.Len(t, fetchedUsers, len(users))
-	for i := range users {
-		assert.Equal(t, users[i].Name, fetchedUsers[i].Name)
+
+	// 验证每个用户的更新是否正确
+	for i := range fetchedUsers {
+		expectedName := fmt.Sprintf("Updated Batch User %d", i+1)
+		assert.Equal(t, expectedName, fetchedUsers[i].Name)
 	}
 
 	// Test batch delete

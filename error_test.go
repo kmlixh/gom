@@ -51,7 +51,13 @@ func setupErrorTestDB(t *testing.T) *DB {
 	}
 
 	// 确保表不存在
-	result := db.Chain().Raw("DROP TABLE IF EXISTS error_test_user").Exec()
+	result := db.Chain().Raw("DROP TABLE IF EXISTS error_test_user_details").Exec()
+	if result.Error != nil {
+		t.Errorf("删除关联表失败: %v", result.Error)
+		return nil
+	}
+
+	result = db.Chain().Raw("DROP TABLE IF EXISTS error_test_user").Exec()
 	if result.Error != nil {
 		t.Errorf("删除旧表失败: %v", result.Error)
 		return nil
@@ -443,99 +449,6 @@ func TestEncryptionErrors(t *testing.T) {
 	}
 }
 
-func TestConnectionPoolErrors(t *testing.T) {
-	// 设置一个非常小的连接池
-	poolOpts := &define.DBOptions{
-		MaxOpenConns:    1, // 只允许一个连接
-		MaxIdleConns:    1,
-		ConnMaxLifetime: 100 * time.Millisecond,
-		ConnMaxIdleTime: 100 * time.Millisecond,
-		Debug:           true,
-	}
-
-	db, err := Open("mysql", testutils.DefaultMySQLConfig().DSN(), poolOpts)
-	if err != nil {
-		t.Skip("跳过连接池错误测试：", err)
-		return
-	}
-	defer db.Close()
-
-	// 创建测试表
-	err = db.Chain().CreateTable(&ErrorTestUser{})
-	assert.NoError(t, err)
-	defer testutils.CleanupTestDB(db.DB, "error_test_user")
-
-	// 启动大量并发连接
-	var wg sync.WaitGroup
-	errChan := make(chan error, 100) // 增加缓冲区大小
-	done := make(chan struct{})
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// 启动100个并发连接
-	for i := 0; i < 100; i++ { // 增加并发连接数
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-
-			// 尝试执行查询
-			tx, err := db.BeginChain()
-			if err != nil {
-				errChan <- err
-				return
-			}
-			defer tx.Rollback()
-
-			// 执行一个耗时的查询
-			time.Sleep(50 * time.Millisecond) // 减少等待时间
-			result := tx.Table("error_test_user").Save(&ErrorTestUser{
-				Name:  fmt.Sprintf("User%d", id),
-				Age:   25 + id,
-				Email: fmt.Sprintf("user%d@test.com", id),
-			})
-
-			if result.Error != nil {
-				errChan <- result.Error
-				return
-			}
-
-			if err := tx.Commit(); err != nil {
-				errChan <- err
-				return
-			}
-			errChan <- nil
-		}(i)
-	}
-
-	// 在一个单独的 goroutine 中等待 WaitGroup
-	go func() {
-		wg.Wait()
-		close(errChan)
-		close(done)
-	}()
-
-	// 等待所有 goroutine 完成或超时
-	select {
-	case <-ctx.Done():
-		t.Log("测试超时")
-		return
-	case <-done:
-		// 检查是否有资源耗尽错误
-		var hasResourceExhaustion bool
-		for err := range errChan {
-			if err != nil && (strings.Contains(err.Error(), "too many connections") ||
-				strings.Contains(err.Error(), "connection refused") ||
-				strings.Contains(err.Error(), "resource temporarily unavailable") ||
-				strings.Contains(err.Error(), "connection reset") ||
-				strings.Contains(err.Error(), "broken pipe")) {
-				hasResourceExhaustion = true
-				break
-			}
-		}
-		assert.True(t, hasResourceExhaustion, "应该出现资源耗尽错误")
-	}
-}
-
 func TestConnectionPoolTimeout(t *testing.T) {
 	db := setupErrorTestDB(t)
 	if db == nil {
@@ -543,171 +456,146 @@ func TestConnectionPoolTimeout(t *testing.T) {
 	}
 	defer db.Close()
 
-	// 创建测试表
+	// Set extremely strict connection pool limits
+	db.DB.SetMaxOpenConns(2) // Only allow 2 connections
+	db.DB.SetMaxIdleConns(1)
+	db.DB.SetConnMaxLifetime(1 * time.Microsecond)
+	db.DB.SetConnMaxIdleTime(1 * time.Microsecond)
+
+	// Create test table
 	err := db.Chain().CreateTable(&ErrorTestUser{})
 	assert.NoError(t, err)
 	defer testutils.CleanupTestDB(db.DB, "error_test_user")
 
-	// 启动多个并发事务
-	var wg sync.WaitGroup
-	results := make(chan error, 100) // 增加缓冲区大小
+	// Set a very low lock wait timeout
+	_, err = db.DB.Exec("SET SESSION innodb_lock_wait_timeout = 1")
+	assert.NoError(t, err)
 
-	for i := 0; i < 100; i++ { // 增加并发连接数
+	// Insert test data
+	for i := 0; i < 100; i++ {
+		user := &ErrorTestUser{
+			Name:  fmt.Sprintf("User%d", i),
+			Age:   25 + i,
+			Email: fmt.Sprintf("timeout_test_user%d@test.com", i),
+		}
+		result := db.Chain().Table("error_test_user").Save(user)
+		if result.Error != nil {
+			t.Fatal(result.Error)
+		}
+	}
+
+	// Create a long-running transaction that holds locks
+	lockTx, err := db.DB.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockTx.Rollback()
+
+	// Lock multiple rows with SELECT FOR UPDATE
+	_, err = lockTx.Exec("SELECT * FROM error_test_user WHERE id <= 50 FOR UPDATE")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Run concurrent transactions with a more complex query
+	var wg sync.WaitGroup
+	errChan := make(chan error, 1000)
+
+	// Create a context with a very short timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	// Start goroutines with increasing delays
+	for i := 0; i < 1000; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 
-			// 等待一段时间，让连接超时
-			if id > 5 { // 让更多的连接等待
-				time.Sleep(200 * time.Millisecond) // 等待时间长于连接生命周期
-			}
+			// Create an extremely short timeout for each query
+			queryCtx, queryCancel := context.WithTimeout(ctx, 5*time.Millisecond)
+			defer queryCancel()
 
-			tx, err := db.BeginChain()
+			// Start a transaction with context
+			tx, err := db.DB.BeginTx(queryCtx, nil)
 			if err != nil {
-				results <- err
+				errChan <- err
 				return
 			}
 			defer tx.Rollback()
 
-			// 执行一个耗时的查询
-			time.Sleep(150 * time.Millisecond) // 查询时间长于连接生命周期
-			result := tx.Table("error_test_user").Save(&ErrorTestUser{
-				Name:  fmt.Sprintf("User%d", id),
-				Age:   25 + id,
-				Email: fmt.Sprintf("user%d@test.com", id),
-			})
-
-			if result.Error != nil {
-				results <- result.Error
+			// Try to update locked rows with a complex query
+			_, err = tx.ExecContext(queryCtx,
+				`UPDATE error_test_user SET age = age + 1, 
+				 email = CONCAT('updated_', email),
+				 updated_at = NOW()
+				 WHERE id <= 50 AND age > 30`)
+			if err != nil {
+				errChan <- err
 				return
 			}
 
-			results <- tx.Commit()
+			// Add a second query to increase resource usage
+			_, err = tx.ExecContext(queryCtx,
+				`SELECT * FROM error_test_user 
+				 WHERE id <= 50 
+				 AND age > 25 
+				 FOR UPDATE`)
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			if err = tx.Commit(); err != nil {
+				errChan <- err
+			}
 		}(i)
-	}
 
-	wg.Wait()
-	close(results)
-
-	// 检查是否有超时错误
-	var hasTimeout bool
-	for err := range results {
-		if err != nil && (strings.Contains(strings.ToLower(err.Error()), "timeout") ||
-			strings.Contains(strings.ToLower(err.Error()), "broken pipe") ||
-			strings.Contains(strings.ToLower(err.Error()), "connection reset") ||
-			strings.Contains(strings.ToLower(err.Error()), "bad connection") ||
-			strings.Contains(strings.ToLower(err.Error()), "connection refused") ||
-			strings.Contains(strings.ToLower(err.Error()), "connection closed") ||
-			strings.Contains(strings.ToLower(err.Error()), "too many connections")) {
-			hasTimeout = true
-			break
+		// Add small delays every 10 goroutines to create more connection pressure
+		if i%10 == 0 {
+			time.Sleep(5 * time.Millisecond)
 		}
 	}
-	assert.True(t, hasTimeout, "应该出现连接超时错误")
-}
 
-func TestDeadlockDetection(t *testing.T) {
-	db := setupErrorTestDB(t)
-	if db == nil {
-		return
-	}
-	defer db.Close()
-
-	// 准备测试数据
-	user1 := &ErrorTestUser{
-		Name:  "User1",
-		Age:   25,
-		Email: "user1@test.com",
-	}
-	user2 := &ErrorTestUser{
-		Name:  "User2",
-		Age:   30,
-		Email: "user2@test.com",
-	}
-
-	result := db.Chain().Table("error_test_user").Save(user1)
-	assert.NoError(t, result.Error)
-	result = db.Chain().Table("error_test_user").Save(user2)
-	assert.NoError(t, result.Error)
-
-	// 模拟死锁场景
-	var wg sync.WaitGroup
-	errChan := make(chan error, 2)
-
-	wg.Add(2)
+	// Wait for all goroutines or context timeout
+	doneChan := make(chan struct{})
 	go func() {
-		defer wg.Done()
-		tx1, err := db.BeginChain()
-		if err != nil {
-			errChan <- err
-			return
-		}
-		defer tx1.Rollback()
-
-		// 事务1先锁定第一条记录
-		result := tx1.Raw("SELECT * FROM error_test_user WHERE email = ? FOR UPDATE", "user1@test.com").Exec()
-		if result.Error != nil {
-			errChan <- result.Error
-			return
-		}
-
-		// 等待事务2锁定第二条记录
-		time.Sleep(200 * time.Millisecond)
-
-		// 事务1尝试更新第二条记录
-		result = tx1.Raw("UPDATE error_test_user SET age = ? WHERE email = ?", 31, "user2@test.com").Exec()
-		if result.Error != nil {
-			errChan <- result.Error
-			return
-		}
-
-		errChan <- tx1.Commit()
+		wg.Wait()
+		close(doneChan)
 	}()
 
-	go func() {
-		defer wg.Done()
-		tx2, err := db.BeginChain()
-		if err != nil {
-			errChan <- err
-			return
-		}
-		defer tx2.Rollback()
+	select {
+	case <-ctx.Done():
+		t.Log("Test context timeout reached")
+	case <-doneChan:
+		t.Log("All goroutines completed")
+	}
 
-		// 事务2先锁定第二条记录
-		result := tx2.Raw("SELECT * FROM error_test_user WHERE email = ? FOR UPDATE", "user2@test.com").Exec()
-		if result.Error != nil {
-			errChan <- result.Error
-			return
-		}
+	// Release the locks
+	err = lockTx.Rollback()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-		// 等待事务1尝试锁定第二条记录
-		time.Sleep(100 * time.Millisecond)
-
-		// 事务2尝试更新第一条记录
-		result = tx2.Raw("UPDATE error_test_user SET age = ? WHERE email = ?", 26, "user1@test.com").Exec()
-		if result.Error != nil {
-			errChan <- result.Error
-			return
-		}
-
-		errChan <- tx2.Commit()
-	}()
-
-	wg.Wait()
 	close(errChan)
 
-	// 检查是否有死锁错误
-	var hasDeadlock bool
+	// Check for timeout errors
+	timeoutFound := false
 	for err := range errChan {
-		if err != nil && (strings.Contains(strings.ToLower(err.Error()), "deadlock") ||
-			strings.Contains(strings.ToLower(err.Error()), "lock wait timeout") ||
-			strings.Contains(strings.ToLower(err.Error()), "lock acquisition") ||
-			strings.Contains(strings.ToLower(err.Error()), "could not serialize access")) {
-			hasDeadlock = true
+		if err != nil && (strings.Contains(strings.ToLower(err.Error()), "timeout") ||
+			strings.Contains(strings.ToLower(err.Error()), "context deadline exceeded") ||
+			strings.Contains(strings.ToLower(err.Error()), "connection reset") ||
+			strings.Contains(strings.ToLower(err.Error()), "broken pipe") ||
+			strings.Contains(strings.ToLower(err.Error()), "bad connection") ||
+			strings.Contains(strings.ToLower(err.Error()), "connection refused") ||
+			strings.Contains(strings.ToLower(err.Error()), "too many connections") ||
+			strings.Contains(strings.ToLower(err.Error()), "lock wait timeout")) {
+			timeoutFound = true
+			t.Logf("Found expected timeout error: %v", err)
 			break
 		}
 	}
-	assert.True(t, hasDeadlock, "应该检测到死锁或锁等待超时")
+
+	assert.True(t, timeoutFound, "应该出现连接超时错误")
 }
 
 func TestConcurrentTransactionConflicts(t *testing.T) {

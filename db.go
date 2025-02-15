@@ -99,6 +99,8 @@ func (db *DB) cloneSelfIfDifferentGoRoutine() *DB {
 			DB:        db.DB,
 			Factory:   db.Factory,
 			RoutineID: currentID,
+			options:   db.options,
+			metrics:   db.metrics,
 		}
 		return newDB
 	}
