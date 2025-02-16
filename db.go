@@ -452,9 +452,6 @@ func (db *DB) GetTableName(model interface{}) (string, error) {
 
 	// 使用结构体名称转换为表名
 	tableName := modelType.Name()
-	if strings.HasSuffix(tableName, "Query") {
-		tableName = tableName[:len(tableName)-5]
-	}
 	return toSnakeCase(tableName), nil
 }
 
@@ -470,11 +467,7 @@ func toSnakeCase(s string) string {
 	return string(result)
 }
 
-func (db DB) GetColumns(table string) ([]define.Column, error) {
-	return db.Factory.GetColumns(table, db.DB)
-}
-
-func (db DB) GetTableStruct(i any, table string) (*define.TableStruct, error) {
+func (db *DB) GetTableStruct(i any, table string) (*define.TableStruct, error) {
 	tableInfo, er := db.Factory.GetTableInfo(db.DB, table)
 	if er != nil {
 		return nil, er
@@ -489,7 +482,7 @@ func (db DB) GetTableStruct(i any, table string) (*define.TableStruct, error) {
 		ColToFieldMap: maps2,
 	}, nil
 }
-func (db DB) GetTableStruct2(i any) (*define.TableStruct, error) {
+func (db *DB) GetTableStruct2(i any) (*define.TableStruct, error) {
 	tableName, er := db.GetTableName(i)
 	if er != nil {
 		panic("table name was nil")

@@ -14,10 +14,6 @@ var ErrEmptyTableName = errors.New("empty table name")
 // MockSQLFactory is a mock implementation of SQLFactory for testing
 type MockSQLFactory struct{}
 
-func (f *MockSQLFactory) GetColumns(tableName string, db *sql.DB) ([]Column, error) {
-	return nil, nil
-}
-
 func (f *MockSQLFactory) Connect(dsn string) (*sql.DB, error) {
 	return nil, nil
 }
