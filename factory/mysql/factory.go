@@ -176,12 +176,12 @@ func (f *Factory) buildCondition(cond *define.Condition) (string, []interface{})
 }
 
 // BuildSelect builds a SELECT query for MySQL
-func (f *Factory) BuildSelect(table string, fields []string, conditions []*define.Condition, orderBy string, limit, offset int) (string, []interface{}, error) {
+func (f *Factory) BuildSelect(table string, fields []string, conditions []*define.Condition, orderBy string, limit, offset int) *define.SqlProto {
 	if table == "" {
-		return "", nil, define.ErrEmptyTableName
+		return &define.SqlProto{Error: define.ErrEmptyTableName}
 	}
 
-	var args []interface{}
+	var args []any
 	var where []string
 
 	// Build SELECT clause
@@ -260,12 +260,16 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 		}
 	}
 
-	return query, args, nil
+	return &define.SqlProto{
+		SqlType: define.Query,
+		Sql:     query,
+		Args:    args,
+	}
 }
 
 // BuildUpdate builds an UPDATE query for MySQL
-func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, fieldOrder []string, conditions []*define.Condition) (string, []interface{}) {
-	var args []interface{}
+func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, fieldOrder []string, conditions []*define.Condition) *define.SqlProto {
+	var args []any
 	query := fmt.Sprintf("UPDATE `%s` SET ", table)
 
 	// Use fieldOrder to maintain field order
@@ -291,7 +295,9 @@ func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, field
 
 	if len(fieldStrings) == 0 {
 		// If no fields to update, return empty query
-		return "", nil
+		return &define.SqlProto{
+			Error: fmt.Errorf("no filed to update"),
+		}
 	}
 
 	query += strings.Join(fieldStrings, ", ")
@@ -322,13 +328,20 @@ func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, field
 		}
 	}
 
-	return query, args
+	return &define.SqlProto{
+		SqlType: define.Exec,
+		Sql:     query,
+		Args:    args,
+		Error:   nil,
+	}
 }
 
 // BuildInsert builds an INSERT query for MySQL
-func (f *Factory) BuildInsert(table string, fields map[string]interface{}, fieldOrder []string) (string, []interface{}) {
+func (f *Factory) BuildInsert(table string, fields map[string]interface{}, fieldOrder []string) *define.SqlProto {
 	if len(fields) == 0 {
-		return "", nil
+		return &define.SqlProto{
+			Error: fmt.Errorf("no filed to update"),
+		}
 	}
 
 	var args []interface{}
@@ -360,13 +373,20 @@ func (f *Factory) BuildInsert(table string, fields map[string]interface{}, field
 		strings.Join(quotedFields, ", "),
 		strings.Join(placeholders, ", "))
 
-	return query, args
+	return &define.SqlProto{
+		SqlType: define.Exec,
+		Sql:     query,
+		Args:    args,
+		Error:   nil,
+	}
 }
 
 // BuildBatchInsert builds a batch INSERT query for MySQL
-func (f *Factory) BuildBatchInsert(table string, values []map[string]interface{}) (string, []interface{}) {
+func (f *Factory) BuildBatchInsert(table string, values []map[string]interface{}) *define.SqlProto {
 	if len(values) == 0 {
-		return "", nil
+		return &define.SqlProto{
+			Error: fmt.Errorf("no values to insert"),
+		}
 	}
 
 	// Get field names from the first row and sort them for consistent order
@@ -402,11 +422,16 @@ func (f *Factory) BuildBatchInsert(table string, values []map[string]interface{}
 		strings.Join(valuePlaceholders, ", "),
 	)
 
-	return query, args
+	return &define.SqlProto{
+		SqlType: define.Exec,
+		Sql:     query,
+		Args:    args,
+		Error:   nil,
+	}
 }
 
 // BuildDelete builds a DELETE query for MySQL
-func (f *Factory) BuildDelete(table string, conditions []*define.Condition) (string, []interface{}) {
+func (f *Factory) BuildDelete(table string, conditions []*define.Condition) *define.SqlProto {
 	query := fmt.Sprintf("DELETE FROM `%s`", table)
 	var args []interface{}
 
@@ -429,11 +454,16 @@ func (f *Factory) BuildDelete(table string, conditions []*define.Condition) (str
 		query += strings.Join(condStrings, " ")
 	}
 
-	return query, args
+	return &define.SqlProto{
+		SqlType: define.Exec,
+		Sql:     query,
+		Args:    args,
+		Error:   nil,
+	}
 }
 
 // BuildCreateTable builds a CREATE TABLE query for MySQL
-func (f *Factory) BuildCreateTable(table string, modelType reflect.Type) string {
+func (f *Factory) BuildCreateTable(table string, modelType reflect.Type) *define.SqlProto {
 	if modelType.Kind() == reflect.Ptr {
 		modelType = modelType.Elem()
 	}
@@ -519,7 +549,7 @@ func (f *Factory) BuildCreateTable(table string, modelType reflect.Type) string 
 	query += strings.Join(fields, ",\n")
 	query += "\n)"
 
-	return query
+	return &define.SqlProto{Sql: query}
 }
 
 // GetTableInfo retrieves table information from MySQL

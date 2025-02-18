@@ -22,9 +22,9 @@ func (f *MockSQLFactory) GetType() string {
 	return "mock"
 }
 
-func (f *MockSQLFactory) BuildSelect(table string, fields []string, conditions []*Condition, orderBy string, limit, offset int) (string, []interface{}, error) {
+func (f *MockSQLFactory) BuildSelect(table string, fields []string, conditions []*Condition, orderBy string, limit, offset int) *SqlProto {
 	if table == "" {
-		return "", nil, ErrEmptyTableName
+		return &SqlProto{Error: ErrEmptyTableName}
 	}
 
 	var args []interface{}
@@ -36,11 +36,11 @@ func (f *MockSQLFactory) BuildSelect(table string, fields []string, conditions [
 			if cond != nil {
 				// Check for nil value
 				if cond.Value == nil && cond.Op != OpIsNull && cond.Op != OpIsNotNull {
-					return "", nil, fmt.Errorf("invalid condition: nil value not allowed")
+					return &SqlProto{Error: fmt.Errorf("invalid condition: nil value not allowed")}
 				}
 				// Check for invalid operator
 				if cond.Op > OpCustom {
-					return "", nil, fmt.Errorf("invalid operator")
+					return &SqlProto{Error: fmt.Errorf("invalid operator")}
 				}
 				// Add condition
 				where = append(where, fmt.Sprintf("%s = ?", cond.Field))
@@ -55,20 +55,34 @@ func (f *MockSQLFactory) BuildSelect(table string, fields []string, conditions [
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
 
-	return query, args, nil
+	return &SqlProto{
+		SqlType: Query,
+		Sql:     query,
+		Args:    args,
+	}
 }
 
-func (f *MockSQLFactory) BuildUpdate(table string, fields map[string]interface{}, fieldOrder []string, conditions []*Condition) (string, []interface{}) {
-	return "", nil
+func (f *MockSQLFactory) BuildUpdate(table string, fields map[string]interface{}, fieldOrder []string, conditions []*Condition) *SqlProto {
+	return &SqlProto{
+		SqlType: Query,
+		Sql:     "",
+		Args:    nil,
+	}
 }
 
-func (f *MockSQLFactory) BuildInsert(table string, fields map[string]interface{}, fieldOrder []string) (string, []interface{}) {
-	return "", nil
+func (f *MockSQLFactory) BuildInsert(table string, fields map[string]interface{}, fieldOrder []string) *SqlProto {
+	return &SqlProto{
+		SqlType: Query,
+		Sql:     "",
+		Args:    nil,
+	}
 }
 
-func (f *MockSQLFactory) BuildBatchInsert(table string, values []map[string]interface{}) (string, []interface{}) {
+func (f *MockSQLFactory) BuildBatchInsert(table string, values []map[string]interface{}) *SqlProto {
 	if len(values) == 0 {
-		return "", nil
+		return &SqlProto{
+			Error: fmt.Errorf("no values to insert"),
+		}
 	}
 
 	// Get all unique field names from the first row
@@ -94,15 +108,27 @@ func (f *MockSQLFactory) BuildBatchInsert(table string, values []map[string]inte
 	}
 
 	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s", table, fields, strings.Join(placeholders, ", "))
-	return sql, args
+	return &SqlProto{
+		SqlType: Query,
+		Sql:     sql,
+		Args:    args,
+	}
 }
 
-func (f *MockSQLFactory) BuildDelete(table string, conditions []*Condition) (string, []interface{}) {
-	return "", nil
+func (f *MockSQLFactory) BuildDelete(table string, conditions []*Condition) *SqlProto {
+	return &SqlProto{
+		SqlType: Query,
+		Sql:     "",
+		Args:    nil,
+	}
 }
 
-func (f *MockSQLFactory) BuildCreateTable(table string, modelType reflect.Type) string {
-	return ""
+func (f *MockSQLFactory) BuildCreateTable(table string, modelType reflect.Type) *SqlProto {
+	return &SqlProto{
+		SqlType: Query,
+		Sql:     "",
+		Args:    nil,
+	}
 }
 
 func (f *MockSQLFactory) GetTableInfo(db *sql.DB, tableName string) (*TableInfo, error) {

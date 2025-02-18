@@ -350,18 +350,18 @@ func TestChainErrorHandling(t *testing.T) {
 		chain := NewChain(nil, factory)
 
 		// Test empty table name
-		sql, args, err := chain.BuildSelect()
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "empty table name")
-		assert.Empty(t, sql)
-		assert.Empty(t, args)
+		sqlProto := chain.BuildSelect()
+		assert.Error(t, sqlProto.Error)
+		assert.Contains(t, sqlProto.Error.Error(), "empty table name")
+		assert.Empty(t, sqlProto.Sql)
+		assert.Empty(t, sqlProto.Args)
 
 		// Test valid table name but no conditions
 		chain.Table("test_table")
-		sql, args, err = chain.BuildSelect()
-		assert.NoError(t, err)
-		assert.NotEmpty(t, sql)
-		assert.Empty(t, args)
+		sqlProto = chain.BuildSelect()
+		assert.NoError(t, sqlProto.Error)
+		assert.NotEmpty(t, sqlProto.Sql)
+		assert.Empty(t, sqlProto.Args)
 	})
 
 	t.Run("Invalid Condition Values", func(t *testing.T) {
@@ -371,11 +371,11 @@ func TestChainErrorHandling(t *testing.T) {
 
 		// Test nil value
 		chain.Where("id", define.OpEq, nil)
-		sql, args, err := chain.BuildSelect()
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid condition: nil value not allowed")
-		assert.Empty(t, sql)
-		assert.Empty(t, args)
+		sqlProto := chain.BuildSelect()
+		assert.Error(t, sqlProto.Error)
+		assert.Contains(t, sqlProto.Error.Error(), "invalid condition: nil value not allowed")
+		assert.Empty(t, sqlProto.Sql)
+		assert.Empty(t, sqlProto.Args)
 
 		// Reset chain for next test
 		chain = NewChain(nil, factory)
@@ -383,11 +383,11 @@ func TestChainErrorHandling(t *testing.T) {
 
 		// Test invalid operator
 		chain.Where("id", define.OpType(999), 1)
-		sql, args, err = chain.BuildSelect()
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid operator")
-		assert.Empty(t, sql)
-		assert.Empty(t, args)
+		sqlProto = chain.BuildSelect()
+		assert.Error(t, sqlProto.Error)
+		assert.Contains(t, sqlProto.Error.Error(), "invalid operator")
+		assert.Empty(t, sqlProto.Sql)
+		assert.Empty(t, sqlProto.Args)
 
 		// Reset chain for next test
 		chain = NewChain(nil, factory)
@@ -395,9 +395,9 @@ func TestChainErrorHandling(t *testing.T) {
 
 		// Test valid condition
 		chain.Where("id", define.OpEq, 1)
-		sql, args, err = chain.BuildSelect()
-		assert.NoError(t, err)
-		assert.NotEmpty(t, sql)
-		assert.NotEmpty(t, args)
+		sqlProto = chain.BuildSelect()
+		assert.NoError(t, sqlProto.Error)
+		assert.NotEmpty(t, sqlProto.Sql)
+		assert.NotEmpty(t, sqlProto.Args)
 	})
 }

@@ -64,6 +64,20 @@ type TableStruct struct {
 	ColToFieldMap map[string]string
 }
 
+type ExecuteType string
+
+const (
+	Query ExecuteType = "query"
+	Exec  ExecuteType = "exec"
+)
+
+type SqlProto struct {
+	SqlType ExecuteType
+	Sql     string
+	Args    []any
+	Error   error
+}
+
 // SQLFactory defines the interface for SQL query builders
 type SQLFactory interface {
 	// Connect creates a new database connection
@@ -73,22 +87,22 @@ type SQLFactory interface {
 	GetType() string
 
 	// BuildSelect builds a SELECT query
-	BuildSelect(table string, fields []string, conditions []*Condition, orderBy string, limit, offset int) (string, []interface{}, error)
+	BuildSelect(table string, fields []string, conditions []*Condition, orderBy string, limit, offset int) *SqlProto
 
 	// BuildUpdate builds an UPDATE query
-	BuildUpdate(table string, fields map[string]interface{}, fieldOrder []string, conditions []*Condition) (string, []interface{})
+	BuildUpdate(table string, fields map[string]interface{}, fieldOrder []string, conditions []*Condition) *SqlProto
 
 	// BuildInsert builds an INSERT query
-	BuildInsert(table string, fields map[string]interface{}, fieldOrder []string) (string, []interface{})
+	BuildInsert(table string, fields map[string]interface{}, fieldOrder []string) *SqlProto
 
 	// BuildBatchInsert builds a batch INSERT query
-	BuildBatchInsert(table string, values []map[string]interface{}) (string, []interface{})
+	BuildBatchInsert(table string, values []map[string]interface{}) *SqlProto
 
 	// BuildDelete builds a DELETE query
-	BuildDelete(table string, conditions []*Condition) (string, []interface{})
+	BuildDelete(table string, conditions []*Condition) *SqlProto
 
 	// BuildCreateTable builds a CREATE TABLE query
-	BuildCreateTable(table string, modelType reflect.Type) string
+	BuildCreateTable(table string, modelType reflect.Type) *SqlProto
 
 	// GetTableInfo 获取表信息
 	GetTableInfo(db *sql.DB, tableName string) (*TableInfo, error)

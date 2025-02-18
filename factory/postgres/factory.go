@@ -173,9 +173,9 @@ func (f *Factory) quoteIdentifier(identifier string) string {
 }
 
 // BuildSelect builds a SELECT query for PostgreSQL
-func (f *Factory) BuildSelect(table string, fields []string, conditions []*define.Condition, orderBy string, limit, offset int) (string, []interface{}, error) {
+func (f *Factory) BuildSelect(table string, fields []string, conditions []*define.Condition, orderBy string, limit, offset int) *define.SqlProto {
 	if table == "" {
-		return "", nil, define.ErrEmptyTableName
+		return &define.SqlProto{Error: define.ErrEmptyTableName}
 	}
 
 	var args []interface{}
@@ -257,11 +257,16 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 		}
 	}
 
-	return query, args, nil
+	return &define.SqlProto{
+		SqlType: define.Query,
+		Sql:     query,
+		Args:    args,
+		Error:   nil,
+	}
 }
 
 // BuildUpdate builds an UPDATE query for PostgreSQL
-func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, fieldOrder []string, conditions []*define.Condition) (string, []interface{}) {
+func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, fieldOrder []string, conditions []*define.Condition) *define.SqlProto {
 	var args []interface{}
 	query := fmt.Sprintf("UPDATE %s SET ", f.quoteIdentifier(table))
 
@@ -288,7 +293,9 @@ func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, field
 
 	if len(fieldStrings) == 0 {
 		// If no fields to update, return empty query
-		return "", nil
+		return &define.SqlProto{
+			Error: fmt.Errorf("no field to update"),
+		}
 	}
 
 	query += strings.Join(fieldStrings, ", ")
@@ -321,13 +328,20 @@ func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, field
 		}
 	}
 
-	return query, args
+	return &define.SqlProto{
+		SqlType: define.Exec,
+		Sql:     query,
+		Args:    args,
+		Error:   nil,
+	}
 }
 
 // BuildInsert builds an INSERT query for PostgreSQL
-func (f *Factory) BuildInsert(table string, fields map[string]interface{}, fieldOrder []string) (string, []interface{}) {
+func (f *Factory) BuildInsert(table string, fields map[string]interface{}, fieldOrder []string) *define.SqlProto {
 	if len(fields) == 0 {
-		return "", nil
+		return &define.SqlProto{
+			Error: fmt.Errorf("no filed to insert"),
+		}
 	}
 
 	// Build field list and value placeholders
@@ -360,7 +374,12 @@ func (f *Factory) BuildInsert(table string, fields map[string]interface{}, field
 		strings.Join(quotedFields, ", "),
 		strings.Join(placeholders, ", "))
 
-	return query, args
+	return &define.SqlProto{
+		SqlType: define.Query,
+		Sql:     query,
+		Args:    args,
+		Error:   nil,
+	}
 }
 
 // quoteIdentifiers quotes multiple identifiers
@@ -373,9 +392,11 @@ func (f *Factory) quoteIdentifiers(identifiers []string) []string {
 }
 
 // BuildBatchInsert builds a batch INSERT query for PostgreSQL
-func (f *Factory) BuildBatchInsert(table string, batchFields []map[string]interface{}) (string, []interface{}) {
+func (f *Factory) BuildBatchInsert(table string, batchFields []map[string]interface{}) *define.SqlProto {
 	if len(batchFields) == 0 {
-		return "", nil
+		return &define.SqlProto{
+			Error: fmt.Errorf("no values to insert"),
+		}
 	}
 
 	// Get all unique field names
@@ -415,11 +436,16 @@ func (f *Factory) BuildBatchInsert(table string, batchFields []map[string]interf
 		strings.Join(f.quoteIdentifiers(fieldNames), ", "),
 		strings.Join(valueStrings, ", "))
 
-	return query, args
+	return &define.SqlProto{
+		SqlType: define.Query,
+		Sql:     query,
+		Args:    args,
+		Error:   nil,
+	}
 }
 
 // BuildDelete builds a DELETE query for PostgreSQL
-func (f *Factory) BuildDelete(table string, conditions []*define.Condition) (string, []interface{}) {
+func (f *Factory) BuildDelete(table string, conditions []*define.Condition) *define.SqlProto {
 	var args []interface{}
 	query := fmt.Sprintf("DELETE FROM %s", f.quoteIdentifier(table))
 
@@ -451,11 +477,16 @@ func (f *Factory) BuildDelete(table string, conditions []*define.Condition) (str
 		}
 	}
 
-	return query, args
+	return &define.SqlProto{
+		SqlType: define.Exec,
+		Sql:     query,
+		Args:    args,
+		Error:   nil,
+	}
 }
 
 // BuildCreateTable builds a CREATE TABLE query for PostgreSQL
-func (f *Factory) BuildCreateTable(table string, modelType reflect.Type) string {
+func (f *Factory) BuildCreateTable(table string, modelType reflect.Type) *define.SqlProto {
 	var fieldDefs []string
 
 	for i := 0; i < modelType.NumField(); i++ {
@@ -546,7 +577,11 @@ func (f *Factory) BuildCreateTable(table string, modelType reflect.Type) string 
 	query = strings.ReplaceAll(query, "\t", " ")
 	query = strings.ReplaceAll(query, "  ", " ")
 
-	return query
+	return &define.SqlProto{
+		SqlType: define.Exec,
+		Sql:     query,
+		Args:    nil,
+	}
 }
 
 // GetTableInfo 获取表信息

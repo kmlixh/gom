@@ -608,37 +608,12 @@ func (c *Chain) list() *define.Result {
 		return &define.Result{Error: c.err}
 	}
 
-	sqlStr, args, err := c.BuildSelect()
-	if err != nil {
-		return &define.Result{Error: err}
+	sqlProto := c.BuildSelect()
+	if sqlProto.Error != nil {
+		return &define.Result{Error: sqlProto.Error}
 	}
 
-	// Start query stats
-	c.startQueryStats(sqlStr, args)
-
-	// Execute query
-	var rows *sql.Rows
-	if c.tx != nil {
-		rows, err = c.tx.Query(sqlStr, args...)
-	} else {
-		rows, err = c.db.DB.Query(sqlStr, args...)
-	}
-	if err != nil {
-		return &define.Result{Error: err}
-	}
-	defer rows.Close()
-
-	// Create result
-	result := &define.Result{}
-	err = result.Scan(rows)
-	if err != nil {
-		return &define.Result{Error: err}
-	}
-
-	// End query stats
-	c.endQueryStats(result.Affected)
-
-	return result
+	return c.executeSqlProto(sqlProto)
 }
 
 // createScanner creates an appropriate scanner for the given column type
@@ -891,33 +866,9 @@ func (c *Chain) executeInsert() *define.Result {
 	}
 
 	// 生成 SQL 和参数
-	sql, args := c.factory.BuildInsert(c.tableName, c.fieldMap, c.fieldOrder)
-	if define.Debug {
-		log.Printf("[SQL] %s %v", sql, args)
-	}
+	sqlProto := c.factory.BuildInsert(c.tableName, c.fieldMap, c.fieldOrder)
 
-	// 执行 SQL
-	var sqlResult interface {
-		LastInsertId() (int64, error)
-		RowsAffected() (int64, error)
-	}
-	var err error
-	if c.tx != nil {
-		sqlResult, err = c.tx.Exec(sql, args...)
-	} else {
-		sqlResult, err = c.db.DB.Exec(sql, args...)
-	}
-	if err != nil {
-		return &define.Result{Error: err}
-	}
-
-	lastID, _ := sqlResult.LastInsertId()
-	affected, err := sqlResult.RowsAffected()
-	if err != nil {
-		return &define.Result{Error: err}
-	}
-
-	return &define.Result{ID: lastID, Affected: affected}
+	return c.executeSqlProto(sqlProto)
 }
 
 // deleteSingleModel deletes a single model without transaction
@@ -1332,16 +1283,9 @@ func (c *Chain) CreateTable(model interface{}) error {
 	}
 
 	// Build and execute CREATE TABLE statement using default logic
-	sql := c.factory.BuildCreateTable(c.tableName, modelType)
-	if define.Debug {
-		log.Printf("[SQL] %s\n", sql)
-	}
-	_, err := c.db.DB.Exec(sql)
-	if err != nil {
-		log.Printf("[ERROR] Failed to create table: %v\n", err)
-		log.Printf("[SQL] %s\n", sql)
-	}
-	return err
+	sqlProto := c.factory.BuildCreateTable(c.tableName, modelType)
+	result := c.executeSqlProto(sqlProto)
+	return result.Error
 }
 
 // Begin starts a new transaction
@@ -1745,18 +1689,9 @@ func (c *Chain) BatchInsert(batchSize int) (int64, error) {
 		txChain.tx = tx
 
 		// Build and execute insert query
-		sql, args := c.factory.BuildBatchInsert(c.tableName, batch)
-		if define.Debug {
-			log.Printf("[SQL] %s %v", sql, args)
-		}
-
-		var sqlResult interface {
-			LastInsertId() (int64, error)
-			RowsAffected() (int64, error)
-		}
-
-		sqlResult, err = tx.Exec(sql, args...)
-		if err != nil {
+		sqlProto := c.factory.BuildBatchInsert(c.tableName, batch)
+		sqlResult := c.executeSqlProto(sqlProto)
+		if sqlResult.Error != nil {
 			return fmt.Errorf("failed to execute batch insert: %w", err)
 		}
 
@@ -1811,20 +1746,9 @@ func (c *Chain) batchInsertChunk(values []map[string]interface{}) (int64, error)
 	}
 
 	// Build insert query
-	query, args := c.factory.BuildBatchInsert(tableName, values)
+	sqlProto := c.factory.BuildBatchInsert(tableName, values)
 
-	// Execute query
-	var result sql.Result
-	var err error
-	if c.tx != nil {
-		result, err = c.tx.Exec(query, args...)
-	} else {
-		result, err = c.db.DB.Exec(query, args...)
-	}
-
-	if err != nil {
-		return 0, err
-	}
+	result := c.executeSqlProto(sqlProto)
 
 	return result.RowsAffected()
 }
@@ -2047,36 +1971,9 @@ func (c *Chain) BatchDelete(batchSize int) (int64, error) {
 
 	// If batchValues is empty but we have conditions, use conditions for delete
 	if len(c.batchValues) == 0 && len(c.conds) > 0 {
-		sql, args := c.factory.BuildDelete(c.tableName, c.conds)
-		if define.Debug {
-			log.Printf("[SQL] %s %v", sql, args)
-		}
-
-		var sqlResult interface {
-			LastInsertId() (int64, error)
-			RowsAffected() (int64, error)
-		}
-		var err error
-		if c.tx != nil {
-			sqlResult, err = c.tx.Exec(sql, args...)
-		} else {
-			sqlResult, err = c.db.DB.Exec(sql, args...)
-		}
-
-		if err != nil {
-			return 0, &DBError{
-				Op:  "BatchDelete",
-				Err: err,
-			}
-		}
-
-		affected, err := sqlResult.RowsAffected()
-		if err != nil {
-			return 0, &DBError{
-				Op:  "BatchDelete",
-				Err: err,
-			}
-		}
+		sqlProto := c.factory.BuildDelete(c.tableName, c.conds)
+		result := c.executeSqlProto(sqlProto)
+		affected := result.Affected
 
 		return affected, nil
 	}
@@ -2122,15 +2019,8 @@ func (c *Chain) BatchDelete(batchSize int) (int64, error) {
 			deleteChain := txChain.clone()
 			deleteChain.Where(pkField, define.OpEq, pkValue)
 
-			sql, args := deleteChain.factory.BuildDelete(deleteChain.tableName, deleteChain.conds)
-			if define.Debug {
-				log.Printf("[SQL] %s %v", sql, args)
-			}
-
-			result, err := tx.Exec(sql, args...)
-			if err != nil {
-				return err
-			}
+			sqlProto := deleteChain.factory.BuildDelete(deleteChain.tableName, deleteChain.conds)
+			result := deleteChain.executeSqlProto(sqlProto)
 
 			affected, err := result.RowsAffected()
 			if err != nil {
@@ -2828,13 +2718,13 @@ func NewChain(db *DB, factory define.SQLFactory) *Chain {
 }
 
 // BuildSelect builds a SELECT query
-func (c *Chain) BuildSelect() (string, []interface{}, error) {
+func (c *Chain) BuildSelect() *define.SqlProto {
 	if c.err != nil {
-		return "", nil, c.err
+		return &define.SqlProto{Error: c.err}
 	}
 
 	if c.tableName == "" {
-		return "", nil, define.ErrEmptyTableName
+		return &define.SqlProto{Error: define.ErrEmptyTableName}
 	}
 
 	return c.factory.BuildSelect(c.tableName, c.fieldList, c.conds, c.buildOrderBy(), c.limitCount, c.offsetCount)
@@ -3023,32 +2913,8 @@ func (c *Chain) executeUpdate() *define.Result {
 	}
 
 	// 生成 SQL 和参数
-	sql, args := c.factory.BuildUpdate(c.tableName, c.fieldMap, c.fieldOrder, c.conds)
-	if define.Debug {
-		log.Printf("[SQL] %s %v", sql, args)
-	}
-
-	// 执行 SQL
-	var sqlResult interface {
-		LastInsertId() (int64, error)
-		RowsAffected() (int64, error)
-	}
-	var err error
-	if c.tx != nil {
-		sqlResult, err = c.tx.Exec(sql, args...)
-	} else {
-		sqlResult, err = c.db.DB.Exec(sql, args...)
-	}
-	if err != nil {
-		return &define.Result{Error: err}
-	}
-
-	affected, err := sqlResult.RowsAffected()
-	if err != nil {
-		return &define.Result{Error: err}
-	}
-
-	return &define.Result{Affected: affected}
+	sqlProto := c.factory.BuildUpdate(c.tableName, c.fieldMap, c.fieldOrder, c.conds)
+	return c.executeSqlProto(sqlProto)
 }
 
 // Update updates records based on the current conditions
@@ -3075,29 +2941,68 @@ func (c *Chain) Delete(models ...interface{}) *define.Result {
 		return &define.Result{Error: fmt.Errorf("database connection is not initialized")}
 	}
 
-	sql, args := c.factory.BuildDelete(c.tableName, c.conds)
+	sqlProto := c.factory.BuildDelete(c.tableName, c.conds)
+	return c.executeSqlProto(sqlProto)
+
+}
+func (c *Chain) executeSqlProto(sqlProto *define.SqlProto) *define.Result {
 	if define.Debug {
-		log.Printf("[SQL] %s %v", sql, args)
+		log.Printf("[SQL] %s %s %v %v", sqlProto.SqlType, sqlProto.Sql, sqlProto.Args, sqlProto.Error)
 	}
 
-	var sqlResult interface {
-		LastInsertId() (int64, error)
-		RowsAffected() (int64, error)
+	if sqlProto.Error != nil {
+		return &define.Result{Error: sqlProto.Error}
 	}
-	var err error
-	if c.tx != nil {
-		sqlResult, err = c.tx.Exec(sql, args...)
+	if sqlProto.SqlType == define.Query {
+
+		// Start query stats
+		c.startQueryStats(sqlProto.Sql, sqlProto.Args)
+
+		// Execute query
+		var rows *sql.Rows
+		var err error
+		if c.tx != nil {
+			rows, err = c.tx.Query(sqlProto.Sql, sqlProto.Args...)
+		} else {
+			rows, err = c.db.DB.Query(sqlProto.Sql, sqlProto.Args...)
+		}
+		if err != nil {
+			return &define.Result{Error: err}
+		}
+		defer rows.Close()
+
+		// Create result
+		result := &define.Result{}
+		err = result.Scan(rows)
+		if err != nil {
+			return &define.Result{Error: err}
+		}
+
+		// End query stats
+		c.endQueryStats(result.Affected)
+		return result
+
 	} else {
-		sqlResult, err = c.db.DB.Exec(sql, args...)
-	}
-	if err != nil {
-		return &define.Result{Error: err}
+		var sqlResult interface {
+			LastInsertId() (int64, error)
+			RowsAffected() (int64, error)
+		}
+		var err error
+		if c.tx != nil {
+			sqlResult, err = c.tx.Exec(sqlProto.Sql, sqlProto.Args...)
+		} else {
+			sqlResult, err = c.db.DB.Exec(sqlProto.Sql, sqlProto.Args...)
+		}
+		if err != nil {
+			return &define.Result{Error: err}
+		}
+
+		affected, err := sqlResult.RowsAffected()
+		if err != nil {
+			return &define.Result{Error: err}
+		}
+
+		return &define.Result{Affected: affected}
 	}
 
-	affected, err := sqlResult.RowsAffected()
-	if err != nil {
-		return &define.Result{Error: err}
-	}
-
-	return &define.Result{Affected: affected}
 }
