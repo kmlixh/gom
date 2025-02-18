@@ -235,9 +235,46 @@ func (db *DB) UpdateOptions(opts define.DBOptions) error {
 	return nil
 }
 
+var tableInfoCache = make(map[string]*define.TableInfo)
+var tableExpireTime = make(map[string]time.Time)
+var tableInfoCacheMutex sync.RWMutex
+
 // GetTableInfo 获取表信息
 func (db *DB) GetTableInfo(tableName string) (*define.TableInfo, error) {
-	return db.Factory.GetTableInfo(db.DB, tableName)
+	// 第一层快速读取
+	tableInfoCacheMutex.RLock()
+	cachedInfo, exists := tableInfoCache[tableName]
+	expireTime := tableExpireTime[tableName]
+	tableInfoCacheMutex.RUnlock()
+
+	if exists && time.Now().Before(expireTime) {
+		return cachedInfo, nil
+	}
+
+	// 加写锁进行更新
+	tableInfoCacheMutex.Lock()
+	defer tableInfoCacheMutex.Unlock()
+
+	// 双重检查防止重复更新
+	if cachedInfo, exists = tableInfoCache[tableName]; exists && time.Now().Before(tableExpireTime[tableName]) {
+		return cachedInfo, nil
+	}
+
+	// 获取最新表信息
+	newInfo, err := db.Factory.GetTableInfo(db.DB, tableName)
+	if err != nil {
+		if exists {
+			// 获取失败时延长旧缓存有效期（5秒）
+			tableExpireTime[tableName] = time.Now().Add(5 * time.Second)
+			return cachedInfo, nil
+		}
+		return nil, fmt.Errorf("failed to get table info: %w", err)
+	}
+
+	// 更新缓存
+	tableInfoCache[tableName] = newInfo
+	tableExpireTime[tableName] = time.Now().Add(2 * time.Minute)
+	return newInfo, nil
 }
 
 // GetTables returns a list of table names in the database
@@ -468,7 +505,7 @@ func toSnakeCase(s string) string {
 }
 
 func (db *DB) GetTableStruct(i any, table string) (*define.TableStruct, error) {
-	tableInfo, er := db.Factory.GetTableInfo(db.DB, table)
+	tableInfo, er := db.GetTableInfo(table)
 	if er != nil {
 		return nil, er
 	}
