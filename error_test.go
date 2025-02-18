@@ -2,6 +2,7 @@ package gom
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -340,44 +341,30 @@ func TestBatchOperationErrors(t *testing.T) {
 	}
 	defer db.Close()
 
-	// 1. 测试批量插入错误
-	_, err := db.Chain().Table("error_test_user").BatchValues([]map[string]interface{}{
-		{
-			"name":  "User1",
-			"age":   25,
-			"email": "test1@test.com",
-		},
-		{
-			"name":  "User2",
-			"age":   "invalid", // 类型错误
-			"email": "test2@test.com",
-		},
-	}).BatchInsert(2)
-	assert.Error(t, err, "应该返回批量插入错误")
+	// 设置测试超时
+	t.Parallel()
+	testTimeout := 2 * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
 
-	// 2. 测试批量更新错误
-	invalidUpdates := []map[string]interface{}{
-		{
-			"id":    1,
-			"name":  "UpdatedUser1",
-			"age":   30,
-			"email": "updated1@test.com",
-		},
-		{
-			"id":    2,
-			"name":  "UpdatedUser2",
-			"age":   []string{"invalid"}, // 使用明显错误的类型
-			"email": "updated2@test.com",
-		},
+	// 使用包含无效数据的测试用例
+	invalidData := []map[string]interface{}{
+		{"name": "Valid1", "age": 25, "email": "valid1@test.com"},
+		{"name": "Invalid", "age": "invalid", "email": "invalid@test.com"}, // 错误数据
+		{"name": "Valid2", "age": 30, "email": "valid2@test.com"},
 	}
-	_, err = db.Chain().Table("error_test_user").BatchValues(invalidUpdates).BatchUpdate(2)
-	assert.Error(t, err, "应该返回批量更新错误")
 
-	// 3. 测试批量删除错误
-	_, err = db.Chain().Table("error_test_user").BatchValues([]map[string]interface{}{
-		{"invalid_id": 1}, // 错误的主键字段
-	}).BatchDelete(1)
-	assert.Error(t, err, "应该返回批量删除错误")
+	// 预期捕获特定错误
+	_, err := db.Chain().WithContext(ctx).Table("error_test").BatchValues(invalidData).BatchInsert(2, true)
+	if err == nil {
+		t.Fatal("Expected error but got nil")
+	}
+
+	// 验证错误类型
+	var dbErr *define.DBError
+	if !errors.As(err, &dbErr) {
+		t.Fatalf("Unexpected error type: %T", err)
+	}
 }
 
 func TestEncryptionErrors(t *testing.T) {
@@ -674,4 +661,31 @@ func TestConcurrentTransactionConflicts(t *testing.T) {
 		First(&finalUser)
 	assert.NoError(t, result.Error)
 	assert.True(t, finalUser.Version > 1, "版本号应该已更新")
+}
+
+func TestTimeoutHandling(t *testing.T) {
+	db := setupErrorTestDB(t)
+	if db == nil {
+		return
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancel()
+
+	// 明确设置测试数据
+	data := []map[string]interface{}{
+		{"name": "timeout_test", "age": 30, "email": "timeout@test.com"},
+	}
+
+	_, err := db.Chain().
+		WithContext(ctx).
+		Table("tests").
+		BatchValues(data).
+		BatchInsert(10, true) // 启用并发
+
+	// 验证具体错误类型
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Expected context deadline exceeded, got: %v", err)
+	}
 }

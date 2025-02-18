@@ -280,6 +280,8 @@ func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, field
 			args = append(args, value)
 			fieldStrings = append(fieldStrings, fmt.Sprintf("%s = $%d", f.quoteIdentifier(field), len(args)))
 			usedFields[field] = true
+		} else {
+			return &define.SqlProto{Error: fmt.Errorf("field %s not found in field map", field)}
 		}
 	}
 
@@ -338,6 +340,7 @@ func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, field
 
 // BuildInsert builds an INSERT query for PostgreSQL
 func (f *Factory) BuildInsert(table string, fields map[string]interface{}, fieldOrder []string) *define.SqlProto {
+
 	if len(fields) == 0 {
 		return &define.SqlProto{
 			Error: fmt.Errorf("no filed to insert"),

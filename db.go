@@ -494,3 +494,11 @@ func (db *DB) GetTableStruct2(i any) (*define.TableStruct, error) {
 func (db *DB) GetDB() *sql.DB {
 	return db.DB
 }
+
+func (db *DB) Stats() sql.DBStats {
+	return db.DB.Stats()
+}
+
+func (db *DB) SetMaxOpenConns(n int) {
+	db.DB.SetMaxOpenConns(n)
+}

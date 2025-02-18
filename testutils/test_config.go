@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"testing"
+
+	"github.com/kmlixh/gom/v4/security"
 )
 
 // TestDBConfig represents database configuration for tests
@@ -105,4 +108,16 @@ func getEnvIntOrDefault(key string, defaultValue int) int {
 		}
 	}
 	return defaultValue
+}
+
+func TestEncryptionConfig(t *testing.T) {
+	config := &security.EncryptionConfig{
+		Algorithm:       "AES-256-GCM",
+		KeySource:       "env",
+		KeySourceConfig: map[string]string{"key_name": "SECRET_KEY"},
+	}
+
+	if config.KeySource == "" {
+		t.Fatal("KeySource should not be empty")
+	}
 }

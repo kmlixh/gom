@@ -278,6 +278,13 @@ func TestTransferEdgeCases(t *testing.T) {
 	result = db.Chain().Table("non_existent_table").List(&users)
 	assert.Error(t, result.Error)
 	assert.Contains(t, result.Error.Error(), "table") // Error should mention table issue
+
+	// Test empty fields
+	t.Run("EmptyFields", func(t *testing.T) {
+		user := &TestUser{} // 空结构体
+		err := db.Chain().From(user).Save()
+		assert.Error(t, err.Error)
+	})
 }
 
 func TestTransferConcurrency(t *testing.T) {

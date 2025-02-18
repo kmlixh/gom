@@ -704,144 +704,113 @@ func (c *Chain) One(dest ...interface{}) *define.Result {
 
 // Save saves (inserts or updates) records with the given fields or model
 func (c *Chain) Save(fieldsOrModel ...interface{}) *define.Result {
-	// If no arguments provided, use existing fieldMap
-	if len(fieldsOrModel) == 0 {
-		if len(c.fieldMap) == 0 {
-			return &define.Result{Error: fmt.Errorf("no fields to save")}
-		}
-
-		// 处理敏感字段
-		if len(c.sensitiveFields) > 0 {
-			if err := c.processSensitiveData(c.fieldMap); err != nil {
-				return &define.Result{Error: err}
-			}
-		}
-
-		if len(c.conds) > 0 {
-			return c.executeUpdate()
-		}
-		return c.executeInsert()
-	}
-
-	// Handle the first argument
-	switch v := fieldsOrModel[0].(type) {
-	case map[string]interface{}:
-		return c.Sets(v).Save()
-	case nil:
-		return &define.Result{Error: fmt.Errorf("nil argument provided")}
+	switch {
+	case len(fieldsOrModel) == 0:
+		return c.saveFromFieldMap()
+	case fieldsOrModel[0] == nil:
+		return errorResult("nil argument provided")
 	default:
-		// Try to convert struct to map using transfer
-		if transfer := define.GetTransfer(v); transfer != nil {
-			// Set table name if not set
-			if c.tableName == "" {
-				c.tableName = transfer.GetTableName()
-			}
-
-			// Store model for potential ID callback
-			c.model = v
-
-			// Get the ID field value
-			if transfer.PrimaryKey == nil {
-				return &define.Result{Error: fmt.Errorf("model has no primary key field")}
-			}
-
-			modelValue := reflect.ValueOf(v)
-			if !modelValue.IsValid() {
-				return &define.Result{Error: fmt.Errorf("nil pointer")}
-			}
-			if modelValue.Kind() != reflect.Ptr {
-				return &define.Result{Error: fmt.Errorf("non-pointer")}
-			}
-			if modelValue.IsNil() {
-				return &define.Result{Error: fmt.Errorf("nil pointer")}
-			}
-			modelElem := modelValue.Elem()
-			if !modelElem.IsValid() {
-				return &define.Result{Error: fmt.Errorf("invalid model element")}
-			}
-
-			idField := modelElem.FieldByName(transfer.PrimaryKey.Name)
-			if !idField.IsValid() {
-				return &define.Result{Error: fmt.Errorf("primary key field %s not found in model", transfer.PrimaryKey.Name)}
-			}
-
-			// Check if primary key is auto-increment
-			isAutoIncrement := false
-			pkTag := modelElem.Type().Field(transfer.PrimaryKey.Index).Tag.Get("gom")
-			if pkTag != "" {
-				for _, opt := range strings.Split(pkTag, ",")[1:] {
-					if opt == "auto" {
-						isAutoIncrement = true
-						break
-					}
-				}
-			}
-
-			idValue := idField.Interface()
-			zeroValue := reflect.Zero(reflect.TypeOf(idValue)).Interface()
-
-			// Convert struct to map using transfer
-			fields := transfer.ToMap(v)
-			if fields == nil || len(fields) == 0 {
-				return &define.Result{Error: fmt.Errorf("no fields to save")}
-			}
-
-			// Process encrypted fields
-			if c.encryptionConfig != nil {
-				for fieldName, fieldValue := range fields {
-					// Check if field needs encryption
-					if tag := transfer.GetFieldTag(fieldName); tag != "" {
-						for _, opt := range strings.Split(tag, ",") {
-							if opt == "encrypt" {
-								encryptedValue, err := c.encryptField(fieldValue)
-								if err != nil {
-									return &define.Result{Error: fmt.Errorf("failed to encrypt field %s: %v", fieldName, err)}
-								}
-								fields[fieldName] = encryptedValue
-								break
-							}
-						}
-					}
-				}
-			}
-
-			// Convert boolean values to integers for MySQL
-			for k, v := range fields {
-				if b, ok := v.(bool); ok {
-					if b {
-						fields[k] = 1
-					} else {
-						fields[k] = 0
-					}
-				}
-			}
-
-			// If ID is not zero value and not auto-increment, add it as a condition for update
-			if idValue != zeroValue && !isAutoIncrement {
-				c.Where(transfer.PrimaryKey.Column, define.OpEq, idValue)
-				result := c.Sets(fields).Update()
-				return result
-			}
-
-			// Remove auto-increment primary key from fields for insert
-			if isAutoIncrement {
-				delete(fields, transfer.PrimaryKey.Column)
-			}
-
-			// Perform insert
-			result := c.Sets(fields).executeInsert()
-			if result.Error != nil {
-				return result
-			}
-
-			// Set the ID back to the model if it was an insert and we got an ID
-			if result.ID != 0 && isAutoIncrement {
-				idField.Set(reflect.ValueOf(result.ID))
-			}
-			return result
-		}
-		return &define.Result{Error: fmt.Errorf("unsupported argument type: %T", v)}
+		return c.saveModel(fieldsOrModel[0])
 	}
+}
+
+// 核心保存逻辑
+func (c *Chain) saveModel(model interface{}) *define.Result {
+	transfer, err := c.validateModel(model)
+	if err != nil {
+		return errorResult(err)
+	}
+
+	fields, err := c.prepareModelFields(transfer, model)
+	if err != nil {
+		return errorResult(err)
+	}
+
+	return c.determineModelOperation(transfer, model, fields)
+}
+
+// 模型验证
+func (c *Chain) validateModel(model interface{}) (*define.Transfer, error) {
+	if transfer := define.GetTransfer(model); transfer != nil {
+		if transfer.PrimaryKey == nil {
+			return nil, errors.New("model missing primary key")
+		}
+		c.initTableName(transfer)
+		return transfer, nil
+	}
+	return nil, fmt.Errorf("unsupported model type: %T", model)
+}
+
+// 准备模型字段
+func (c *Chain) prepareModelFields(transfer *define.Transfer, model interface{}) (map[string]interface{}, error) {
+	fields := transfer.ToMap(model)
+	if len(fields) == 0 {
+		return nil, errors.New("no fields to save")
+	}
+
+	c.processEncryption(transfer, fields)
+	c.convertBoolValues(fields)
+	return fields, nil
+}
+
+// 决策操作类型
+func (c *Chain) determineModelOperation(transfer *define.Transfer, model interface{}, fields map[string]interface{}) *define.Result {
+	pk := transfer.PrimaryKey
+	idValue, isAutoInc := c.getPrimaryKeyInfo(model, pk)
+
+	if shouldUpdate(idValue, isAutoInc) {
+		return c.buildUpdateOperation(pk.Column, idValue, fields)
+	}
+	return c.buildInsertOperation(pk, fields, model)
+}
+
+// 获取主键信息
+func (c *Chain) getPrimaryKeyInfo(model interface{}, pk *define.FieldInfo) (interface{}, bool) {
+	modelValue := reflect.ValueOf(model).Elem()
+	idField := modelValue.FieldByName(pk.Name)
+	return idField.Interface(), c.isAutoIncrement(pk)
+}
+
+// 构建更新操作
+func (c *Chain) buildUpdateOperation(column string, idValue interface{}, fields map[string]interface{}) *define.Result {
+	c.Where(column, define.OpEq, idValue)
+	return c.Sets(fields).executeUpdate()
+}
+
+// 构建插入操作
+func (c *Chain) buildInsertOperation(pk *define.FieldInfo, fields map[string]interface{}, model interface{}) *define.Result {
+	if pk.IsAuto {
+		delete(fields, pk.Column)
+	}
+
+	result := c.Sets(fields).executeInsert()
+	if result.Error == nil && pk.IsAuto {
+		c.setModelID(model, pk.Name, result.ID)
+	}
+	return result
+}
+
+// 工具函数
+func (c *Chain) initTableName(transfer *define.Transfer) {
+	if c.tableName == "" {
+		c.tableName = transfer.GetTableName()
+	}
+}
+
+func (c *Chain) isAutoIncrement(pk *define.FieldInfo) bool {
+	return pk.IsAuto
+}
+
+func shouldUpdate(idValue interface{}, isAutoInc bool) bool {
+	return !isZeroValue(idValue) && !isAutoInc
+}
+
+func isZeroValue(value interface{}) bool {
+	return reflect.DeepEqual(value, reflect.Zero(reflect.TypeOf(value)).Interface())
+}
+
+func errorResult(msg interface{}) *define.Result {
+	return &define.Result{Error: fmt.Errorf("%v", msg)}
 }
 
 // executeInsert executes an INSERT query
@@ -1640,97 +1609,108 @@ func (c *Chain) PageInfo(models ...interface{}) (*PageInfo, error) {
 }
 
 // BatchInsert performs batch insert operation with the given batch size
-func (c *Chain) BatchInsert(batchSize int) (int64, error) {
-	// Validate batch size
+func (c *Chain) BatchInsert(batchSize int, enableConcurrent bool) (int64, error) {
+	// 参数校验
 	if batchSize <= 0 {
-		return 0, &DBError{
+		return 0, &define.DBError{
 			Op:  "BatchInsert",
-			Err: fmt.Errorf("invalid batch size (batch size must be greater than 0, got %d)", batchSize),
+			Err: fmt.Errorf("invalid batch size: %d (must be > 0)", batchSize),
 		}
 	}
 
-	// Get values to insert
-	values := c.batchValues
-	if len(values) == 0 {
-		return 0, &DBError{
+	// 数据校验
+	if len(c.batchValues) == 0 {
+		return 0, &define.DBError{
 			Op:  "BatchInsert",
 			Err: errors.New("no values to insert"),
 		}
 	}
 
-	// Create context with default timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// 并发控制逻辑
+	numGoroutines := 1
+	if enableConcurrent {
+		// 智能计算并发数
+		numGoroutines = calculateOptimalGoroutines(len(c.batchValues), batchSize)
+		// 限制最大并发数
+		numGoroutines = min(numGoroutines, 8)
+		// 连接池检查
+		if c.db.Stats().OpenConnections < numGoroutines {
+			c.db.SetMaxOpenConns(numGoroutines + 2)
+		}
+	}
+
+	// 超时控制
+	ctx, cancel := context.WithTimeout(c.getContext(), 30*time.Second)
 	defer cancel()
 
-	// Create progress tracker
-	progress := newProgressTracker(int64(len(values)))
-
-	// Calculate optimal number of goroutines based on batch size and total records
-	numGoroutines := 4
-	if len(values) > 10000 {
-		numGoroutines = 8
+	// 批处理逻辑
+	var processBatch func(context.Context, []map[string]interface{}) error
+	if enableConcurrent {
+		processBatch = c.concurrentProcessBatch
+	} else {
+		processBatch = c.sequentialProcessBatch
 	}
 
-	// Process function for each batch
-	processBatch := func(ctx context.Context, batch []map[string]interface{}) error {
-		// Start transaction for this batch
-		tx, err := c.db.Begin()
-		if err != nil {
-			return fmt.Errorf("failed to start transaction: %w", err)
-		}
-		defer func() {
-			if tx != nil {
-				_ = tx.Rollback()
-			}
-		}()
-
-		// Create chain for transaction
-		txChain := c.clone()
-		txChain.tx = tx
-
-		// Build and execute insert query
-		sqlProto := c.factory.BuildBatchInsert(c.tableName, batch)
-		sqlResult := c.executeSqlProto(sqlProto)
-		if sqlResult.Error != nil {
-			return fmt.Errorf("failed to execute batch insert: %w", err)
-		}
-
-		affected, err := sqlResult.RowsAffected()
-		if err != nil {
-			return fmt.Errorf("failed to get affected rows: %w", err)
-		}
-
-		// Update progress
-		progress.increment(affected)
-
-		// Commit transaction
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("failed to commit transaction: %w", err)
-		}
-		tx = nil
-
-		return nil
-	}
-
-	// Process all batches with concurrency and timeout
+	// 执行批处理
 	err := processBatchesWithTimeout(
 		ctx,
-		values,
+		c.batchValues,
 		batchSize,
 		numGoroutines,
 		60*time.Second,
 		processBatch,
 	)
 
+	// 错误处理
 	if err != nil {
-		return 0, &DBError{
+		return 0, &define.DBError{
 			Op:  "BatchInsert",
 			Err: err,
 		}
 	}
 
-	processed, _ := progress.getProgress()
-	return processed, nil
+	return int64(len(c.batchValues)), nil
+}
+
+// 顺序处理批次
+func (c *Chain) sequentialProcessBatch(ctx context.Context, batch []map[string]interface{}) error {
+	tx, err := c.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	sqlProto := c.factory.BuildBatchInsert(c.tableName, batch)
+	if _, err := tx.ExecContext(ctx, sqlProto.Sql, sqlProto.Args...); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// 并发处理批次
+func (c *Chain) concurrentProcessBatch(ctx context.Context, batch []map[string]interface{}) error {
+	txChain := c.clone()
+	tx, err := c.db.Begin()
+	if err != nil {
+		return err
+	}
+	txChain.tx = tx
+
+	sqlProto := txChain.factory.BuildBatchInsert(txChain.tableName, batch)
+	result := txChain.executeSqlProto(sqlProto)
+	if result.Error != nil {
+		tx.Rollback()
+		return result.Error
+	}
+	return tx.Commit()
+}
+
+// 统一上下文获取
+func (c *Chain) getContext() context.Context {
+	if c.ctx != nil {
+		return c.ctx
+	}
+	return context.Background()
 }
 
 // batchInsertChunk performs the actual insert operation for a batch of values
@@ -2962,9 +2942,17 @@ func (c *Chain) executeSqlProto(sqlProto *define.SqlProto) *define.Result {
 		var rows *sql.Rows
 		var err error
 		if c.tx != nil {
-			rows, err = c.tx.Query(sqlProto.Sql, sqlProto.Args...)
+			if c.ctx == nil {
+				rows, err = c.tx.Query(sqlProto.Sql, sqlProto.Args...)
+			} else {
+				rows, err = c.tx.QueryContext(c.ctx, sqlProto.Sql, sqlProto.Args...)
+			}
 		} else {
-			rows, err = c.db.DB.Query(sqlProto.Sql, sqlProto.Args...)
+			if c.ctx == nil {
+				rows, err = c.db.DB.Query(sqlProto.Sql, sqlProto.Args...)
+			} else {
+				rows, err = c.db.DB.QueryContext(c.ctx, sqlProto.Sql, sqlProto.Args...)
+			}
 		}
 		if err != nil {
 			return &define.Result{Error: err}
@@ -2989,20 +2977,90 @@ func (c *Chain) executeSqlProto(sqlProto *define.SqlProto) *define.Result {
 		}
 		var err error
 		if c.tx != nil {
-			sqlResult, err = c.tx.Exec(sqlProto.Sql, sqlProto.Args...)
+			if c.ctx == nil {
+				sqlResult, err = c.tx.Exec(sqlProto.Sql, sqlProto.Args...)
+			} else {
+				sqlResult, err = c.tx.ExecContext(c.ctx, sqlProto.Sql, sqlProto.Args...)
+			}
 		} else {
-			sqlResult, err = c.db.DB.Exec(sqlProto.Sql, sqlProto.Args...)
+			if c.ctx == nil {
+				sqlResult, err = c.db.DB.Exec(sqlProto.Sql, sqlProto.Args...)
+			} else {
+				sqlResult, err = c.db.DB.ExecContext(c.ctx, sqlProto.Sql, sqlProto.Args...)
+			}
 		}
 		if err != nil {
 			return &define.Result{Error: err}
 		}
 
-		affected, err := sqlResult.RowsAffected()
+		affected, _ := sqlResult.RowsAffected()
 		if err != nil {
 			return &define.Result{Error: err}
 		}
-
-		return &define.Result{Affected: affected}
+		lastId, _ := sqlResult.LastInsertId()
+		return &define.Result{Affected: affected, ID: lastId}
 	}
 
+}
+
+func (c *Chain) saveFromFieldMap() *define.Result {
+	if len(c.fieldMap) == 0 {
+		return &define.Result{Error: fmt.Errorf("no fields to save")}
+	}
+
+	// Process sensitive fields if any
+	if len(c.sensitiveFields) > 0 {
+		if err := c.processSensitiveData(c.fieldMap); err != nil {
+			return &define.Result{Error: err}
+		}
+	}
+
+	if len(c.conds) > 0 {
+		return c.executeUpdate()
+	}
+	return c.executeInsert()
+}
+
+func (c *Chain) processEncryption(transfer *define.Transfer, fields map[string]interface{}) {
+	if c.encryptionConfig == nil {
+		return
+	}
+
+	for field, value := range fields {
+		if tag := transfer.GetFieldTag(field); strings.Contains(tag, "encrypt") {
+			if encryptedValue, err := c.encryptField(value); err == nil {
+				fields[field] = encryptedValue
+			}
+		}
+	}
+}
+
+func (c *Chain) convertBoolValues(fields map[string]interface{}) {
+	for k, v := range fields {
+		if b, ok := v.(bool); ok {
+			if b {
+				fields[k] = 1
+			} else {
+				fields[k] = 0
+			}
+		}
+	}
+}
+func (c *Chain) WithContext(ctx context.Context) *Chain {
+	c.ctx = ctx // 设置新上下文
+	return c    // 返回新对象保持链式调用
+}
+
+func (c *Chain) setModelID(model interface{}, fieldName string, id int64) {
+	if modelValue := reflect.ValueOf(model); modelValue.Kind() == reflect.Ptr {
+		if idField := modelValue.Elem().FieldByName(fieldName); idField.IsValid() && idField.CanSet() {
+			idField.SetInt(id)
+		}
+	}
+}
+
+// calculateOptimalGoroutines calculates the optimal number of concurrent workers
+func calculateOptimalGoroutines(totalRecords, batchSize int) int {
+	batches := (totalRecords + batchSize - 1) / batchSize // Ceiling division
+	return min(batches, 16)                               // Cap at 16 goroutines
 }

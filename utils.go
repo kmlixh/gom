@@ -44,7 +44,7 @@ func processBatchesWithTimeout[T any](
 	batches := splitIntoBatches(items, batchSize)
 
 	// Create error channel and wait group
-	errChan := make(chan error, len(batches))
+	errChan := make(chan error, concurrency)
 	var wg sync.WaitGroup
 
 	// Create semaphore for concurrency control

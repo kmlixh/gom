@@ -32,8 +32,8 @@ func setupBatchTestDB(t *testing.T) *DB {
 	config.User = "root"
 	// 使用正确的密码
 	opts := &define.DBOptions{
-		MaxOpenConns:    10,
-		MaxIdleConns:    5,
+		MaxOpenConns:    50,
+		MaxIdleConns:    20,
 		ConnMaxLifetime: time.Hour,
 		ConnMaxIdleTime: 30 * time.Minute,
 		Debug:           true,
@@ -145,7 +145,7 @@ func runBatchOperationsTest(t *testing.T, db *DB, tableName string) {
 
 	// Test batch insert
 	t.Run("BatchInsert", func(t *testing.T) {
-		affected, err := db.Chain().Table(tableName).BatchValues(values).BatchInsert(10)
+		affected, err := db.Chain().Table(tableName).BatchValues(values).BatchInsert(10, true)
 		assert.NoError(t, err)
 		assert.Equal(t, int64(100), affected)
 	})
@@ -231,7 +231,7 @@ func runBatchInsertTest(t *testing.T, db *DB) {
 			"is_active":  true,
 		})
 	}
-	affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10)
+	affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10, true)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(100), affected)
 
@@ -287,7 +287,7 @@ func runBatchUpdateTest(t *testing.T, db *DB) {
 			"is_active":  true,
 		})
 	}
-	affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10)
+	affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10, true)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(100), affected)
 
@@ -360,7 +360,7 @@ func runBatchDeleteTest(t *testing.T, db *DB) {
 			"is_active":  true,
 		})
 	}
-	affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10)
+	affected, err := db.Chain().Table("tests").BatchValues(values).BatchInsert(10, true)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(100), affected)
 
@@ -424,7 +424,7 @@ func runBatchTransactionTest(t *testing.T, db *DB) {
 				"is_active":  true,
 			})
 		}
-		affected, err := tx.Table("tests").BatchValues(values).BatchInsert(10)
+		affected, err := tx.Table("tests").BatchValues(values).BatchInsert(10, true)
 		if err != nil {
 			return err
 		}
@@ -482,7 +482,7 @@ func runBatchErrorTest(t *testing.T, db *DB) {
 			"created_at": time.Now(),
 		},
 	}
-	_, err = db.Chain().Table("tests").BatchValues(values).BatchInsert(10)
+	_, err = db.Chain().Table("tests").BatchValues(values).BatchInsert(10, true)
 	assert.Error(t, err)
 
 	// Verify no data was inserted
@@ -512,11 +512,11 @@ func TestBatchOperationsEdgeCases(t *testing.T) {
 			"age":   25,
 			"email": "test1@test.com",
 		},
-	}).BatchInsert(0)
+	}).BatchInsert(0, true)
 	assert.Error(t, err, "应该返回无效批处理大小错误")
 
 	// 2. 测试空批处理值
-	_, err = db.Chain().Table("tests").BatchValues([]map[string]interface{}{}).BatchInsert(10)
+	_, err = db.Chain().Table("tests").BatchValues([]map[string]interface{}{}).BatchInsert(10, true)
 	assert.Error(t, err, "应该返回空批处理值错误")
 
 	// 3. 测试大批量插入
@@ -529,7 +529,7 @@ func TestBatchOperationsEdgeCases(t *testing.T) {
 			"is_active": true,
 		})
 	}
-	affected, err := db.Chain().Table("tests").BatchValues(largeDataset).BatchInsert(100)
+	affected, err := db.Chain().Table("tests").BatchValues(largeDataset).BatchInsert(100, true)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(500), affected, "应该插入500条记录")
 
@@ -549,7 +549,10 @@ func TestBatchOperationsEdgeCases(t *testing.T) {
 					"is_active": true,
 				})
 			}
-			_, err := db.Chain().Table("tests").BatchValues(data).BatchInsert(50)
+
+			// 创建独立的Chain实例
+			tx := db.Chain().clone()
+			_, err := tx.Table("tests").BatchValues(data).BatchInsert(50, true)
 			errChan <- err
 		}(i)
 	}
@@ -586,6 +589,41 @@ func TestBatchOperationsEdgeCases(t *testing.T) {
 		Count2("id")
 	assert.NoError(t, err)
 	assert.True(t, inactiveCount > 0, "应该有记录被更新为非活动状态")
+
+	// 需要顺序执行的测试用例
+	t.Run("SequentialInsert", func(t *testing.T) {
+		// 添加测试数据
+		validData := []map[string]interface{}{
+			{"name": "seq_test", "age": 25, "email": "seq@test.com"},
+		}
+
+		// 明确设置值
+		affected, err := db.Chain().
+			Table("tests").
+			BatchValues(validData). // 添加测试数据
+			BatchInsert(100, false) // 第二个参数false表示禁用并发
+
+		assert.NoError(t, err)
+		assert.Equal(t, int64(1), affected)
+	})
+
+	// 其他保持并发的测试用例
+	_, err = db.Chain().BatchInsert(1000, true) // 正常并发插入
+	if err != nil {
+		t.Fatalf("Concurrent insert failed: %v", err)
+	}
+
+	// 合法批次大小
+	_, err = db.Chain().BatchInsert(50, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 测试非法参数
+	_, err = db.Chain().BatchInsert(0, true)
+	if err == nil {
+		t.Fatal("Expected error for zero batch size")
+	}
 }
 
 func cleanupTestDB(t *testing.T, db *DB) {

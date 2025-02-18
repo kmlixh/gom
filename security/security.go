@@ -121,27 +121,19 @@ func (e *AESEncryptor) Encrypt(value string) (string, error) {
 		return "", err
 	}
 
-	// 创建随机IV
-	iv := make([]byte, aes.BlockSize)
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+	// 改用GCM模式
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
 		return "", err
 	}
 
-	// 填充数据
-	paddedData := pkcs7Pad([]byte(value), aes.BlockSize)
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
 
-	// 加密
-	mode := cipher.NewCBCEncrypter(block, iv)
-	ciphertext := make([]byte, len(paddedData))
-	mode.CryptBlocks(ciphertext, paddedData)
-
-	// 组合IV和密文
-	combined := make([]byte, len(iv)+len(ciphertext))
-	copy(combined, iv)
-	copy(combined[len(iv):], ciphertext)
-
-	// Base64编码
-	return base64.StdEncoding.EncodeToString(combined), nil
+	ciphertext := gcm.Seal(nonce, nonce, []byte(value), nil)
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
 // Decrypt 解密数据
@@ -274,9 +266,14 @@ func (dp *DataProcessor) ConfigureField(field string, config FieldSecurity) {
 func (dp *DataProcessor) ProcessData(data map[string]interface{}) error {
 	for field, value := range data {
 		if config, ok := dp.fieldConfig[field]; ok {
-			strValue, ok := value.(string)
-			if !ok {
-				continue
+			var strValue string
+			switch v := value.(type) {
+			case string:
+				strValue = v
+			case []byte:
+				strValue = string(v)
+			default:
+				return fmt.Errorf("field %s needs processing but has unsupported type %T", field, value)
 			}
 
 			if config.NeedEncrypt {
@@ -329,6 +326,14 @@ func (sm *SecurityManager) RotateKey() error {
 
 	// Check if key rotation is needed
 	if sm.keyRotationInfo == nil || time.Since(sm.keyRotationInfo.LastRotation) >= sm.keyRotationConfig.Interval {
+		// 初始化keyRotationInfo
+		if sm.keyRotationInfo == nil {
+			sm.keyRotationInfo = &KeyRotationInfo{
+				KeyVersion: 0,
+				KeyID:      "key-0",
+			}
+		}
+
 		// Generate new key
 		newKey := make([]byte, 32)
 		if _, err := rand.Read(newKey); err != nil {
