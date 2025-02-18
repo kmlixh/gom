@@ -52,6 +52,12 @@ func processBatchesWithTimeout[T any](
 	// Create semaphore with context awareness
 	sem := make(chan struct{}, concurrency)
 
+	// 初始化结果聚合
+	var (
+		totalResult = &define.Result{Error: nil}
+		resultLock  sync.Mutex
+	)
+
 	// Process batches with context check
 	for _, batch := range batches {
 		// Check context before starting new batch
@@ -73,12 +79,21 @@ func processBatchesWithTimeout[T any](
 				wg.Done()
 			}()
 
-			result := processor(ctx, batch)
-			if result.Error != nil {
-				// Only send first error using select+default
-				select {
-				case errChan <- result.Error:
-				default:
+			batchResult := processor(ctx, batch)
+
+			resultLock.Lock()
+			defer resultLock.Unlock()
+
+			// 聚合结果
+			if batchResult != nil {
+				totalResult.Affected += batchResult.Affected
+				if batchResult.Data != nil {
+					// 处理不同类型的数据聚合
+					totalResult.Data = append(totalResult.Data, batchResult.Data...)
+				}
+				// 保留第一个错误
+				if batchResult.Error != nil && totalResult.Error == nil {
+					totalResult.Error = batchResult.Error
 				}
 			}
 		}(batch)
@@ -102,7 +117,7 @@ func processBatchesWithTimeout[T any](
 	case err := <-errChan:
 		return &define.Result{Error: err}
 	default:
-		return &define.Result{Error: nil}
+		return totalResult
 	}
 }
 

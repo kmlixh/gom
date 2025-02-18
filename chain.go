@@ -1687,8 +1687,10 @@ func (c *Chain) BatchInsert(batchSize int, enableConcurrent bool) (int64, error)
 			Err: result.Error,
 		}
 	}
-
-	return int64(len(c.batchValues)), nil
+	if result.Data != nil && len(result.Data) > 0 {
+		result.Affected = int64(len(result.Data))
+	}
+	return result.Affected, nil
 }
 
 // 顺序处理批次
@@ -1729,12 +1731,8 @@ func (c *Chain) concurrentProcessBatch(ctx context.Context, batch []map[string]i
 		return result
 	}
 	err = tx.Commit()
-	return &define.Result{
-		Affected: result.Affected,
-		ID:       result.ID,
-		Data:     result.Data,
-		Error:    err,
-	}
+	result.Error = err
+	return result
 }
 
 // 统一上下文获取
