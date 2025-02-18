@@ -331,7 +331,7 @@ func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, field
 	}
 
 	return &define.SqlProto{
-		SqlType: define.Exec,
+		SqlType: define.Query,
 		Sql:     query,
 		Args:    args,
 		Error:   nil,
@@ -372,7 +372,7 @@ func (f *Factory) BuildInsert(table string, fields map[string]interface{}, field
 		}
 	}
 
-	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
+	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) RETURNING *",
 		f.quoteIdentifier(table),
 		strings.Join(quotedFields, ", "),
 		strings.Join(placeholders, ", "))
@@ -434,7 +434,7 @@ func (f *Factory) BuildBatchInsert(table string, batchFields []map[string]interf
 		valueStrings = append(valueStrings, fmt.Sprintf("(%s)", strings.Join(valuePlaceholders, ", ")))
 	}
 
-	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES %s`,
+	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES %s RETURNING *`,
 		f.quoteIdentifier(table),
 		strings.Join(f.quoteIdentifiers(fieldNames), ", "),
 		strings.Join(valueStrings, ", "))
@@ -479,9 +479,9 @@ func (f *Factory) BuildDelete(table string, conditions []*define.Condition) *def
 			query += strings.Join(condStrings, " ")
 		}
 	}
-
+	query += " RETURNING *"
 	return &define.SqlProto{
-		SqlType: define.Exec,
+		SqlType: define.Query,
 		Sql:     query,
 		Args:    args,
 		Error:   nil,

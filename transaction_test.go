@@ -601,7 +601,7 @@ func TestTransactionTimeout(t *testing.T) {
 
 			// Create test table
 			query := `
-				CREATE TABLE test_transaction_timeout (
+				CREATE TABLE IF NOT EXISTS test_transaction_timeout (
 					id SERIAL PRIMARY KEY,
 					name VARCHAR(255),
 					counter INT

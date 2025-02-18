@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/kmlixh/gom/v4/define"
 )
 
 // splitIntoBatches splits a slice into batches of the specified size
@@ -30,8 +32,8 @@ func processBatchesWithTimeout[T any](
 	batchSize int,
 	concurrency int,
 	timeout time.Duration,
-	processor func(context.Context, []T) error,
-) error {
+	processor func(context.Context, []T) *define.Result,
+) *define.Result {
 	if len(items) == 0 {
 		return nil
 	}
@@ -43,45 +45,64 @@ func processBatchesWithTimeout[T any](
 	// Split items into batches
 	batches := splitIntoBatches(items, batchSize)
 
-	// Create error channel and wait group
-	errChan := make(chan error, concurrency)
+	// Create error channel with buffer size 1 (only need first error)
+	errChan := make(chan error, 1)
 	var wg sync.WaitGroup
 
-	// Create semaphore for concurrency control
+	// Create semaphore with context awareness
 	sem := make(chan struct{}, concurrency)
 
-	// Process batches
+	// Process batches with context check
 	for _, batch := range batches {
+		// Check context before starting new batch
+		if ctx.Err() != nil {
+			return &define.Result{Error: ctx.Err()}
+		}
+
+		// Acquire semaphore with context awareness
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return &define.Result{Error: ctx.Err()}
 		case sem <- struct{}{}:
-			wg.Add(1)
-			go func(batch []T) {
-				defer func() {
-					<-sem
-					wg.Done()
-				}()
-
-				if err := processor(ctx, batch); err != nil {
-					select {
-					case errChan <- err:
-					default:
-					}
-				}
-			}(batch)
 		}
+
+		wg.Add(1)
+		go func(batch []T) {
+			defer func() {
+				<-sem
+				wg.Done()
+			}()
+
+			result := processor(ctx, batch)
+			if result.Error != nil {
+				// Only send first error using select+default
+				select {
+				case errChan <- result.Error:
+				default:
+				}
+			}
+		}(batch)
 	}
 
-	// Wait for all goroutines to finish
-	wg.Wait()
+	// Wait for all goroutines with context awareness
+	waitChan := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(waitChan)
+	}()
 
-	// Check for errors
+	select {
+	case <-waitChan: // Normal completion
+	case <-ctx.Done(): // Timeout occurred
+		return &define.Result{Error: ctx.Err()}
+	}
+
+	// Return first error or nil
 	select {
 	case err := <-errChan:
-		return err
+		return &define.Result{Error: err}
 	default:
-		return nil
+		return &define.Result{Error: nil}
 	}
 }
 

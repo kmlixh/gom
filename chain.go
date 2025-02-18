@@ -708,8 +708,15 @@ func (c *Chain) Save(fieldsOrModel ...interface{}) *define.Result {
 	case len(fieldsOrModel) == 0:
 		return c.saveFromFieldMap()
 	case fieldsOrModel[0] == nil:
-		return errorResult("nil argument provided")
+		return &define.Result{Error: fmt.Errorf("nil pointer")}
 	default:
+		modelValue := reflect.ValueOf(fieldsOrModel[0])
+		if modelValue.Kind() != reflect.Ptr {
+			return &define.Result{Error: fmt.Errorf("non-pointer")}
+		}
+		if modelValue.IsNil() {
+			return &define.Result{Error: fmt.Errorf("nil pointer")}
+		}
 		return c.saveModel(fieldsOrModel[0])
 	}
 }
@@ -1242,12 +1249,17 @@ func (c *Chain) CreateTable(model interface{}) error {
 			if define.Debug {
 				log.Printf("[SQL] %s\n", createSql)
 			}
-			_, err := c.db.DB.Exec(createSql)
-			if err != nil {
-				log.Printf("[ERROR] Failed to create table: %v\n", err)
-				log.Printf("[SQL] %s\n", createSql)
+			sqlProto := &define.SqlProto{
+				SqlType: define.Exec,
+				Sql:     createSql,
+				Args:    nil,
+				Error:   nil,
 			}
-			return err
+			result := c.executeSqlProto(sqlProto)
+			if result.Error != nil {
+				return result.Error
+			}
+			return nil
 		}
 	}
 
@@ -1640,11 +1652,15 @@ func (c *Chain) BatchInsert(batchSize int, enableConcurrent bool) (int64, error)
 	}
 
 	// 超时控制
-	ctx, cancel := context.WithTimeout(c.getContext(), 30*time.Second)
-	defer cancel()
+	ctx := c.ctx
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+	}
 
 	// 批处理逻辑
-	var processBatch func(context.Context, []map[string]interface{}) error
+	var processBatch func(context.Context, []map[string]interface{}) *define.Result
 	if enableConcurrent {
 		processBatch = c.concurrentProcessBatch
 	} else {
@@ -1652,7 +1668,7 @@ func (c *Chain) BatchInsert(batchSize int, enableConcurrent bool) (int64, error)
 	}
 
 	// 执行批处理
-	err := processBatchesWithTimeout(
+	result := processBatchesWithTimeout(
 		ctx,
 		c.batchValues,
 		batchSize,
@@ -1662,10 +1678,13 @@ func (c *Chain) BatchInsert(batchSize int, enableConcurrent bool) (int64, error)
 	)
 
 	// 错误处理
-	if err != nil {
+	if result.Error != nil {
+		if errors.Is(result.Error, context.DeadlineExceeded) {
+			return 0, context.DeadlineExceeded
+		}
 		return 0, &define.DBError{
 			Op:  "BatchInsert",
-			Err: err,
+			Err: result.Error,
 		}
 	}
 
@@ -1673,36 +1692,49 @@ func (c *Chain) BatchInsert(batchSize int, enableConcurrent bool) (int64, error)
 }
 
 // 顺序处理批次
-func (c *Chain) sequentialProcessBatch(ctx context.Context, batch []map[string]interface{}) error {
+func (c *Chain) sequentialProcessBatch(ctx context.Context, batch []map[string]interface{}) *define.Result {
 	tx, err := c.db.Begin()
 	if err != nil {
-		return err
+		return &define.Result{Error: err}
 	}
-	defer tx.Rollback()
 
 	sqlProto := c.factory.BuildBatchInsert(c.tableName, batch)
-	if _, err := tx.ExecContext(ctx, sqlProto.Sql, sqlProto.Args...); err != nil {
-		return err
+	result := c.WithContext(ctx).executeSqlProto(sqlProto)
+	if result.Error != nil {
+		tx.Rollback()
+		return result
 	}
-	return tx.Commit()
+	err = tx.Commit()
+	return &define.Result{
+		Affected: result.Affected,
+		ID:       result.ID,
+		Data:     result.Data,
+		Error:    err,
+	}
 }
 
 // 并发处理批次
-func (c *Chain) concurrentProcessBatch(ctx context.Context, batch []map[string]interface{}) error {
+func (c *Chain) concurrentProcessBatch(ctx context.Context, batch []map[string]interface{}) *define.Result {
 	txChain := c.clone()
 	tx, err := c.db.Begin()
 	if err != nil {
-		return err
+		return &define.Result{Error: err}
 	}
 	txChain.tx = tx
 
 	sqlProto := txChain.factory.BuildBatchInsert(txChain.tableName, batch)
-	result := txChain.executeSqlProto(sqlProto)
+	result := txChain.WithContext(ctx).executeSqlProto(sqlProto)
 	if result.Error != nil {
 		tx.Rollback()
-		return result.Error
+		return result
 	}
-	return tx.Commit()
+	err = tx.Commit()
+	return &define.Result{
+		Affected: result.Affected,
+		ID:       result.ID,
+		Data:     result.Data,
+		Error:    err,
+	}
 }
 
 // 统一上下文获取
@@ -1875,10 +1907,10 @@ func (c *Chain) BatchUpdate(batchSize int) (int64, error) {
 
 	progress := newProgressTracker(int64(len(c.batchValues)))
 
-	processBatch := func(ctx context.Context, batch []map[string]interface{}) error {
+	processBatch := func(ctx context.Context, batch []map[string]interface{}) *define.Result {
 		tx, err := c.db.Begin()
 		if err != nil {
-			return fmt.Errorf("failed to start transaction: %w", err)
+			return &define.Result{Error: fmt.Errorf("failed to start transaction: %w", err)}
 		}
 		defer tx.Rollback()
 
@@ -1897,7 +1929,7 @@ func (c *Chain) BatchUpdate(batchSize int) (int64, error) {
 			}
 
 			if pkField == "" {
-				return fmt.Errorf("primary key field not found in update data")
+				return &define.Result{Error: fmt.Errorf("primary key field not found in update data")}
 			}
 
 			// Create update chain
@@ -1907,20 +1939,20 @@ func (c *Chain) BatchUpdate(batchSize int) (int64, error) {
 
 			result := updateChain.executeUpdate()
 			if result.Error != nil {
-				return result.Error
+				return result
 			}
 
 			progress.increment(result.Affected)
 		}
 
 		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("failed to commit transaction: %w", err)
+			return &define.Result{Error: fmt.Errorf("failed to commit transaction: %w", err)}
 		}
 
-		return nil
+		return &define.Result{Error: nil}
 	}
 
-	err := processBatchesWithTimeout(
+	result := processBatchesWithTimeout(
 		ctx,
 		c.batchValues,
 		batchSize,
@@ -1929,10 +1961,10 @@ func (c *Chain) BatchUpdate(batchSize int) (int64, error) {
 		processBatch,
 	)
 
-	if err != nil {
+	if result.Error != nil {
 		return 0, &DBError{
 			Op:  "BatchUpdate",
-			Err: err,
+			Err: result.Error,
 		}
 	}
 
@@ -1970,10 +2002,10 @@ func (c *Chain) BatchDelete(batchSize int) (int64, error) {
 
 	progress := newProgressTracker(int64(len(c.batchValues)))
 
-	processBatch := func(ctx context.Context, batch []map[string]interface{}) error {
+	processBatch := func(ctx context.Context, batch []map[string]interface{}) *define.Result {
 		tx, err := c.db.Begin()
 		if err != nil {
-			return fmt.Errorf("failed to start transaction: %w", err)
+			return &define.Result{Error: fmt.Errorf("failed to start transaction: %w", err)}
 		}
 		defer tx.Rollback()
 
@@ -1992,7 +2024,7 @@ func (c *Chain) BatchDelete(batchSize int) (int64, error) {
 			}
 
 			if pkField == "" {
-				return fmt.Errorf("primary key field not found in delete data")
+				return &define.Result{Error: fmt.Errorf("primary key field not found in delete data")}
 			}
 
 			// Create delete chain
@@ -2004,20 +2036,20 @@ func (c *Chain) BatchDelete(batchSize int) (int64, error) {
 
 			affected, err := result.RowsAffected()
 			if err != nil {
-				return err
+				return &define.Result{Error: err}
 			}
 
 			progress.increment(affected)
 		}
 
 		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("failed to commit transaction: %w", err)
+			return &define.Result{Error: fmt.Errorf("failed to commit transaction: %w", err)}
 		}
 
-		return nil
+		return &define.Result{Error: nil}
 	}
 
-	err := processBatchesWithTimeout(
+	result := processBatchesWithTimeout(
 		ctx,
 		c.batchValues,
 		batchSize,
@@ -2026,10 +2058,10 @@ func (c *Chain) BatchDelete(batchSize int) (int64, error) {
 		processBatch,
 	)
 
-	if err != nil {
+	if result.Error != nil {
 		return 0, &DBError{
 			Op:  "BatchDelete",
-			Err: err,
+			Err: result.Error,
 		}
 	}
 

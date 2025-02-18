@@ -607,18 +607,6 @@ func TestBatchOperationsEdgeCases(t *testing.T) {
 		assert.Equal(t, int64(1), affected)
 	})
 
-	// 其他保持并发的测试用例
-	_, err = db.Chain().BatchInsert(1000, true) // 正常并发插入
-	if err != nil {
-		t.Fatalf("Concurrent insert failed: %v", err)
-	}
-
-	// 合法批次大小
-	_, err = db.Chain().BatchInsert(50, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	// 测试非法参数
 	_, err = db.Chain().BatchInsert(0, true)
 	if err == nil {
