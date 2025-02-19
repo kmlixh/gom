@@ -366,34 +366,105 @@ func (r *Result) Scan(rows *sql.Rows) error {
 		return nil
 	}
 
-	columns, err := rows.Columns()
+	// 获取列类型信息
+	colTypes, err := rows.ColumnTypes()
 	if err != nil {
 		return err
 	}
 
-	values := make([]interface{}, len(columns))
-	for i := range values {
-		values[i] = new(interface{})
+	// 根据列类型创建对应扫描值
+	values := make([]interface{}, len(colTypes))
+	for i, ct := range colTypes {
+		scanType := ct.ScanType()
+		if Debug {
+			fmt.Println("scanType:", scanType.Kind())
+		}
+		switch scanType {
+		case reflect.TypeOf(time.Time{}):
+			values[i] = new(*time.Time)
+		case reflect.TypeOf([]byte{}):
+			values[i] = new([]byte)
+		case reflect.TypeOf(false):
+			values[i] = new(bool)
+		case reflect.TypeOf(float64(0)):
+			values[i] = new(float64)
+		case reflect.TypeOf(int64(0)):
+			values[i] = new(int64)
+		case reflect.TypeOf(int32(0)):
+			values[i] = new(int32)
+		case reflect.TypeOf(int16(0)):
+			values[i] = new(int16)
+		case reflect.TypeOf(int8(0)):
+			values[i] = new(int8)
+		case reflect.TypeOf(uint(0)):
+			values[i] = new(uint)
+		case reflect.TypeOf(uint64(0)):
+			values[i] = new(uint64)
+		case reflect.TypeOf(uint32(0)):
+			values[i] = new(uint32)
+		case reflect.TypeOf(uint16(0)):
+			values[i] = new(uint16)
+		case reflect.TypeOf(uint8(0)):
+			values[i] = new(uint8)
+		case reflect.TypeOf(byte(0)):
+			values[i] = new(byte)
+		case reflect.TypeOf([]byte{}):
+			values[i] = new([]byte)
+		case reflect.TypeOf(""):
+			values[i] = new(string)
+		default:
+			// 使用驱动推荐的默认类型
+			values[i] = reflect.New(scanType).Interface()
+		}
 	}
+
+	// 初始化数据容器
+	var resultSet []map[string]interface{}
 
 	for rows.Next() {
 		if err := rows.Scan(values...); err != nil {
 			return err
 		}
 
-		data := make(map[string]interface{})
-		for i, column := range columns {
-			if values[i] == nil {
+		rowData := make(map[string]interface{})
+		for i, ct := range colTypes {
+			val := reflect.ValueOf(values[i]).Elem().Interface()
+
+			// 处理指针和NULL值
+			if val == nil {
+				rowData[ct.Name()] = nil
 				continue
 			}
-			value := *(values[i].(*interface{}))
-			if value != nil {
-				data[column] = value
+
+			// 类型安全转换
+			switch v := val.(type) {
+			case *time.Time:
+				if v != nil {
+					rowData[ct.Name()] = *v
+				} else {
+					rowData[ct.Name()] = nil
+				}
+			case []byte:
+				// 尝试解析特殊类型
+				if dbType := ct.DatabaseTypeName(); dbType != "" {
+					switch dbType {
+					case "JSON", "JSONB":
+						var jsonData interface{}
+						if err := json.Unmarshal(v, &jsonData); err == nil {
+							rowData[ct.Name()] = jsonData
+							continue
+						}
+					}
+				}
+				rowData[ct.Name()] = string(v)
+			default:
+				rowData[ct.Name()] = v
 			}
 		}
-		r.Data = append(r.Data, data)
+		resultSet = append(resultSet, rowData)
 	}
 
+	r.Data = resultSet
 	return rows.Err()
 }
 
