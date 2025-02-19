@@ -79,11 +79,14 @@ type DBMetrics struct {
 // DB represents the database connection
 type DB struct {
 	sync.RWMutex
-	DB        *sql.DB
-	Factory   define.SQLFactory
-	RoutineID int64
-	options   define.DBOptions
-	metrics   *DBMetrics
+	DB                  *sql.DB
+	Factory             define.SQLFactory
+	RoutineID           int64
+	options             define.DBOptions
+	metrics             *DBMetrics
+	tableInfoCache      map[string]*define.TableInfo
+	tableExpireTime     map[string]time.Time
+	tableInfoCacheMutex sync.RWMutex
 }
 
 // cloneSelfIfDifferentGoRoutine ensures thread safety by cloning DB instance if needed
@@ -235,28 +238,24 @@ func (db *DB) UpdateOptions(opts define.DBOptions) error {
 	return nil
 }
 
-var tableInfoCache = make(map[string]*define.TableInfo)
-var tableExpireTime = make(map[string]time.Time)
-var tableInfoCacheMutex sync.RWMutex
-
 // GetTableInfo 获取表信息
 func (db *DB) GetTableInfo(tableName string) (*define.TableInfo, error) {
 	// 第一层快速读取
-	tableInfoCacheMutex.RLock()
-	cachedInfo, exists := tableInfoCache[tableName]
-	expireTime := tableExpireTime[tableName]
-	tableInfoCacheMutex.RUnlock()
+	db.tableInfoCacheMutex.RLock()
+	cachedInfo, exists := db.tableInfoCache[tableName]
+	expireTime := db.tableExpireTime[tableName]
+	db.tableInfoCacheMutex.RUnlock()
 
 	if exists && time.Now().Before(expireTime) {
 		return cachedInfo, nil
 	}
 
 	// 加写锁进行更新
-	tableInfoCacheMutex.Lock()
-	defer tableInfoCacheMutex.Unlock()
+	db.tableInfoCacheMutex.Lock()
+	defer db.tableInfoCacheMutex.Unlock()
 
 	// 双重检查防止重复更新
-	if cachedInfo, exists = tableInfoCache[tableName]; exists && time.Now().Before(tableExpireTime[tableName]) {
+	if cachedInfo, exists = db.tableInfoCache[tableName]; exists && time.Now().Before(db.tableExpireTime[tableName]) {
 		return cachedInfo, nil
 	}
 
@@ -265,15 +264,15 @@ func (db *DB) GetTableInfo(tableName string) (*define.TableInfo, error) {
 	if err != nil {
 		if exists {
 			// 获取失败时延长旧缓存有效期（5秒）
-			tableExpireTime[tableName] = time.Now().Add(5 * time.Second)
+			db.tableExpireTime[tableName] = time.Now().Add(5 * time.Second)
 			return cachedInfo, nil
 		}
 		return nil, fmt.Errorf("failed to get table info: %w", err)
 	}
 
 	// 更新缓存
-	tableInfoCache[tableName] = newInfo
-	tableExpireTime[tableName] = time.Now().Add(2 * time.Minute)
+	db.tableInfoCache[tableName] = newInfo
+	db.tableExpireTime[tableName] = time.Now().Add(2 * time.Minute)
 	return newInfo, nil
 }
 
