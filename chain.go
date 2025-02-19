@@ -2995,7 +2995,7 @@ func (c *Chain) executeSqlProto(sqlProto *define.SqlProto) *define.Result {
 		if err != nil {
 			return &define.Result{Error: err}
 		}
-
+		result.Affected = int64(len(result.Data))
 		// End query stats
 		c.endQueryStats(result.Affected)
 		return result

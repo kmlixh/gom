@@ -36,10 +36,10 @@ func DefaultMySQLConfig() TestDBConfig {
 func DefaultPostgresConfig() TestDBConfig {
 	return TestDBConfig{
 		Driver:   "postgres",
-		Host:     getEnvOrDefault("TEST_POSTGRES_HOST", "10.0.1.5"),
+		Host:     getEnvOrDefault("TEST_POSTGRES_HOST", "192.168.111.20"),
 		Port:     getEnvIntOrDefault("TEST_POSTGRES_PORT", 5432),
 		User:     getEnvOrDefault("TEST_POSTGRES_USER", "postgres"),
-		Password: getEnvOrDefault("TEST_POSTGRES_PASSWORD", "123456"),
+		Password: getEnvOrDefault("TEST_POSTGRES_PASSWORD", "yzy123"),
 		DBName:   getEnvOrDefault("TEST_POSTGRES_DBNAME", "test"),
 	}
 }
