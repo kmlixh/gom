@@ -1381,6 +1381,69 @@ func (c *Chain) Count2(field string) (int64, error) {
 	}
 }
 
+// Sum calculates the sum of a specific field
+func (c *Chain) Sum(field string) (float64, error) {
+	if field == "" {
+		return 0, errors.New("field name cannot be empty")
+	}
+
+	sumChain := &Chain{
+		db:        c.db,
+		factory:   c.factory,
+		tx:        c.tx,
+		tableName: c.tableName,
+		conds:     c.conds,
+		fieldList: []string{fmt.Sprintf("SUM(%s) as sum_value", field)},
+	}
+
+	result := sumChain.list()
+	if result.Error != nil {
+		return 0, result.Error
+	}
+
+	if len(result.Data) == 0 {
+		return 0, nil
+	}
+
+	sum, ok := result.Data[0]["sum_value"]
+	if !ok {
+		return 0, errors.New("sum field not found in result")
+	}
+
+	switch v := sum.(type) {
+	case float64:
+		return v, nil
+	case float32:
+		return float64(v), nil
+	case int64:
+		return float64(v), nil
+	case int32:
+		return float64(v), nil
+	case int:
+		return float64(v), nil
+	case int16:
+		return float64(v), nil
+	case int8:
+		return float64(v), nil
+	case uint64:
+		return float64(v), nil
+	case uint32:
+		return float64(v), nil
+	case uint16:
+		return float64(v), nil
+	case uint8:
+		return float64(v), nil
+	case string:
+		return strconv.ParseFloat(v, 64)
+	case []uint8:
+		return strconv.ParseFloat(string(v), 64)
+	case nil:
+		return 0, nil
+	default:
+		return 0, fmt.Errorf("unexpected sum type: %T", v)
+	}
+}
+
 // GroupBy adds GROUP BY clause to the query
 func (c *Chain) GroupBy(fields ...string) *Chain {
 	if len(fields) > 0 {
