@@ -94,16 +94,25 @@ func (db *DB) cloneSelfIfDifferentGoRoutine() *DB {
 	currentID := atomic.LoadInt64(&routineIDCounter)
 	if db.RoutineID == 0 {
 		if atomic.CompareAndSwapInt64(&db.RoutineID, 0, currentID) {
+			// Initialize maps if they are nil
+			if db.tableInfoCache == nil {
+				db.tableInfoCache = make(map[string]*define.TableInfo)
+			}
+			if db.tableExpireTime == nil {
+				db.tableExpireTime = make(map[string]time.Time)
+			}
 			return db
 		}
 	}
 	if db.RoutineID != currentID {
 		newDB := &DB{
-			DB:        db.DB,
-			Factory:   db.Factory,
-			RoutineID: currentID,
-			options:   db.options,
-			metrics:   db.metrics,
+			DB:              db.DB,
+			Factory:         db.Factory,
+			RoutineID:       currentID,
+			options:         db.options,
+			metrics:         db.metrics,
+			tableInfoCache:  make(map[string]*define.TableInfo),
+			tableExpireTime: make(map[string]time.Time),
 		}
 		return newDB
 	}

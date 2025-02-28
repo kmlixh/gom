@@ -3094,3 +3094,19 @@ func calculateOptimalGoroutines(totalRecords, batchSize int) int {
 	batches := (totalRecords + batchSize - 1) / batchSize // Ceiling division
 	return min(batches, 16)                               // Cap at 16 goroutines
 }
+
+// WhereRaw adds a raw SQL expression as a WHERE condition
+func (c *Chain) WhereRaw(expr string, args ...interface{}) *Chain {
+	cond := define.Raw(expr, args...)
+	cond.JoinType = define.JoinAnd
+	c.conds = append(c.conds, cond)
+	return c
+}
+
+// OrWhereRaw adds a raw SQL expression as an OR WHERE condition
+func (c *Chain) OrWhereRaw(expr string, args ...interface{}) *Chain {
+	cond := define.Raw(expr, args...)
+	cond.JoinType = define.JoinOr
+	c.conds = append(c.conds, cond)
+	return c
+}

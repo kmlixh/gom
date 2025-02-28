@@ -352,6 +352,7 @@ func (t *Transfer) CreateScanners(columns []string) []interface{} {
 			case reflect.Float32, reflect.Float64:
 				scanners[i] = new(sql.NullFloat64)
 			case reflect.Bool:
+				// For MySQL TINYINT(1) fields that represent booleans
 				scanners[i] = new(sql.NullInt64)
 			case reflect.String:
 				scanners[i] = new(sql.NullString)
@@ -371,18 +372,48 @@ func (t *Transfer) CreateScanners(columns []string) []interface{} {
 	return scanners
 }
 
-// createBoolScanner creates a scanner for boolean values
-func createBoolScanner() (*ScannerInfo, error) {
-	scanner := &ScannerInfo{
-		Scanner: new(sql.NullInt64),
-		Convert: func(v interface{}) interface{} {
-			if n, ok := v.(*sql.NullInt64); ok && n.Valid {
-				return n.Int64 == 1
-			}
-			return false
-		},
+// convertTypeValue converts a scanned value to the appropriate Go type
+func convertTypeValue(value interface{}, targetType reflect.Type) (interface{}, error) {
+	if value == nil {
+		return reflect.Zero(targetType).Interface(), nil
 	}
-	return scanner, nil
+
+	switch v := value.(type) {
+	case *sql.NullInt64:
+		if !v.Valid {
+			return reflect.Zero(targetType).Interface(), nil
+		}
+		switch targetType.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			return reflect.ValueOf(v.Int64).Convert(targetType).Interface(), nil
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			return reflect.ValueOf(uint64(v.Int64)).Convert(targetType).Interface(), nil
+		case reflect.Bool:
+			return v.Int64 != 0, nil
+		}
+	case *sql.NullFloat64:
+		if !v.Valid {
+			return reflect.Zero(targetType).Interface(), nil
+		}
+		return reflect.ValueOf(v.Float64).Convert(targetType).Interface(), nil
+	case *sql.NullString:
+		if !v.Valid {
+			return reflect.Zero(targetType).Interface(), nil
+		}
+		return reflect.ValueOf(v.String).Convert(targetType).Interface(), nil
+	case *sql.NullTime:
+		if !v.Valid {
+			return reflect.Zero(targetType).Interface(), nil
+		}
+		return v.Time, nil
+	case *sql.RawBytes:
+		if v == nil {
+			return reflect.Zero(targetType).Interface(), nil
+		}
+		return string(*v), nil
+	}
+
+	return nil, fmt.Errorf("unsupported type conversion from %T to %v", value, targetType)
 }
 
 // ScanRow scans a database row into a new instance of the model

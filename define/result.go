@@ -45,319 +45,181 @@ func (r *Result) Size() int {
 	return len(r.Data)
 }
 
-// convertValue converts a database value to the appropriate Go type
-func convertValue(value interface{}, fieldValue reflect.Value) error {
+// convertFieldValue converts a database value to the appropriate Go type
+func convertFieldValue(value interface{}, fieldValue reflect.Value) error {
 	if value == nil {
-		// For sql.Null* types, set Valid to false
-		if fieldValue.Type().String() == "sql.NullString" {
-			fieldValue.Set(reflect.ValueOf(sql.NullString{Valid: false}))
-			return nil
-		} else if fieldValue.Type().String() == "sql.NullInt64" {
-			fieldValue.Set(reflect.ValueOf(sql.NullInt64{Valid: false}))
-			return nil
-		} else if fieldValue.Type().String() == "sql.NullFloat64" {
-			fieldValue.Set(reflect.ValueOf(sql.NullFloat64{Valid: false}))
-			return nil
-		} else if fieldValue.Type().String() == "sql.NullBool" {
-			fieldValue.Set(reflect.ValueOf(sql.NullBool{Valid: false}))
-			return nil
-		} else if fieldValue.Type().String() == "sql.NullTime" {
-			fieldValue.Set(reflect.ValueOf(sql.NullTime{Valid: false}))
-			return nil
-		}
 		return nil
 	}
 
-	// Check if fieldValue is valid and can be set
-	if !fieldValue.IsValid() || !fieldValue.CanSet() {
-		return fmt.Errorf("invalid or cannot set field value")
+	// Handle pointer types
+	if fieldValue.Kind() == reflect.Ptr {
+		if fieldValue.IsNil() {
+			fieldValue.Set(reflect.New(fieldValue.Type().Elem()))
+		}
+		return convertFieldValue(value, fieldValue.Elem())
 	}
 
-	// Handle sql.Null* types first
 	switch v := value.(type) {
-	case sql.NullString:
-		if fieldValue.Type().String() == "sql.NullString" {
-			fieldValue.Set(reflect.ValueOf(v))
+	case *sql.NullInt64:
+		if !v.Valid {
 			return nil
 		}
-		if v.Valid {
-			return convertValue(v.String, fieldValue)
-		}
-		return nil
-	case sql.NullInt64:
-		if fieldValue.Type().String() == "sql.NullInt64" {
-			fieldValue.Set(reflect.ValueOf(v))
-			return nil
-		}
-		if v.Valid {
-			return convertValue(v.Int64, fieldValue)
-		}
-		return nil
-	case sql.NullFloat64:
-		if fieldValue.Type().String() == "sql.NullFloat64" {
-			fieldValue.Set(reflect.ValueOf(v))
-			return nil
-		}
-		if v.Valid {
-			return convertValue(v.Float64, fieldValue)
-		}
-		return nil
-	case sql.NullBool:
-		if fieldValue.Type().String() == "sql.NullBool" {
-			fieldValue.Set(reflect.ValueOf(v))
-			return nil
-		}
-		if v.Valid {
-			return convertValue(v.Bool, fieldValue)
-		}
-		return nil
-	case sql.NullTime:
-		if fieldValue.Type().String() == "sql.NullTime" {
-			fieldValue.Set(reflect.ValueOf(v))
-			return nil
-		}
-		if v.Valid {
-			return convertValue(v.Time, fieldValue)
-		}
-		return nil
-	case []uint8:
-		// Handle conversion to sql.Null* types
-		str := string(v)
-		if str == "" {
-			// Handle empty string as NULL for sql.Null* types
-			if fieldValue.Type().String() == "sql.NullString" {
-				fieldValue.Set(reflect.ValueOf(sql.NullString{Valid: false}))
-				return nil
-			} else if fieldValue.Type().String() == "sql.NullFloat64" {
-				fieldValue.Set(reflect.ValueOf(sql.NullFloat64{Valid: false}))
-				return nil
-			} else if fieldValue.Type().String() == "sql.NullInt64" {
-				fieldValue.Set(reflect.ValueOf(sql.NullInt64{Valid: false}))
-				return nil
-			} else if fieldValue.Type().String() == "sql.NullBool" {
-				fieldValue.Set(reflect.ValueOf(sql.NullBool{Valid: false}))
+		switch fieldValue.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			if !fieldValue.OverflowInt(v.Int64) {
+				fieldValue.SetInt(v.Int64)
 				return nil
 			}
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			if v.Int64 >= 0 && !fieldValue.OverflowUint(uint64(v.Int64)) {
+				fieldValue.SetUint(uint64(v.Int64))
+				return nil
+			}
+		case reflect.Float32, reflect.Float64:
+			fieldValue.SetFloat(float64(v.Int64))
+			return nil
+		case reflect.Bool:
+			fieldValue.SetBool(v.Int64 != 0)
+			return nil
+		case reflect.String:
+			fieldValue.SetString(strconv.FormatInt(v.Int64, 10))
+			return nil
 		}
+		return fmt.Errorf("cannot convert int64 to %v", fieldValue.Type())
 
-		// Try to convert to sql.Null* types if not empty
-		if fieldValue.Type().String() == "sql.NullFloat64" {
-			if f, err := strconv.ParseFloat(str, 64); err == nil {
-				fieldValue.Set(reflect.ValueOf(sql.NullFloat64{Valid: true, Float64: f}))
-				return nil
-			}
-			fieldValue.Set(reflect.ValueOf(sql.NullFloat64{Valid: false}))
-			return nil
-		} else if fieldValue.Type().String() == "sql.NullInt64" {
-			if i, err := strconv.ParseInt(str, 10, 64); err == nil {
-				fieldValue.Set(reflect.ValueOf(sql.NullInt64{Valid: true, Int64: i}))
-				return nil
-			}
-			fieldValue.Set(reflect.ValueOf(sql.NullInt64{Valid: false}))
-			return nil
-		} else if fieldValue.Type().String() == "sql.NullString" {
-			fieldValue.Set(reflect.ValueOf(sql.NullString{Valid: true, String: str}))
-			return nil
-		} else if fieldValue.Type().String() == "sql.NullBool" {
-			if len(v) == 0 {
-				fieldValue.Set(reflect.ValueOf(sql.NullBool{Valid: false}))
-				return nil
-			}
-			s := strings.ToLower(string(v))
-			if s == "true" || s == "1" || s == "yes" || s == "on" {
-				fieldValue.Set(reflect.ValueOf(sql.NullBool{
-					Valid: true,
-					Bool:  true,
-				}))
-				return nil
-			}
-			if s == "false" || s == "0" || s == "no" || s == "off" || s == "" {
-				fieldValue.Set(reflect.ValueOf(sql.NullBool{
-					Valid: true,
-					Bool:  false,
-				}))
-				return nil
-			}
-			fieldValue.Set(reflect.ValueOf(sql.NullBool{Valid: false}))
+	case *sql.NullFloat64:
+		if !v.Valid {
 			return nil
 		}
-
-		// Handle other []uint8 conversions
-		if str != "" {
-			// Try to convert to float64 first
-			if f, err := strconv.ParseFloat(str, 64); err == nil {
-				return convertValue(f, fieldValue)
-			}
-			// Try to convert to int64
-			if i, err := strconv.ParseInt(str, 10, 64); err == nil {
-				return convertValue(i, fieldValue)
-			}
-			// Use string value for other types
-			return convertValue(str, fieldValue)
-		}
-		return nil
-	}
-
-	switch fieldValue.Kind() {
-	case reflect.Bool:
-		if b, ok := value.(bool); ok {
-			fieldValue.SetBool(b)
-			return nil
-		}
-		if i, ok := value.(int64); ok {
-			fieldValue.SetBool(i != 0)
-			return nil
-		}
-		if s, ok := value.(string); ok {
-			s = strings.ToLower(s)
-			if s == "true" || s == "1" || s == "yes" || s == "on" {
-				fieldValue.SetBool(true)
+		switch fieldValue.Kind() {
+		case reflect.Float32, reflect.Float64:
+			if !fieldValue.OverflowFloat(v.Float64) {
+				fieldValue.SetFloat(v.Float64)
 				return nil
 			}
-			if s == "false" || s == "0" || s == "no" || s == "off" {
-				fieldValue.SetBool(false)
-				return nil
-			}
-		}
-		if b, ok := value.([]uint8); ok {
-			if fieldValue.Type() == reflect.TypeOf(sql.NullBool{}) {
-				if len(b) == 0 {
-					fieldValue.Set(reflect.ValueOf(sql.NullBool{Valid: false}))
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			if v.Float64 == float64(int64(v.Float64)) {
+				if !fieldValue.OverflowInt(int64(v.Float64)) {
+					fieldValue.SetInt(int64(v.Float64))
 					return nil
 				}
-				if len(b) == 1 {
-					fieldValue.Set(reflect.ValueOf(sql.NullBool{
-						Valid: true,
-						Bool:  b[0] != 0,
-					}))
-					return nil
-				}
-				str := strings.ToLower(string(b))
-				fieldValue.Set(reflect.ValueOf(sql.NullBool{
-					Valid: true,
-					Bool:  str == "true" || str == "1" || str == "yes" || str == "on",
-				}))
-				return nil
 			}
-
-			if len(b) == 1 {
-				fieldValue.SetBool(b[0] != 0)
-				return nil
-			}
-			str := strings.ToLower(string(b))
-			fieldValue.SetBool(str == "true" || str == "1" || str == "yes" || str == "on")
+		case reflect.String:
+			fieldValue.SetString(strconv.FormatFloat(v.Float64, 'f', -1, 64))
 			return nil
 		}
-		return fmt.Errorf("cannot convert %T to bool", value)
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		switch v := value.(type) {
-		case int64:
-			fieldValue.SetInt(v)
+		return fmt.Errorf("cannot convert float64 to %v", fieldValue.Type())
+
+	case *sql.NullString:
+		if !v.Valid {
 			return nil
-		case int:
-			fieldValue.SetInt(int64(v))
+		}
+		switch fieldValue.Kind() {
+		case reflect.String:
+			fieldValue.SetString(v.String)
 			return nil
-		case string:
-			if i, err := strconv.ParseInt(v, 10, 64); err == nil {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			if i, err := strconv.ParseInt(v.String, 10, 64); err == nil && !fieldValue.OverflowInt(i) {
 				fieldValue.SetInt(i)
 				return nil
 			}
-		case []uint8:
-			if i, err := strconv.ParseInt(string(v), 10, 64); err == nil {
-				fieldValue.SetInt(i)
-				return nil
-			}
-		}
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		switch v := value.(type) {
-		case uint64:
-			fieldValue.SetUint(v)
-			return nil
-		case uint:
-			fieldValue.SetUint(uint64(v))
-			return nil
-		case int64:
-			if v >= 0 {
-				fieldValue.SetUint(uint64(v))
-				return nil
-			}
-		case string:
-			if i, err := strconv.ParseUint(v, 10, 64); err == nil {
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			if i, err := strconv.ParseUint(v.String, 10, 64); err == nil && !fieldValue.OverflowUint(i) {
 				fieldValue.SetUint(i)
 				return nil
 			}
-		}
-	case reflect.Float32, reflect.Float64:
-		switch v := value.(type) {
-		case float64:
-			fieldValue.SetFloat(v)
-			return nil
-		case float32:
-			fieldValue.SetFloat(float64(v))
-			return nil
-		case int64:
-			fieldValue.SetFloat(float64(v))
-			return nil
-		case string:
-			if f, err := strconv.ParseFloat(v, 64); err == nil {
+		case reflect.Float32, reflect.Float64:
+			if f, err := strconv.ParseFloat(v.String, 64); err == nil && !fieldValue.OverflowFloat(f) {
 				fieldValue.SetFloat(f)
 				return nil
 			}
-		}
-	case reflect.String:
-		switch v := value.(type) {
-		case string:
-			fieldValue.SetString(v)
-			return nil
-		case []uint8:
-			fieldValue.SetString(string(v))
-			return nil
-		}
-	case reflect.Struct:
-		if fieldValue.Type() == reflect.TypeOf(time.Time{}) {
-			switch v := value.(type) {
-			case time.Time:
-				fieldValue.Set(reflect.ValueOf(v))
+		case reflect.Bool:
+			if b, err := strconv.ParseBool(v.String); err == nil {
+				fieldValue.SetBool(b)
 				return nil
-			case string:
-				if t, err := time.Parse(time.RFC3339, v); err == nil {
-					fieldValue.Set(reflect.ValueOf(t))
-					return nil
-				}
-			case []uint8:
-				if t, err := time.Parse(time.RFC3339, string(v)); err == nil {
-					fieldValue.Set(reflect.ValueOf(t))
-					return nil
-				}
 			}
 		}
-	case reflect.Slice:
-		switch v := value.(type) {
-		case string:
-			return json.Unmarshal([]byte(v), fieldValue.Addr().Interface())
-		case []uint8:
-			return json.Unmarshal(v, fieldValue.Addr().Interface())
-		}
-	case reflect.Map:
-		switch v := value.(type) {
-		case string:
-			return json.Unmarshal([]byte(v), fieldValue.Addr().Interface())
-		case []uint8:
-			return json.Unmarshal(v, fieldValue.Addr().Interface())
-		case map[string]interface{}:
-			fieldValue.Set(reflect.ValueOf(v))
+		return fmt.Errorf("cannot convert string to %v", fieldValue.Type())
+
+	case *sql.NullTime:
+		if !v.Valid {
 			return nil
 		}
+		if fieldValue.Type() == reflect.TypeOf(time.Time{}) {
+			fieldValue.Set(reflect.ValueOf(v.Time))
+			return nil
+		}
+		return fmt.Errorf("cannot convert time to %v", fieldValue.Type())
+
+	case *sql.RawBytes:
+		if v == nil {
+			return nil
+		}
+		str := string(*v)
+		switch fieldValue.Kind() {
+		case reflect.String:
+			fieldValue.SetString(str)
+			return nil
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			if i, err := strconv.ParseInt(str, 10, 64); err == nil && !fieldValue.OverflowInt(i) {
+				fieldValue.SetInt(i)
+				return nil
+			}
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			if i, err := strconv.ParseUint(str, 10, 64); err == nil && !fieldValue.OverflowUint(i) {
+				fieldValue.SetUint(i)
+				return nil
+			}
+		case reflect.Float32, reflect.Float64:
+			if f, err := strconv.ParseFloat(str, 64); err == nil && !fieldValue.OverflowFloat(f) {
+				fieldValue.SetFloat(f)
+				return nil
+			}
+		case reflect.Bool:
+			if b, err := strconv.ParseBool(str); err == nil {
+				fieldValue.SetBool(b)
+				return nil
+			}
+		case reflect.Slice:
+			if fieldValue.Type().Elem().Kind() == reflect.Uint8 {
+				fieldValue.SetBytes(*v)
+				return nil
+			}
+		}
+		return fmt.Errorf("cannot convert []byte to %v", fieldValue.Type())
+
+	case int8:
+		switch fieldValue.Kind() {
+		case reflect.Bool:
+			fieldValue.SetBool(v != 0)
+			return nil
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			if !fieldValue.OverflowInt(int64(v)) {
+				fieldValue.SetInt(int64(v))
+				return nil
+			}
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			if v >= 0 && !fieldValue.OverflowUint(uint64(v)) {
+				fieldValue.SetUint(uint64(v))
+				return nil
+			}
+		case reflect.Float32, reflect.Float64:
+			fieldValue.SetFloat(float64(v))
+			return nil
+		case reflect.String:
+			fieldValue.SetString(strconv.FormatInt(int64(v), 10))
+			return nil
+		}
+		return fmt.Errorf("cannot convert int8 to %v", fieldValue.Type())
 	}
 
-	// Try direct type conversion if possible
-	srcValue := reflect.ValueOf(value)
-	if srcValue.Type().ConvertibleTo(fieldValue.Type()) {
-		fieldValue.Set(srcValue.Convert(fieldValue.Type()))
+	// Try using the global type converter for other types
+	if converted, err := ConvertValue(value, fieldValue.Type()); err == nil {
+		fieldValue.Set(reflect.ValueOf(converted))
 		return nil
 	}
 
-	return fmt.Errorf("cannot convert %T to %s", value, fieldValue.Type())
+	return fmt.Errorf("unsupported type conversion from %T to %v", value, fieldValue.Type())
 }
 
 // Scan implements the sql.Scanner interface
@@ -577,7 +439,7 @@ func ConvertRowToStruct(data map[string]interface{}, structValue reflect.Value) 
 				continue
 			}
 
-			if err := convertValue(value, fieldValue); err != nil {
+			if err := convertFieldValue(value, fieldValue); err != nil {
 				return fmt.Errorf("error converting field %s: %v", field.Name, err)
 			}
 		}

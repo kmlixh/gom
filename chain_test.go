@@ -235,28 +235,52 @@ func runChainOperationsTest(t *testing.T, db *DB) {
 		"created_at": time.Now(),
 	}).Save()
 	assert.NoError(t, result.Error)
+
+	// For PostgreSQL, the ID is in the returned data
+	if db.Factory.GetType() == "postgres" {
+		data, err := result.IntoMap()
+		assert.NoError(t, err)
+		if id, ok := data["id"]; ok {
+			if idInt64, ok := id.(int64); ok {
+				result.ID = idInt64
+			}
+		}
+	}
 	fmt.Printf("Insert result: ID=%d, Affected=%d\n", result.ID, result.Affected)
 
+	// Get total records in table
+	var count int64
+	err = db.DB.QueryRow("SELECT COUNT(*) FROM " + tableName).Scan(&count)
+	assert.NoError(t, err)
+	fmt.Printf("Total records in table: %d\n", count)
+
 	// Verify the insert using direct SQL
+	var id int64
 	var name string
 	var age int
 	var queryErr error
 	if db.Factory.GetType() == "postgres" {
-		var count int64
-		queryErr = db.DB.QueryRow("SELECT COUNT(*) FROM tests").Scan(&count)
-		assert.NoError(t, queryErr)
-		fmt.Printf("Total records in table: %d\n", count)
-
-		queryErr = db.DB.QueryRow("SELECT name, age FROM tests WHERE id = $1", result.ID).Scan(&name, &age)
+		// For PostgreSQL, use the ID from the result data
+		if len(result.Data) == 0 {
+			t.Fatal("Expected result.Data to be non-empty for PostgreSQL insert")
+		}
+		id = result.Data[0]["id"].(int64)
+		name = result.Data[0]["name"].(string)
+		// Handle both int32 and int64 types for age
+		switch v := result.Data[0]["age"].(type) {
+		case int32:
+			age = int(v)
+		case int64:
+			age = int(v)
+		default:
+			t.Fatalf("Unexpected type for age: %T", v)
+		}
 	} else {
-		var count int64
-		queryErr = db.DB.QueryRow("SELECT COUNT(*) FROM tests").Scan(&count)
+		// For MySQL, use the LastInsertId
+		id = result.ID
+		queryErr = db.DB.QueryRow("SELECT name, age FROM "+tableName+" WHERE id = ?", id).Scan(&name, &age)
 		assert.NoError(t, queryErr)
-		fmt.Printf("Total records in table: %d\n", count)
-
-		queryErr = db.DB.QueryRow("SELECT name, age FROM tests WHERE id = ?", result.ID).Scan(&name, &age)
 	}
-	assert.NoError(t, queryErr)
 	assert.Equal(t, "John", name)
 	assert.Equal(t, 30, age)
 
@@ -288,7 +312,7 @@ func runChainOperationsTest(t *testing.T, db *DB) {
 	}
 
 	// Test Count
-	count, err := db.Chain().Table(tableName).Count()
+	count, err = db.Chain().Table(tableName).Count()
 	assert.NoError(t, err)
 	assert.Equal(t, int64(1), count)
 

@@ -1,7 +1,6 @@
 package gom
 
 import (
-	"database/sql"
 	"fmt"
 	"math"
 	"strings"
@@ -439,7 +438,7 @@ func TestDomainComplexOperations(t *testing.T) {
 
 	// 4. 测试聚合函数
 	var avgResults []struct {
-		AvgStatus sql.NullFloat64 `gom:"avg_status"`
+		AvgStatus float64 `gom:"avg_status"`
 	}
 	result = db.Chain().
 		Table("domains").
@@ -447,8 +446,7 @@ func TestDomainComplexOperations(t *testing.T) {
 		List(&avgResults)
 	assert.NoError(t, result.Error)
 	assert.Len(t, avgResults, 1)
-	assert.True(t, avgResults[0].AvgStatus.Valid)
-	assert.InDelta(t, 0.67, avgResults[0].AvgStatus.Float64, 0.01)
+	assert.InDelta(t, 0.67, avgResults[0].AvgStatus, 0.01)
 
 	var maxResults []struct {
 		MaxStatus int64 `gom:"max_status"`

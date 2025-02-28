@@ -1,23 +1,26 @@
 package define
 
 import (
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 )
 
 // ConversionError represents an error that occurs during type conversion
 type ConversionError struct {
+	Value   interface{}
 	From    string
 	To      string
-	Value   interface{}
 	Message string
 }
 
 func (e *ConversionError) Error() string {
-	return fmt.Sprintf("cannot convert %v (type %s) to type %s: %s", e.Value, e.From, e.To, e.Message)
+	return fmt.Sprintf("error converting value %v from %s to %s: %s", e.Value, e.From, e.To, e.Message)
 }
 
 // ITypeConverter defines the interface for type conversion
@@ -36,14 +39,173 @@ func NewTypeConverter() ITypeConverter {
 // Convert converts a value to the target type
 func (c *typeConverter) Convert(value interface{}, targetType reflect.Type) (interface{}, error) {
 	if value == nil {
-		return nil, nil
+		return reflect.Zero(targetType).Interface(), nil
 	}
 
 	valueType := reflect.TypeOf(value)
-	if valueType == targetType {
+	valueValue := reflect.ValueOf(value)
+
+	// Special handling for []uint8 to sql.Null* types
+	if valueType.Kind() == reflect.Slice && valueType.Elem().Kind() == reflect.Uint8 {
+		if strings.HasPrefix(targetType.Name(), "Null") {
+			byteSlice := value.([]byte)
+			str := string(byteSlice)
+
+			// Empty string should result in Valid=false
+			if str == "" {
+				switch targetType.Name() {
+				case "NullString":
+					return sql.NullString{}, nil
+				case "NullInt64":
+					return sql.NullInt64{}, nil
+				case "NullFloat64":
+					return sql.NullFloat64{}, nil
+				case "NullBool":
+					return sql.NullBool{}, nil
+				case "NullTime":
+					return sql.NullTime{}, nil
+				default:
+					return nil, &ConversionError{
+						From:    valueType.String(),
+						To:      targetType.String(),
+						Message: "unsupported sql.Null* type",
+					}
+				}
+			}
+
+			switch targetType.Name() {
+			case "NullString":
+				return sql.NullString{String: str, Valid: true}, nil
+			case "NullInt64":
+				if i, err := strconv.ParseInt(str, 10, 64); err == nil {
+					return sql.NullInt64{Int64: i, Valid: true}, nil
+				}
+				return sql.NullInt64{}, nil
+			case "NullFloat64":
+				if f, err := strconv.ParseFloat(str, 64); err == nil {
+					return sql.NullFloat64{Float64: f, Valid: true}, nil
+				}
+				return sql.NullFloat64{}, nil
+			case "NullBool":
+				str = strings.ToLower(str)
+				switch str {
+				case "true", "yes", "1", "on":
+					return sql.NullBool{Bool: true, Valid: true}, nil
+				case "false", "no", "0", "off":
+					return sql.NullBool{Bool: false, Valid: true}, nil
+				default:
+					return sql.NullBool{}, nil
+				}
+			case "NullTime":
+				if t, err := time.Parse(time.RFC3339, str); err == nil {
+					return sql.NullTime{Time: t, Valid: true}, nil
+				}
+				return sql.NullTime{}, nil
+			}
+		}
+	}
+
+	// Handle sql.Null* types first
+	if valueType.Kind() == reflect.Struct && strings.HasPrefix(valueType.Name(), "Null") {
+		// If target type is the same as value type, return value directly
+		if valueType.AssignableTo(targetType) {
+			return value, nil
+		}
+
+		validField := valueValue.FieldByName("Valid")
+		if !validField.IsValid() || !validField.Bool() {
+			return reflect.Zero(targetType).Interface(), nil
+		}
+
+		var valueField reflect.Value
+		switch valueType.Name() {
+		case "NullString":
+			valueField = valueValue.FieldByName("String")
+		case "NullInt64":
+			valueField = valueValue.FieldByName("Int64")
+		case "NullFloat64":
+			valueField = valueValue.FieldByName("Float64")
+		case "NullBool":
+			valueField = valueValue.FieldByName("Bool")
+		case "NullTime":
+			valueField = valueValue.FieldByName("Time")
+		default:
+			return nil, &ConversionError{
+				Value:   value,
+				From:    valueType.String(),
+				To:      targetType.String(),
+				Message: "unsupported sql.Null* type",
+			}
+		}
+
+		if !valueField.IsValid() {
+			return reflect.Zero(targetType).Interface(), nil
+		}
+
+		value = valueField.Interface()
+		valueType = reflect.TypeOf(value)
+		valueValue = reflect.ValueOf(value)
+	}
+
+	// If types are exactly the same or one is assignable to the other, return the value directly
+	if valueType == targetType || valueType.AssignableTo(targetType) {
 		return value, nil
 	}
 
+	// If both types are the same kind, try to convert between them
+	if valueType.Kind() == targetType.Kind() {
+		switch targetType.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			return valueValue.Convert(targetType).Interface(), nil
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			return valueValue.Convert(targetType).Interface(), nil
+		case reflect.Float32, reflect.Float64:
+			return valueValue.Convert(targetType).Interface(), nil
+		case reflect.String:
+			return value.(string), nil
+		case reflect.Bool:
+			return value.(bool), nil
+		case reflect.Struct:
+			// Special handling for time.Time
+			if targetType == reflect.TypeOf(time.Time{}) && valueType == reflect.TypeOf(time.Time{}) {
+				return value, nil
+			}
+		}
+	}
+
+	// Handle slice types
+	if valueType.Kind() == reflect.Slice && targetType.Kind() == reflect.Slice {
+		if valueType.Elem().AssignableTo(targetType.Elem()) {
+			return value, nil
+		}
+
+		// Special handling for []byte to []string when the bytes contain JSON
+		if valueType.Elem().Kind() == reflect.Uint8 && targetType.Elem().Kind() == reflect.String {
+			var strSlice []string
+			byteSlice := value.([]byte)
+			// Try to unmarshal as JSON first
+			if err := json.Unmarshal(byteSlice, &strSlice); err == nil {
+				return strSlice, nil
+			}
+		}
+
+		// If elements are convertible, create a new slice and convert each element
+		if valueType.Elem().ConvertibleTo(targetType.Elem()) {
+			valueSlice := reflect.ValueOf(value)
+			newSlice := reflect.MakeSlice(targetType, valueSlice.Len(), valueSlice.Cap())
+			for i := 0; i < valueSlice.Len(); i++ {
+				elem := valueSlice.Index(i).Interface()
+				convertedElem, err := c.Convert(elem, targetType.Elem())
+				if err != nil {
+					return nil, err
+				}
+				newSlice.Index(i).Set(reflect.ValueOf(convertedElem))
+			}
+			return newSlice.Interface(), nil
+		}
+	}
+
+	// Try standard conversions
 	switch targetType.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return c.convertToInt(value, targetType)
@@ -56,19 +218,23 @@ func (c *typeConverter) Convert(value interface{}, targetType reflect.Type) (int
 	case reflect.Bool:
 		return c.convertToBool(value)
 	case reflect.Struct:
-		if targetType == reflect.TypeOf(time.Time{}) {
+		if targetType.String() == "time.Time" {
 			return c.convertToTime(value)
 		}
 	case reflect.Slice:
 		if targetType.Elem().Kind() == reflect.Uint8 {
 			return c.convertToBytes(value)
 		}
+	case reflect.Map:
+		if targetType.Key().Kind() == reflect.String && targetType.Elem().Kind() == reflect.Interface {
+			return c.convertToMap(value)
+		}
 	}
 
 	return nil, &ConversionError{
+		Value:   value,
 		From:    valueType.String(),
 		To:      targetType.String(),
-		Value:   value,
 		Message: "unsupported type conversion",
 	}
 }
@@ -427,6 +593,44 @@ func (c *typeConverter) convertToBytes(value interface{}) (interface{}, error) {
 			To:      "[]byte",
 			Value:   v,
 			Message: "unsupported type for bytes conversion",
+		}
+	}
+}
+
+func (c *typeConverter) convertToMap(value interface{}) (interface{}, error) {
+	switch v := value.(type) {
+	case string:
+		var result map[string]interface{}
+		err := json.Unmarshal([]byte(v), &result)
+		if err != nil {
+			return nil, &ConversionError{
+				From:    "string",
+				To:      "map[string]interface{}",
+				Value:   v,
+				Message: "invalid JSON string: " + err.Error(),
+			}
+		}
+		return result, nil
+	case []byte:
+		var result map[string]interface{}
+		err := json.Unmarshal(v, &result)
+		if err != nil {
+			return nil, &ConversionError{
+				From:    "[]byte",
+				To:      "map[string]interface{}",
+				Value:   string(v),
+				Message: "invalid JSON bytes: " + err.Error(),
+			}
+		}
+		return result, nil
+	case map[string]interface{}:
+		return v, nil
+	default:
+		return nil, &ConversionError{
+			From:    reflect.TypeOf(v).String(),
+			To:      "map[string]interface{}",
+			Value:   v,
+			Message: "unsupported type for map conversion",
 		}
 	}
 }

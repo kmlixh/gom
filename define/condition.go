@@ -9,10 +9,11 @@ import (
 type Condition struct {
 	Field      string
 	Op         OpType
-	Value      interface{}
+	Value      interface{} // For normal conditions: single value; for IN/BETWEEN: []interface{}; for raw expressions: []interface{} as args
 	JoinType   JoinType
 	SubConds   []*Condition // Sub-conditions for nested queries
 	IsSubGroup bool         // Whether this is a sub-group of conditions
+	IsRawExpr  bool         // Whether this is a raw SQL expression
 }
 
 // Conditions represents a slice of Condition
@@ -143,4 +144,13 @@ func Between(field string, start, end interface{}) *Condition {
 
 func NotBetween(field string, start, end interface{}) *Condition {
 	return NewCondition(field, OpNotBetween, []interface{}{start, end})
+}
+
+// Raw creates a new raw SQL expression condition
+func Raw(expr string, args ...interface{}) *Condition {
+	return &Condition{
+		Field:     expr,
+		IsRawExpr: true,
+		Value:     args,
+	}
 }

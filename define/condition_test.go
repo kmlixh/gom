@@ -133,3 +133,33 @@ func TestConditionBuilders(t *testing.T) {
 		t.Error("NotBetween builder failed")
 	}
 }
+
+func TestRawCondition(t *testing.T) {
+	// Test raw condition with arguments
+	cond := Raw("age > ? AND status = ?", 18, "active")
+	if !cond.IsRawExpr {
+		t.Error("Expected IsRawExpr to be true")
+	}
+	if cond.Field != "age > ? AND status = ?" {
+		t.Errorf("Expected Field to be 'age > ? AND status = ?', got '%s'", cond.Field)
+	}
+	if args, ok := cond.Value.([]interface{}); !ok {
+		t.Error("Expected Value to be []interface{}")
+	} else if len(args) != 2 {
+		t.Errorf("Expected 2 arguments, got %d", len(args))
+	}
+
+	// Test raw condition without arguments
+	cond = Raw("status IS NOT NULL")
+	if !cond.IsRawExpr {
+		t.Error("Expected IsRawExpr to be true")
+	}
+	if cond.Field != "status IS NOT NULL" {
+		t.Errorf("Expected Field to be 'status IS NOT NULL', got '%s'", cond.Field)
+	}
+	if args, ok := cond.Value.([]interface{}); !ok {
+		t.Error("Expected Value to be []interface{}")
+	} else if len(args) != 0 {
+		t.Errorf("Expected 0 arguments, got %d", len(args))
+	}
+}

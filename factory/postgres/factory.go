@@ -77,63 +77,88 @@ func (f *Factory) getOperator(op define.OpType) string {
 	}
 }
 
-// buildCondition builds a single condition clause
-func (f *Factory) buildCondition(cond *define.Condition, startParamIndex int) (string, []interface{}) {
+// buildCondition builds a SQL condition string and returns the condition string and its arguments
+func (f *Factory) buildCondition(cond *define.Condition, paramIndex *int) (string, []interface{}) {
 	if cond == nil {
 		return "", nil
 	}
 
-	var condStrs []string
-	var args []interface{}
-	currentParamIndex := startParamIndex
-
 	// First build the current condition
 	if cond.Field != "" {
-		sql, arg := f.buildSimpleCondition(cond, currentParamIndex)
+		sql, arg := f.buildSimpleCondition(cond, paramIndex)
 		if sql != "" {
-			condStrs = append(condStrs, sql)
-			args = append(args, arg...)
-			currentParamIndex += len(arg)
+			return sql, arg
 		}
 	}
 
 	// Then build sub-conditions
 	if len(cond.SubConds) > 0 {
+		var whereConditions []string
+		var args []interface{}
+		var hasOr bool
 		for _, subCond := range cond.SubConds {
-			subStr, subArg := f.buildCondition(subCond, currentParamIndex)
+			subStr, subArg := f.buildCondition(subCond, paramIndex)
 			if subStr != "" {
-				if len(condStrs) > 0 {
+				if len(whereConditions) > 0 {
 					if subCond.JoinType == define.JoinOr {
-						condStrs = append(condStrs, "OR")
+						hasOr = true
+						whereConditions = append(whereConditions, "OR", subStr)
 					} else {
-						condStrs = append(condStrs, "AND")
+						whereConditions = append(whereConditions, "AND", subStr)
 					}
+				} else {
+					whereConditions = append(whereConditions, subStr)
 				}
-				if strings.Contains(subStr, " AND ") || strings.Contains(subStr, " OR ") {
-					if !strings.HasPrefix(subStr, "(") {
-						subStr = "(" + subStr + ")"
-					}
-				}
-				condStrs = append(condStrs, subStr)
 				args = append(args, subArg...)
-				currentParamIndex += len(subArg)
+				*paramIndex += len(subArg)
 			}
+		}
+		if len(whereConditions) > 0 {
+			if hasOr {
+				return "(" + strings.Join(whereConditions, " ") + ")", args
+			}
+			return strings.Join(whereConditions, " "), args
 		}
 	}
 
-	if len(condStrs) > 0 {
-		if cond.IsSubGroup {
-			return "(" + strings.Join(condStrs, " ") + ")", args
+	if cond.IsSubGroup {
+		var subConditions []string
+		var args []interface{}
+		for _, subCond := range cond.SubConds {
+			subStr, subArg := f.buildCondition(subCond, paramIndex)
+			if subStr != "" {
+				subConditions = append(subConditions, subStr)
+				args = append(args, subArg...)
+			}
 		}
-		return strings.Join(condStrs, " "), args
+		if len(subConditions) > 0 {
+			return "(" + strings.Join(subConditions, " AND ") + ")", args
+		}
 	}
 	return "", nil
 }
 
 // buildSimpleCondition builds a simple condition without sub-conditions
-func (f *Factory) buildSimpleCondition(cond *define.Condition, startParamIndex int) (string, []interface{}) {
-	if cond == nil || cond.Field == "" {
+func (f *Factory) buildSimpleCondition(cond *define.Condition, argCount *int) (string, []interface{}) {
+	if cond == nil {
 		return "", nil
+	}
+
+	if cond.IsRawExpr {
+		expr := cond.Field
+		var args []interface{}
+		if rawArgs, ok := cond.Value.([]interface{}); ok {
+			args = make([]interface{}, len(rawArgs))
+			copy(args, rawArgs)
+			// Replace ? with $n
+			count := 0
+			for count < len(args) {
+				expr = strings.Replace(expr, "?", fmt.Sprintf("$%d", *argCount), 1)
+				*argCount++
+				count++
+			}
+		}
+		return expr, args
 	}
 
 	field := cond.Field
@@ -144,7 +169,8 @@ func (f *Factory) buildSimpleCondition(cond *define.Condition, startParamIndex i
 		if values, ok := cond.Value.([]interface{}); ok && len(values) > 0 {
 			placeholders := make([]string, len(values))
 			for i := range values {
-				placeholders[i] = fmt.Sprintf("$%d", startParamIndex+i)
+				placeholders[i] = fmt.Sprintf("$%d", *argCount)
+				*argCount++
 			}
 			return fmt.Sprintf("%s %v (%s)", field, op, strings.Join(placeholders, ", ")), values
 		}
@@ -153,11 +179,11 @@ func (f *Factory) buildSimpleCondition(cond *define.Condition, startParamIndex i
 		return fmt.Sprintf("%s %v", field, op), nil
 	case define.OpBetween, define.OpNotBetween:
 		if values, ok := cond.Value.([]interface{}); ok && len(values) == 2 {
-			return fmt.Sprintf("%s %v $%d AND $%d", field, op, startParamIndex, startParamIndex+1), values
+			return fmt.Sprintf("%s %v $%d AND $%d", field, op, *argCount, *argCount+1), values
 		}
 		return "", nil
 	default:
-		return fmt.Sprintf("%s %v $%d", field, op, startParamIndex), []interface{}{cond.Value}
+		return fmt.Sprintf("%s %v $%d", field, op, *argCount), []interface{}{cond.Value}
 	}
 }
 
@@ -211,7 +237,7 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 			if cond == nil {
 				continue
 			}
-			condStr, condArgs := f.buildCondition(cond, paramIndex)
+			condStr, condArgs := f.buildCondition(cond, &paramIndex)
 			if condStr != "" {
 				if strings.HasPrefix(condStr, "HAVING") {
 					// Store HAVING conditions for later
@@ -311,7 +337,7 @@ func (f *Factory) BuildUpdate(table string, fields map[string]interface{}, field
 			if cond == nil {
 				continue
 			}
-			condStr, condArgs := f.buildCondition(cond, currentParamIndex)
+			condStr, condArgs := f.buildCondition(cond, &currentParamIndex)
 			if condStr != "" {
 				if i > 0 {
 					if cond.JoinType == define.JoinOr {
@@ -461,7 +487,7 @@ func (f *Factory) BuildDelete(table string, conditions []*define.Condition) *def
 			if cond == nil {
 				continue
 			}
-			condStr, condArgs := f.buildCondition(cond, currentParamIndex)
+			condStr, condArgs := f.buildCondition(cond, &currentParamIndex)
 			if condStr != "" {
 				if i > 0 {
 					if cond.JoinType == define.JoinOr {

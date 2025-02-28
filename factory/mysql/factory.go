@@ -83,6 +83,13 @@ func (f *Factory) buildCondition(cond *define.Condition) (string, []interface{})
 		return "", nil
 	}
 
+	if cond.IsRawExpr {
+		if args, ok := cond.Value.([]interface{}); ok {
+			return cond.Field, args
+		}
+		return cond.Field, nil
+	}
+
 	if cond.IsSubGroup {
 		var subConditions []string
 		var args []interface{}
