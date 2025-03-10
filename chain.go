@@ -3173,3 +3173,47 @@ func (c *Chain) OrWhereRaw(expr string, args ...interface{}) *Chain {
 	c.conds = append(c.conds, cond)
 	return c
 }
+
+// Join adds a JOIN clause to the query
+func (c *Chain) Join(joinExpr string) *Chain {
+	if joinExpr != "" {
+		if !strings.HasPrefix(strings.ToUpper(joinExpr), "JOIN") {
+			joinExpr = "JOIN " + joinExpr
+		}
+		c.fieldList = append(c.fieldList, joinExpr)
+	}
+	return c
+}
+
+// LeftJoin adds a LEFT JOIN clause to the query
+func (c *Chain) LeftJoin(joinExpr string) *Chain {
+	if joinExpr != "" {
+		if !strings.HasPrefix(strings.ToUpper(joinExpr), "LEFT JOIN") {
+			joinExpr = "LEFT JOIN " + joinExpr
+		}
+		c.fieldList = append(c.fieldList, joinExpr)
+	}
+	return c
+}
+
+// RightJoin adds a RIGHT JOIN clause to the query
+func (c *Chain) RightJoin(joinExpr string) *Chain {
+	if joinExpr != "" {
+		if !strings.HasPrefix(strings.ToUpper(joinExpr), "RIGHT JOIN") {
+			joinExpr = "RIGHT JOIN " + joinExpr
+		}
+		c.fieldList = append(c.fieldList, joinExpr)
+	}
+	return c
+}
+
+// InnerJoin adds an INNER JOIN clause to the query
+func (c *Chain) InnerJoin(joinExpr string) *Chain {
+	if joinExpr != "" {
+		if !strings.HasPrefix(strings.ToUpper(joinExpr), "INNER JOIN") {
+			joinExpr = "INNER JOIN " + joinExpr
+		}
+		c.fieldList = append(c.fieldList, joinExpr)
+	}
+	return c
+}
