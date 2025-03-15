@@ -203,9 +203,14 @@ func Open(driverName, dsn string, opts *define.DBOptions) (*DB, error) {
 	}
 
 	db := &DB{
-		DB:      sqlDB,
-		Factory: factory,
-		options: *opts,
+		DB:                  sqlDB,
+		Factory:             factory,
+		options:             *opts,
+		tableInfoCache:      make(map[string]*define.TableInfo),
+		tableExpireTime:     make(map[string]time.Time),
+		metrics:             &DBMetrics{},
+		tableInfoCacheMutex: sync.RWMutex{},
+		RoutineID:           atomic.AddInt64(&routineIDCounter, 1),
 	}
 
 	// Configure connection pool
