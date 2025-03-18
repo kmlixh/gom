@@ -1715,10 +1715,11 @@ func (c *Chain) BatchInsert(batchSize int, enableConcurrent bool) (int64, error)
 	}
 
 	// 超时控制
-	ctx := c.ctx
-	if ctx == nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
+	ctx := c.getContext() // 使用统一的获取上下文方法
+	var cancel context.CancelFunc
+	if _, ok := ctx.Deadline(); !ok {
+		// 只有当当前上下文没有设置截止时间时，才设置默认超时
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 	}
 
@@ -1742,8 +1743,17 @@ func (c *Chain) BatchInsert(batchSize int, enableConcurrent bool) (int64, error)
 
 	// 错误处理
 	if result.Error != nil {
-		if errors.Is(result.Error, context.DeadlineExceeded) {
-			return 0, context.DeadlineExceeded
+		// 区分上下文取消和其他错误
+		if errors.Is(result.Error, context.Canceled) {
+			return 0, &define.DBError{
+				Op:  "BatchInsert",
+				Err: fmt.Errorf("operation was canceled: %w", context.Canceled),
+			}
+		} else if errors.Is(result.Error, context.DeadlineExceeded) {
+			return 0, &define.DBError{
+				Op:  "BatchInsert",
+				Err: fmt.Errorf("operation timed out: %w", context.DeadlineExceeded),
+			}
 		}
 		return 0, &define.DBError{
 			Op:  "BatchInsert",
@@ -1758,43 +1768,61 @@ func (c *Chain) BatchInsert(batchSize int, enableConcurrent bool) (int64, error)
 
 // 顺序处理批次
 func (c *Chain) sequentialProcessBatch(ctx context.Context, batch []map[string]interface{}) *define.Result {
+	// 检查上下文是否已取消
+	if err := ctx.Err(); err != nil {
+		return &define.Result{Error: err}
+	}
+
 	tx, err := c.db.Begin()
 	if err != nil {
 		return &define.Result{Error: err}
 	}
 
+	// 使用context创建一个新的链式对象执行SQL
+	chainWithContext := c.clone().SetContext(ctx)
+	chainWithContext.tx = tx // 设置事务
+
 	sqlProto := c.factory.BuildBatchInsert(c.tableName, batch)
-	result := c.WithContext(ctx).executeSqlProto(sqlProto)
+	result := chainWithContext.executeSqlProto(sqlProto)
 	if result.Error != nil {
 		tx.Rollback()
 		return result
 	}
-	err = tx.Commit()
-	return &define.Result{
-		Affected: result.Affected,
-		ID:       result.ID,
-		Data:     result.Data,
-		Error:    err,
+
+	if err := tx.Commit(); err != nil {
+		return &define.Result{Error: err}
 	}
+
+	return result
 }
 
 // 并发处理批次
 func (c *Chain) concurrentProcessBatch(ctx context.Context, batch []map[string]interface{}) *define.Result {
-	txChain := c.clone()
+	// 检查上下文是否已取消
+	if err := ctx.Err(); err != nil {
+		return &define.Result{Error: err}
+	}
+
 	tx, err := c.db.Begin()
 	if err != nil {
 		return &define.Result{Error: err}
 	}
-	txChain.tx = tx
 
-	sqlProto := txChain.factory.BuildBatchInsert(txChain.tableName, batch)
-	result := txChain.WithContext(ctx).executeSqlProto(sqlProto)
+	// 使用context创建一个新的链式对象执行SQL
+	chainWithContext := c.clone().SetContext(ctx)
+	chainWithContext.tx = tx // 设置事务
+
+	sqlProto := chainWithContext.factory.BuildBatchInsert(chainWithContext.tableName, batch)
+	result := chainWithContext.executeSqlProto(sqlProto)
 	if result.Error != nil {
 		tx.Rollback()
 		return result
 	}
-	err = tx.Commit()
-	result.Error = err
+
+	if err := tx.Commit(); err != nil {
+		return &define.Result{Error: err}
+	}
+
 	return result
 }
 
@@ -1963,22 +1991,38 @@ func (c *Chain) BatchUpdate(batchSize int) (int64, error) {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	// 使用getContext获取上下文，如果未设置则创建一个带超时的上下文
+	ctx := c.getContext()
+	var cancel context.CancelFunc
+	if _, ok := ctx.Deadline(); !ok {
+		// 只有当当前上下文没有设置截止时间时，才设置默认超时
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+	}
 
 	progress := newProgressTracker(int64(len(c.batchValues)))
 
 	processBatch := func(ctx context.Context, batch []map[string]interface{}) *define.Result {
+		// 检查上下文是否已取消
+		if err := ctx.Err(); err != nil {
+			return &define.Result{Error: err}
+		}
+
 		tx, err := c.db.Begin()
 		if err != nil {
 			return &define.Result{Error: fmt.Errorf("failed to start transaction: %w", err)}
 		}
 		defer tx.Rollback()
 
-		txChain := c.clone()
+		txChain := c.clone().SetContext(ctx)
 		txChain.tx = tx
 
 		for _, item := range batch {
+			// 检查每个项处理前是否已取消
+			if err := ctx.Err(); err != nil {
+				return &define.Result{Error: err}
+			}
+
 			// Extract primary key for update condition
 			var pkField, pkValue = "", interface{}(nil)
 			for k, v := range item {
@@ -2023,6 +2067,18 @@ func (c *Chain) BatchUpdate(batchSize int) (int64, error) {
 	)
 
 	if result.Error != nil {
+		// 区分上下文取消和其他错误
+		if errors.Is(result.Error, context.Canceled) {
+			return 0, &DBError{
+				Op:  "BatchUpdate",
+				Err: fmt.Errorf("operation was canceled: %w", context.Canceled),
+			}
+		} else if errors.Is(result.Error, context.DeadlineExceeded) {
+			return 0, &DBError{
+				Op:  "BatchUpdate",
+				Err: fmt.Errorf("operation timed out: %w", context.DeadlineExceeded),
+			}
+		}
 		return 0, &DBError{
 			Op:  "BatchUpdate",
 			Err: result.Error,
@@ -2058,22 +2114,38 @@ func (c *Chain) BatchDelete(batchSize int) (int64, error) {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	// 使用getContext获取上下文，如果未设置则创建一个带超时的上下文
+	ctx := c.getContext()
+	var cancel context.CancelFunc
+	if _, ok := ctx.Deadline(); !ok {
+		// 只有当当前上下文没有设置截止时间时，才设置默认超时
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+	}
 
 	progress := newProgressTracker(int64(len(c.batchValues)))
 
 	processBatch := func(ctx context.Context, batch []map[string]interface{}) *define.Result {
+		// 检查上下文是否已取消
+		if err := ctx.Err(); err != nil {
+			return &define.Result{Error: err}
+		}
+
 		tx, err := c.db.Begin()
 		if err != nil {
 			return &define.Result{Error: fmt.Errorf("failed to start transaction: %w", err)}
 		}
 		defer tx.Rollback()
 
-		txChain := c.clone()
+		txChain := c.clone().SetContext(ctx)
 		txChain.tx = tx
 
 		for _, item := range batch {
+			// 检查每个项处理前是否已取消
+			if err := ctx.Err(); err != nil {
+				return &define.Result{Error: err}
+			}
+
 			// Extract primary key for delete condition
 			var pkField, pkValue = "", interface{}(nil)
 			for k, v := range item {
@@ -2095,12 +2167,11 @@ func (c *Chain) BatchDelete(batchSize int) (int64, error) {
 			sqlProto := deleteChain.factory.BuildDelete(deleteChain.tableName, deleteChain.conds)
 			result := deleteChain.executeSqlProto(sqlProto)
 
-			affected, err := result.RowsAffected()
-			if err != nil {
-				return &define.Result{Error: err}
+			if result.Error != nil {
+				return result
 			}
 
-			progress.increment(affected)
+			progress.increment(result.Affected)
 		}
 
 		if err := tx.Commit(); err != nil {
@@ -2120,6 +2191,18 @@ func (c *Chain) BatchDelete(batchSize int) (int64, error) {
 	)
 
 	if result.Error != nil {
+		// 区分上下文取消和其他错误
+		if errors.Is(result.Error, context.Canceled) {
+			return 0, &DBError{
+				Op:  "BatchDelete",
+				Err: fmt.Errorf("operation was canceled: %w", context.Canceled),
+			}
+		} else if errors.Is(result.Error, context.DeadlineExceeded) {
+			return 0, &DBError{
+				Op:  "BatchDelete",
+				Err: fmt.Errorf("operation timed out: %w", context.DeadlineExceeded),
+			}
+		}
 		return 0, &DBError{
 			Op:  "BatchDelete",
 			Err: result.Error,
@@ -3140,8 +3223,17 @@ func (c *Chain) convertBoolValues(fields map[string]interface{}) {
 	}
 }
 func (c *Chain) WithContext(ctx context.Context) *Chain {
-	c.ctx = ctx // 设置新上下文
-	return c    // 返回新对象保持链式调用
+	// 创建一个新的Chain对象，而不是修改当前对象
+	// 这样可以避免在共享Chain对象时出现上下文混淆的问题
+	newChain := c.clone()
+	newChain.ctx = ctx
+
+	// 确保传递的上下文不为nil
+	if ctx == nil {
+		newChain.ctx = context.Background()
+	}
+
+	return newChain
 }
 
 func (c *Chain) setModelID(model interface{}, fieldName string, id int64) {
@@ -3214,6 +3306,18 @@ func (c *Chain) InnerJoin(joinExpr string) *Chain {
 			joinExpr = "INNER JOIN " + joinExpr
 		}
 		c.fieldList = append(c.fieldList, joinExpr)
+	}
+	return c
+}
+
+// SetContext 设置当前链对象的上下文
+// 注意: 这将修改当前对象，而不是创建新对象
+func (c *Chain) SetContext(ctx context.Context) *Chain {
+	// 直接修改当前对象的上下文
+	if ctx == nil {
+		c.ctx = context.Background()
+	} else {
+		c.ctx = ctx
 	}
 	return c
 }
