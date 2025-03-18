@@ -1750,10 +1750,8 @@ func (c *Chain) BatchInsert(batchSize int, enableConcurrent bool) (int64, error)
 				Err: fmt.Errorf("operation was canceled: %w", context.Canceled),
 			}
 		} else if errors.Is(result.Error, context.DeadlineExceeded) {
-			return 0, &define.DBError{
-				Op:  "BatchInsert",
-				Err: fmt.Errorf("operation timed out: %w", context.DeadlineExceeded),
-			}
+			// 直接返回 DeadlineExceeded 错误，不包装，以便于 errors.Is() 匹配
+			return 0, context.DeadlineExceeded
 		}
 		return 0, &define.DBError{
 			Op:  "BatchInsert",
