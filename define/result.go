@@ -45,13 +45,61 @@ func (r *Result) Size() int {
 	return len(r.Data)
 }
 
+// isNullSqlType 判断值是否为sql.Null*类型，并返回Valid值
+func isNullSqlType(value interface{}) (bool, bool) {
+	if value == nil {
+		return false, false
+	}
+
+	v := reflect.ValueOf(value)
+	if validField := v.FieldByName("Valid"); validField.IsValid() && validField.Kind() == reflect.Bool {
+		return validField.Bool(), true
+	}
+
+	return false, false
+}
+
 // convertFieldValue converts a database value to the appropriate Go type
 func convertFieldValue(value interface{}, fieldValue reflect.Value) error {
-	if value == nil {
-		// 对于nil值，如果是string类型，设置为空字符串
-		if fieldValue.Kind() == reflect.String {
-			fieldValue.SetString("")
+	// 检查是否为NULL的sql.Null*类型，并且目标是指针类型
+	if fieldValue.Kind() == reflect.Ptr {
+		// 检查value是否为sql.Null*类型
+		if nullValue, ok := value.(interface{ Valid() bool }); ok {
+			// 这是自定义的Valid接口
+			if !nullValue.Valid() {
+				// 如果不是有效值，直接设置为nil
+				fieldValue.Set(reflect.Zero(fieldValue.Type()))
+				return nil
+			}
+		} else if nullValue, ok := isNullSqlType(value); ok && !nullValue {
+			// 这是sql.Null*类型，并且Valid=false
+			// 设置为nil
+			fieldValue.Set(reflect.Zero(fieldValue.Type()))
 			return nil
+		}
+	}
+
+	if value == nil {
+		// 对于nil值，根据字段类型设置适当的零值
+		switch fieldValue.Kind() {
+		case reflect.String:
+			fieldValue.SetString("")
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			fieldValue.SetInt(0)
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			fieldValue.SetUint(0)
+		case reflect.Float32, reflect.Float64:
+			fieldValue.SetFloat(0)
+		case reflect.Bool:
+			fieldValue.SetBool(false)
+		case reflect.Struct:
+			// 对于time.Time类型，设置零值
+			if fieldValue.Type() == reflect.TypeOf(time.Time{}) {
+				fieldValue.Set(reflect.ValueOf(time.Time{}))
+			}
+		case reflect.Ptr:
+			// 如果是指针类型，设置为nil
+			fieldValue.Set(reflect.Zero(fieldValue.Type()))
 		}
 		return nil
 	}
@@ -442,6 +490,28 @@ func ConvertRowToStruct(data map[string]interface{}, structValue reflect.Value) 
 			fieldValue := structValue.FieldByName(field.Name)
 			if !fieldValue.CanSet() {
 				continue
+			}
+
+			// 处理指针类型的NULL值特殊情况
+			if fieldValue.Kind() == reflect.Ptr && value == nil {
+				// 对于NULL值和指针类型，直接设置为nil而不是创建零值的指针
+				fieldValue.Set(reflect.Zero(fieldValue.Type()))
+				continue
+			}
+
+			// 处理sql.Null*类型的NULL值特殊情况
+			if value != nil {
+				valueType := reflect.TypeOf(value)
+				if valueType.Implements(reflect.TypeOf((*sql.Scanner)(nil)).Elem()) {
+					valueValue := reflect.ValueOf(value)
+					if validField := valueValue.FieldByName("Valid"); validField.IsValid() && !validField.Bool() {
+						// 这是SQL NULL值，如果目标是指针类型，设置为nil
+						if fieldValue.Kind() == reflect.Ptr {
+							fieldValue.Set(reflect.Zero(fieldValue.Type()))
+							continue
+						}
+					}
+				}
 			}
 
 			if err := convertFieldValue(value, fieldValue); err != nil {
