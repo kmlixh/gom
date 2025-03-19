@@ -211,6 +211,43 @@ func convertFieldValue(value interface{}, fieldValue reflect.Value) error {
 		}
 		return fmt.Errorf("cannot convert time to %v", fieldValue.Type())
 
+	case *NullRawBytes:
+		if v == nil || !v.Valid {
+			return nil
+		}
+		str := string(v.RawBytes)
+		switch fieldValue.Kind() {
+		case reflect.String:
+			fieldValue.SetString(str)
+			return nil
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			if i, err := strconv.ParseInt(str, 10, 64); err == nil && !fieldValue.OverflowInt(i) {
+				fieldValue.SetInt(i)
+				return nil
+			}
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			if i, err := strconv.ParseUint(str, 10, 64); err == nil && !fieldValue.OverflowUint(i) {
+				fieldValue.SetUint(i)
+				return nil
+			}
+		case reflect.Float32, reflect.Float64:
+			if f, err := strconv.ParseFloat(str, 64); err == nil && !fieldValue.OverflowFloat(f) {
+				fieldValue.SetFloat(f)
+				return nil
+			}
+		case reflect.Bool:
+			if b, err := strconv.ParseBool(str); err == nil {
+				fieldValue.SetBool(b)
+				return nil
+			}
+		case reflect.Slice:
+			if fieldValue.Type().Elem().Kind() == reflect.Uint8 {
+				fieldValue.SetBytes(v.RawBytes)
+				return nil
+			}
+		}
+		return fmt.Errorf("cannot convert []byte to %v", fieldValue.Type())
+
 	case *sql.RawBytes:
 		if v == nil {
 			return nil
@@ -303,39 +340,37 @@ func (r *Result) Scan(rows *sql.Rows) error {
 		}
 		switch scanType {
 		case reflect.TypeOf(time.Time{}):
-			values[i] = new(*time.Time)
+			values[i] = new(sql.NullTime)
 		case reflect.TypeOf([]byte{}):
-			values[i] = new([]byte)
+			values[i] = new(NullRawBytes)
 		case reflect.TypeOf(false):
-			values[i] = new(bool)
+			values[i] = new(sql.NullBool)
 		case reflect.TypeOf(float64(0)):
-			values[i] = new(float64)
+			values[i] = new(sql.NullFloat64)
 		case reflect.TypeOf(int64(0)):
-			values[i] = new(int64)
+			values[i] = new(sql.NullInt64)
 		case reflect.TypeOf(int32(0)):
-			values[i] = new(int32)
+			values[i] = new(sql.NullInt32)
 		case reflect.TypeOf(int16(0)):
-			values[i] = new(int16)
+			values[i] = new(sql.NullInt16)
 		case reflect.TypeOf(int8(0)):
-			values[i] = new(int8)
+			values[i] = new(sql.NullInt16)
 		case reflect.TypeOf(uint(0)):
-			values[i] = new(uint)
+			values[i] = new(sql.NullInt64)
 		case reflect.TypeOf(uint64(0)):
-			values[i] = new(uint64)
+			values[i] = new(sql.NullInt64)
 		case reflect.TypeOf(uint32(0)):
-			values[i] = new(uint32)
+			values[i] = new(sql.NullInt64)
 		case reflect.TypeOf(uint16(0)):
-			values[i] = new(uint16)
+			values[i] = new(sql.NullInt64)
 		case reflect.TypeOf(uint8(0)):
-			values[i] = new(uint8)
+			values[i] = new(sql.NullInt16)
 		case reflect.TypeOf(byte(0)):
-			values[i] = new(byte)
-		case reflect.TypeOf([]byte{}):
-			values[i] = new([]byte)
+			values[i] = new(sql.NullInt16)
 		case reflect.TypeOf(""):
-			values[i] = new(string)
+			values[i] = new(sql.NullString)
 		default:
-			// 使用驱动推荐的默认类型
+			// 使用驱动推荐的默认类型，但包装为对应的Nullable类型
 			values[i] = reflect.New(scanType).Interface()
 		}
 	}
@@ -352,35 +387,66 @@ func (r *Result) Scan(rows *sql.Rows) error {
 		for i, ct := range colTypes {
 			val := reflect.ValueOf(values[i]).Elem().Interface()
 
-			// 处理指针和NULL值
-			if val == nil {
-				rowData[ct.Name()] = nil
-				continue
-			}
-
-			// 类型安全转换
+			// 将扫描的值转换为实际类型后放入结果集，而不是保留sql.Null*类型
 			switch v := val.(type) {
-			case *time.Time:
-				if v != nil {
-					rowData[ct.Name()] = *v
+			case sql.NullString:
+				if v.Valid {
+					rowData[ct.Name()] = v.String
 				} else {
 					rowData[ct.Name()] = nil
 				}
-			case []byte:
-				// 尝试解析特殊类型
-				if dbType := ct.DatabaseTypeName(); dbType != "" {
-					switch dbType {
-					case "JSON", "JSONB":
+			case sql.NullInt64:
+				if v.Valid {
+					rowData[ct.Name()] = v.Int64
+				} else {
+					rowData[ct.Name()] = nil
+				}
+			case sql.NullFloat64:
+				if v.Valid {
+					rowData[ct.Name()] = v.Float64
+				} else {
+					rowData[ct.Name()] = nil
+				}
+			case sql.NullBool:
+				if v.Valid {
+					rowData[ct.Name()] = v.Bool
+				} else {
+					rowData[ct.Name()] = nil
+				}
+			case sql.NullTime:
+				if v.Valid {
+					rowData[ct.Name()] = v.Time
+				} else {
+					rowData[ct.Name()] = nil
+				}
+			case sql.NullInt32:
+				if v.Valid {
+					rowData[ct.Name()] = v.Int32
+				} else {
+					rowData[ct.Name()] = nil
+				}
+			case sql.NullInt16:
+				if v.Valid {
+					rowData[ct.Name()] = v.Int16
+				} else {
+					rowData[ct.Name()] = nil
+				}
+			case NullRawBytes:
+				if v.Valid {
+					rowData[ct.Name()] = v.RawBytes
+
+					// 特殊处理JSON类型字段
+					if dbType := ct.DatabaseTypeName(); dbType == "JSON" || dbType == "JSONB" {
 						var jsonData interface{}
-						if err := json.Unmarshal(v, &jsonData); err == nil {
+						if err := json.Unmarshal(v.RawBytes, &jsonData); err == nil {
 							rowData[ct.Name()] = jsonData
-							continue
 						}
 					}
+				} else {
+					rowData[ct.Name()] = nil
 				}
-				rowData[ct.Name()] = string(v)
 			default:
-				rowData[ct.Name()] = v
+				rowData[ct.Name()] = val
 			}
 		}
 		resultSet = append(resultSet, rowData)
@@ -942,4 +1008,53 @@ func convertToTime(value interface{}) (time.Time, error) {
 	default:
 		return time.Time{}, fmt.Errorf("cannot convert %T to time.Time", v)
 	}
+}
+
+// NullRawBytes represents a sql.RawBytes that may be null.
+// NullRawBytes implements the Scanner interface so
+// it can be used as a scan destination like sql.NullString.
+type NullRawBytes struct {
+	RawBytes []byte
+	Valid    bool // Valid is true if RawBytes is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (n *NullRawBytes) Scan(value interface{}) error {
+	if value == nil {
+		n.RawBytes, n.Valid = nil, false
+		return nil
+	}
+
+	switch v := value.(type) {
+	case []byte:
+		n.RawBytes = make([]byte, len(v))
+		copy(n.RawBytes, v)
+		n.Valid = true
+	case string:
+		n.RawBytes = []byte(v)
+		n.Valid = true
+	case *sql.RawBytes:
+		if v == nil {
+			n.RawBytes, n.Valid = nil, false
+		} else {
+			n.RawBytes = make([]byte, len(*v))
+			copy(n.RawBytes, *v)
+			n.Valid = true
+		}
+	case sql.RawBytes:
+		n.RawBytes = make([]byte, len(v))
+		copy(n.RawBytes, v)
+		n.Valid = true
+	default:
+		return fmt.Errorf("cannot scan type %T into NullRawBytes", value)
+	}
+	return nil
+}
+
+// Value implements the driver.Valuer interface.
+func (n NullRawBytes) Value() (interface{}, error) {
+	if !n.Valid {
+		return nil, nil
+	}
+	return n.RawBytes, nil
 }
