@@ -4,6 +4,11 @@ GOM 是一个功能强大的 Go 语言 ORM 框架，提供了灵活的数据库�
 
 ## 发行注记
 
+### v4.6.4 (2025-03-25)
+- 修复 NULL 值处理机制，确保字符串类型字段能正确处理 NULL 值
+- 完善 Join 相关方法的实现和测试
+- 优化错误处理和上下文传递机制
+
 ### v4.6.3 (2025-03-18)
 - 修复 BatchInsert 在上下文超时时的错误处理机制
 - 添加 Join(), LeftJoin(), RightJoin(), InnerJoin() 方法支持表连接查询
@@ -32,6 +37,77 @@ GOM 是一个功能强大的 Go 语言 ORM 框架，提供了灵活的数据库�
 - 自定义类型支持
 - 完整的事务支持
 - 详细的错误处理和日志记录
+
+## NULL 值处理
+
+GOM 提供了多种处理数据库 NULL 值的方式：
+
+### 方法 1：使用指针类型
+
+将可能为 NULL 的字段定义为指针类型：
+
+```go
+type User struct {
+    ID       int64   `gom:"id"`
+    Name     string  `gom:"name"`      // 非空字段
+    ParentID *string `gom:"parent_id"` // 可能为 NULL 的字段
+    Age      *int    `gom:"age"`       // 可能为 NULL 的字段
+    Score    *float64 `gom:"score"`    // 可能为 NULL 的字段
+}
+```
+
+使用指针类型时，NULL 值将被映射为 `nil`：
+
+```go
+if user.ParentID == nil {
+    // 字段为 NULL
+} else {
+    parentID := *user.ParentID
+    // 使用 parentID
+}
+```
+
+### 方法 2：使用 sql.Null* 类型
+
+使用标准库的 Null 类型：
+
+```go
+type User struct {
+    ID       int64           `gom:"id"`
+    Name     string          `gom:"name"`       // 非空字段
+    ParentID sql.NullString  `gom:"parent_id"`  // 可能为 NULL 的字段
+    Age      sql.NullInt64   `gom:"age"`        // 可能为 NULL 的字段
+    Score    sql.NullFloat64 `gom:"score"`      // 可能为 NULL 的字段
+}
+```
+
+使用 sql.Null* 类型时，需要检查 Valid 字段：
+
+```go
+if user.ParentID.Valid {
+    // 字段不为 NULL
+    parentID := user.ParentID.String
+    // 使用 parentID
+} else {
+    // 字段为 NULL
+}
+```
+
+### 方法 3：使用基本类型（适用于简单情况）
+
+对于不关心 NULL 与空值区别的简单情况，可以直接使用基本类型：
+
+```go
+type SimpleUser struct {
+    ID       int64   `gom:"id"`
+    Name     string  `gom:"name"`
+    ParentID string  `gom:"parent_id"` // NULL 会被转为空字符串 ""
+    Age      int     `gom:"age"`       // NULL 会被转为 0
+    Score    float64 `gom:"score"`     // NULL 会被转为 0.0
+}
+```
+
+⚠️ **注意**：这种方法无法区分 NULL 和默认空值（如空字符串或 0），如果需要区分，请使用方法 1 或方法 2。
 
 ## 类型转换系统
 

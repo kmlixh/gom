@@ -48,6 +48,11 @@ func (r *Result) Size() int {
 // convertFieldValue converts a database value to the appropriate Go type
 func convertFieldValue(value interface{}, fieldValue reflect.Value) error {
 	if value == nil {
+		// 对于nil值，如果是string类型，设置为空字符串
+		if fieldValue.Kind() == reflect.String {
+			fieldValue.SetString("")
+			return nil
+		}
 		return nil
 	}
 

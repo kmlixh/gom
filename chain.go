@@ -646,6 +646,13 @@ func extractValue(scanner interface{}, ct *sql.ColumnType) interface{} {
 		// 检查是否为sql.Null*类型
 		if validField := value.FieldByName("Valid"); validField.IsValid() {
 			if !validField.Bool() {
+				// 对于无效(NULL)值，根据列类型返回适当的默认值
+				// 如果是字符串列，返回空字符串而不是nil
+				if ct != nil && (strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "char") ||
+					strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "text") ||
+					strings.ToLower(ct.DatabaseTypeName()) == "varchar") {
+					return ""
+				}
 				return nil
 			}
 			// 返回实际值
@@ -657,6 +664,12 @@ func extractValue(scanner interface{}, ct *sql.ColumnType) interface{} {
 	if value.Type() == reflect.TypeOf([]byte{}) {
 		bytes := value.Bytes()
 		if bytes == nil {
+			// 如果是字符串列，返回空字符串而不是nil
+			if ct != nil && (strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "char") ||
+				strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "text") ||
+				strings.ToLower(ct.DatabaseTypeName()) == "varchar") {
+				return ""
+			}
 			return nil
 		}
 		// 处理JSON类型
