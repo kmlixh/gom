@@ -645,52 +645,9 @@ func extractValue(scanner interface{}, ct *sql.ColumnType) interface{} {
 	if value.Type().Implements(reflect.TypeOf((*sql.Scanner)(nil)).Elem()) {
 		// 检查是否为sql.Null*类型
 		if validField := value.FieldByName("Valid"); validField.IsValid() {
-			if !validField.Bool() {
-				// 对于无效(NULL)值，根据列类型返回适当的默认值
-				if ct != nil {
-					// 处理字符串类型
-					if strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "char") ||
-						strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "text") ||
-						strings.ToLower(ct.DatabaseTypeName()) == "varchar" {
-						return ""
-					}
-
-					// 处理数字类型
-					if strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "int") ||
-						strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "decimal") ||
-						strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "numeric") ||
-						strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "float") ||
-						strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "double") {
-						// 返回相应的零值
-						scanType := ct.ScanType()
-						if scanType != nil {
-							switch scanType.Kind() {
-							case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-								return int64(0)
-							case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-								return uint64(0)
-							case reflect.Float32, reflect.Float64:
-								return float64(0)
-							}
-						}
-					}
-
-					// 处理布尔类型
-					if strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "bool") ||
-						strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "bit") {
-						return false
-					}
-
-					// 处理时间类型
-					if strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "date") ||
-						strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "time") {
-						return time.Time{}
-					}
-				}
-				return nil
-			}
-			// 返回实际值
-			return value.FieldByName("Value").Interface()
+			// 对于直接返回到map的情况，保留sql.Null*类型
+			// 这样用户可以通过Valid字段判断是否为NULL
+			return value.Interface()
 		}
 	}
 
@@ -698,21 +655,6 @@ func extractValue(scanner interface{}, ct *sql.ColumnType) interface{} {
 	if value.Type() == reflect.TypeOf([]byte{}) {
 		bytes := value.Bytes()
 		if bytes == nil {
-			// 对于无效(NULL)值，根据列类型返回适当的默认值
-			if ct != nil {
-				// 处理字符串类型
-				if strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "char") ||
-					strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "text") ||
-					strings.ToLower(ct.DatabaseTypeName()) == "varchar" {
-					return ""
-				}
-
-				// 处理JSON类型
-				if strings.ToLower(ct.DatabaseTypeName()) == "json" ||
-					strings.ToLower(ct.DatabaseTypeName()) == "jsonb" {
-					return make(map[string]interface{})
-				}
-			}
 			return nil
 		}
 		// 处理JSON类型
@@ -3374,4 +3316,99 @@ func (c *Chain) SetContext(ctx context.Context) *Chain {
 		c.ctx = ctx
 	}
 	return c
+}
+
+// convertNullValue converts a sql.Null* type to an appropriate Go value
+// 当设置结构体字段值时使用，与extractValue不同，这个函数会将NULL值转换为对应类型的零值
+func convertNullValue(value interface{}, ct *sql.ColumnType) interface{} {
+	if value == nil {
+		return nil
+	}
+
+	// 检查是否为sql.Null*类型
+	v := reflect.ValueOf(value)
+	if v.Type().Implements(reflect.TypeOf((*sql.Scanner)(nil)).Elem()) {
+		// 检查是否为sql.Null*类型
+		if validField := v.FieldByName("Valid"); validField.IsValid() {
+			if !validField.Bool() {
+				// 对于无效(NULL)值，根据列类型返回适当的默认值
+				if ct != nil {
+					// 处理字符串类型
+					if strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "char") ||
+						strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "text") ||
+						strings.ToLower(ct.DatabaseTypeName()) == "varchar" {
+						return ""
+					}
+
+					// 处理数字类型
+					if strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "int") ||
+						strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "decimal") ||
+						strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "numeric") ||
+						strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "float") ||
+						strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "double") {
+						// 返回相应的零值
+						scanType := ct.ScanType()
+						if scanType != nil {
+							switch scanType.Kind() {
+							case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+								return int64(0)
+							case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+								return uint64(0)
+							case reflect.Float32, reflect.Float64:
+								return float64(0)
+							}
+						}
+					}
+
+					// 处理布尔类型
+					if strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "bool") ||
+						strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "bit") {
+						return false
+					}
+
+					// 处理时间类型
+					if strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "date") ||
+						strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "time") {
+						return time.Time{}
+					}
+				}
+				return nil
+			}
+			// 返回实际值
+			return v.FieldByName("Value").Interface()
+		}
+	}
+
+	// 处理[]byte类型
+	if v.Type() == reflect.TypeOf([]byte{}) {
+		bytes := v.Bytes()
+		if bytes == nil {
+			// 对于无效(NULL)值，根据列类型返回适当的默认值
+			if ct != nil {
+				// 处理字符串类型
+				if strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "char") ||
+					strings.Contains(strings.ToLower(ct.DatabaseTypeName()), "text") ||
+					strings.ToLower(ct.DatabaseTypeName()) == "varchar" {
+					return ""
+				}
+
+				// 处理JSON类型
+				if strings.ToLower(ct.DatabaseTypeName()) == "json" ||
+					strings.ToLower(ct.DatabaseTypeName()) == "jsonb" {
+					return make(map[string]interface{})
+				}
+			}
+			return nil
+		}
+		// 处理JSON类型
+		if strings.ToLower(ct.DatabaseTypeName()) == "json" || strings.ToLower(ct.DatabaseTypeName()) == "jsonb" {
+			var js interface{}
+			if err := json.Unmarshal(bytes, &js); err == nil {
+				return js
+			}
+		}
+		return string(bytes)
+	}
+
+	return value
 }

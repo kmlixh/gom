@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"strconv"
 	"strings"
@@ -52,6 +53,12 @@ func isNullSqlType(value interface{}) (bool, bool) {
 	}
 
 	v := reflect.ValueOf(value)
+
+	// 首先检查值是否为结构体类型
+	if v.Kind() != reflect.Struct {
+		return false, false
+	}
+
 	if validField := v.FieldByName("Valid"); validField.IsValid() && validField.Kind() == reflect.Bool {
 		return validField.Bool(), true
 	}
@@ -493,30 +500,222 @@ func ConvertRowToStruct(data map[string]interface{}, structValue reflect.Value) 
 			}
 
 			// 处理指针类型的NULL值特殊情况
-			if fieldValue.Kind() == reflect.Ptr && value == nil {
-				// 对于NULL值和指针类型，直接设置为nil而不是创建零值的指针
+			if fieldValue.Kind() == reflect.Ptr && isNullValue(value) {
+				// 对于NULL值和指针类型，直接设置为nil
 				fieldValue.Set(reflect.Zero(fieldValue.Type()))
 				continue
 			}
 
-			// 处理sql.Null*类型的NULL值特殊情况
-			if value != nil {
-				valueType := reflect.TypeOf(value)
-				if valueType.Implements(reflect.TypeOf((*sql.Scanner)(nil)).Elem()) {
-					valueValue := reflect.ValueOf(value)
-					if validField := valueValue.FieldByName("Valid"); validField.IsValid() && !validField.Bool() {
-						// 这是SQL NULL值，如果目标是指针类型，设置为nil
-						if fieldValue.Kind() == reflect.Ptr {
-							fieldValue.Set(reflect.Zero(fieldValue.Type()))
+			// 检查目标字段是否为sql.Null*类型
+			isSqlNullField := false
+			if fieldValue.Kind() == reflect.Struct {
+				fieldType := fieldValue.Type()
+				validField, exists := fieldType.FieldByName("Valid")
+				isSqlNullField = exists && validField.Type.Kind() == reflect.Bool
+			}
+
+			if isSqlNullField {
+				// 如果目标字段是sql.Null*类型，需要特殊处理
+				// 根据value的类型和是否为NULL设置Valid字段
+				validField := fieldValue.FieldByName("Valid")
+
+				// 如果源值为nil或者是sql.Null*类型且Valid为false，则设置Valid为false
+				if isNullValue(value) || (isSqlNullType(value) && !getSqlNullValidValue(value)) {
+					validField.SetBool(false)
+				} else {
+					validField.SetBool(true)
+
+					// 获取实际值，如果是sql.Null*类型需要提取其中的值
+					var actualValue interface{}
+					if isSqlNullType(value) {
+						actualValue = getSqlNullActualValue(value)
+					} else {
+						actualValue = value
+					}
+
+					// 检查字节数组是否为空
+					if bytes, ok := actualValue.([]byte); ok && len(bytes) == 0 {
+						validField.SetBool(false)
+						continue
+					}
+
+					// 根据字段类型设置对应的值
+					switch fieldValue.Type().String() {
+					case "sql.NullString":
+						strValue, err := convertToString(actualValue)
+						if err == nil && strValue != "" {
+							fieldValue.FieldByName("String").SetString(strValue)
+						} else {
+							validField.SetBool(false)
+						}
+					case "sql.NullInt64":
+						intValue, err := convertToInt64(actualValue)
+						if err == nil {
+							fieldValue.FieldByName("Int64").SetInt(intValue)
+						} else {
+							validField.SetBool(false)
+						}
+					case "sql.NullFloat64":
+						floatValue, err := convertToFloat64(actualValue)
+						if err == nil {
+							fieldValue.FieldByName("Float64").SetFloat(floatValue)
+						} else {
+							validField.SetBool(false)
+						}
+					case "sql.NullBool":
+						boolValue, err := convertToBool(actualValue)
+						if err == nil {
+							fieldValue.FieldByName("Bool").SetBool(boolValue)
+						} else {
+							validField.SetBool(false)
+						}
+					case "sql.NullTime":
+						timeValue, err := convertToTime(actualValue)
+						if err == nil {
+							fieldValue.FieldByName("Time").Set(reflect.ValueOf(timeValue))
+						} else {
+							validField.SetBool(false)
+						}
+					}
+				}
+				continue
+			} else if isSqlNullType(value) {
+				// 处理sql.Null*类型的转换
+				if !getSqlNullValidValue(value) {
+					// 如果是基本类型且值为NULL，则根据类型设置零值
+					switch fieldValue.Kind() {
+					case reflect.String:
+						fieldValue.SetString("")
+						continue
+					case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+						fieldValue.SetInt(0)
+						continue
+					case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+						fieldValue.SetUint(0)
+						continue
+					case reflect.Float32, reflect.Float64:
+						fieldValue.SetFloat(0)
+						continue
+					case reflect.Bool:
+						fieldValue.SetBool(false)
+						continue
+					case reflect.Struct:
+						// 处理time.Time等特殊结构体
+						if fieldValue.Type() == reflect.TypeOf(time.Time{}) {
+							fieldValue.Set(reflect.ValueOf(time.Time{}))
 							continue
 						}
 					}
+				} else {
+					// 值有效，提取实际值
+					value = getSqlNullActualValue(value)
 				}
 			}
 
 			if err := convertFieldValue(value, fieldValue); err != nil {
 				return fmt.Errorf("error converting field %s: %v", field.Name, err)
 			}
+		}
+	}
+
+	return nil
+}
+
+// 辅助函数：检查值是否为NULL或空值
+func isNullValue(value interface{}) bool {
+	if value == nil {
+		return true
+	}
+
+	// 检查空字节数组和空字符串
+	switch v := value.(type) {
+	case []byte:
+		return len(v) == 0
+	case string:
+		return v == ""
+	}
+
+	// 检查sql.Null*类型
+	return isSqlNullType(value) && !getSqlNullValidValue(value)
+}
+
+// 辅助函数：检查是否为sql.Null*类型
+func isSqlNullType(value interface{}) bool {
+	if value == nil {
+		return false
+	}
+
+	v := reflect.ValueOf(value)
+
+	// 只有结构体类型才可能是sql.Null*类型
+	if v.Kind() != reflect.Struct {
+		return false
+	}
+
+	validField := v.FieldByName("Valid")
+	return validField.IsValid() && validField.Kind() == reflect.Bool
+}
+
+// 辅助函数：获取sql.Null*类型的Valid值
+func getSqlNullValidValue(value interface{}) bool {
+	if value == nil {
+		return false
+	}
+
+	v := reflect.ValueOf(value)
+
+	// 只有结构体类型才可能是sql.Null*类型
+	if v.Kind() != reflect.Struct {
+		return true
+	}
+
+	validField := v.FieldByName("Valid")
+	if validField.IsValid() && validField.Kind() == reflect.Bool {
+		return validField.Bool()
+	}
+	return true
+}
+
+// 辅助函数：获取sql.Null*类型的实际值
+func getSqlNullActualValue(value interface{}) interface{} {
+	if value == nil {
+		return nil
+	}
+
+	v := reflect.ValueOf(value)
+
+	// 只有结构体类型才可能是sql.Null*类型
+	if v.Kind() != reflect.Struct {
+		return value
+	}
+
+	validField := v.FieldByName("Valid")
+	if validField.IsValid() && validField.Kind() == reflect.Bool && validField.Bool() {
+		// 根据结构体类型获取对应的值字段
+		var valueField reflect.Value
+		switch value.(type) {
+		case sql.NullString:
+			valueField = v.FieldByName("String")
+		case sql.NullInt64:
+			valueField = v.FieldByName("Int64")
+		case sql.NullFloat64:
+			valueField = v.FieldByName("Float64")
+		case sql.NullBool:
+			valueField = v.FieldByName("Bool")
+		case sql.NullTime:
+			valueField = v.FieldByName("Time")
+		default:
+			// 尝试通用方法获取值字段
+			for _, fieldName := range []string{"String", "Int64", "Float64", "Bool", "Time", "Value"} {
+				valueField = v.FieldByName(fieldName)
+				if valueField.IsValid() {
+					break
+				}
+			}
+		}
+
+		if valueField.IsValid() {
+			return valueField.Interface()
 		}
 	}
 
@@ -597,4 +796,150 @@ func (r *Result) GetRow(index int) (*DataRow, error) {
 // GetFirstRow returns the first DataRow from the result
 func (r *Result) GetFirstRow() (*DataRow, error) {
 	return r.GetRow(0)
+}
+
+// 辅助函数：转换为字符串
+func convertToString(value interface{}) (string, error) {
+	if value == nil {
+		return "", nil
+	}
+
+	switch v := value.(type) {
+	case string:
+		return v, nil
+	case []byte:
+		return string(v), nil
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, bool:
+		return fmt.Sprintf("%v", v), nil
+	case time.Time:
+		return v.Format(time.RFC3339), nil
+	default:
+		return fmt.Sprintf("%v", v), nil
+	}
+}
+
+// 辅助函数：转换为int64
+func convertToInt64(value interface{}) (int64, error) {
+	if value == nil {
+		return 0, nil
+	}
+
+	switch v := value.(type) {
+	case int:
+		return int64(v), nil
+	case int8:
+		return int64(v), nil
+	case int16:
+		return int64(v), nil
+	case int32:
+		return int64(v), nil
+	case int64:
+		return v, nil
+	case uint:
+		return int64(v), nil
+	case uint8:
+		return int64(v), nil
+	case uint16:
+		return int64(v), nil
+	case uint32:
+		return int64(v), nil
+	case uint64:
+		if v <= math.MaxInt64 {
+			return int64(v), nil
+		}
+		return 0, fmt.Errorf("uint64 value %d out of int64 range", v)
+	case float32:
+		return int64(v), nil
+	case float64:
+		return int64(v), nil
+	case string:
+		return strconv.ParseInt(v, 10, 64)
+	case []byte:
+		return strconv.ParseInt(string(v), 10, 64)
+	case bool:
+		if v {
+			return 1, nil
+		}
+		return 0, nil
+	default:
+		return 0, fmt.Errorf("cannot convert %T to int64", v)
+	}
+}
+
+// 辅助函数：转换为float64
+func convertToFloat64(value interface{}) (float64, error) {
+	if value == nil {
+		return 0, nil
+	}
+
+	switch v := value.(type) {
+	case int:
+		return float64(v), nil
+	case int8:
+		return float64(v), nil
+	case int16:
+		return float64(v), nil
+	case int32:
+		return float64(v), nil
+	case int64:
+		return float64(v), nil
+	case uint:
+		return float64(v), nil
+	case uint8:
+		return float64(v), nil
+	case uint16:
+		return float64(v), nil
+	case uint32:
+		return float64(v), nil
+	case uint64:
+		return float64(v), nil
+	case float32:
+		return float64(v), nil
+	case float64:
+		return v, nil
+	case string:
+		return strconv.ParseFloat(v, 64)
+	case []byte:
+		return strconv.ParseFloat(string(v), 64)
+	case bool:
+		if v {
+			return 1, nil
+		}
+		return 0, nil
+	default:
+		return 0, fmt.Errorf("cannot convert %T to float64", v)
+	}
+}
+
+// 辅助函数：转换为time.Time
+func convertToTime(value interface{}) (time.Time, error) {
+	if value == nil {
+		return time.Time{}, nil
+	}
+
+	switch v := value.(type) {
+	case time.Time:
+		return v, nil
+	case string:
+		// 尝试多种格式解析时间
+		formats := []string{
+			time.RFC3339,
+			"2006-01-02 15:04:05",
+			"2006-01-02T15:04:05",
+			"2006-01-02",
+		}
+
+		for _, format := range formats {
+			if t, err := time.Parse(format, v); err == nil {
+				return t, nil
+			}
+		}
+		return time.Time{}, fmt.Errorf("cannot parse time string: %s", v)
+	case []byte:
+		return convertToTime(string(v))
+	case int64:
+		return time.Unix(v, 0), nil
+	default:
+		return time.Time{}, fmt.Errorf("cannot convert %T to time.Time", v)
+	}
 }
