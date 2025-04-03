@@ -110,7 +110,6 @@ func (f *Factory) buildCondition(cond *define.Condition, paramIndex *int) (strin
 					whereConditions = append(whereConditions, subStr)
 				}
 				args = append(args, subArg...)
-				*paramIndex += len(subArg)
 			}
 		}
 		if len(whereConditions) > 0 {
@@ -161,7 +160,7 @@ func (f *Factory) buildSimpleCondition(cond *define.Condition, argCount *int) (s
 		return expr, args
 	}
 
-	field := cond.Field
+	field := f.quoteIdentifier(cond.Field)
 	op := f.getOperator(cond.Op)
 
 	switch cond.Op {
@@ -169,21 +168,25 @@ func (f *Factory) buildSimpleCondition(cond *define.Condition, argCount *int) (s
 		if values, ok := cond.Value.([]interface{}); ok && len(values) > 0 {
 			placeholders := make([]string, len(values))
 			for i := range values {
-				placeholders[i] = fmt.Sprintf("$%d", *argCount)
-				*argCount++
+				placeholders[i] = fmt.Sprintf("$%d", *argCount+i)
 			}
-			return fmt.Sprintf("%s %v (%s)", field, op, strings.Join(placeholders, ", ")), values
+			*argCount += len(values)
+			return fmt.Sprintf("%s %s (%s)", field, op, strings.Join(placeholders, ", ")), values
 		}
 		return "", nil
 	case define.OpIsNull, define.OpIsNotNull:
-		return fmt.Sprintf("%s %v", field, op), nil
+		return fmt.Sprintf("%s %s", field, op), nil
 	case define.OpBetween, define.OpNotBetween:
 		if values, ok := cond.Value.([]interface{}); ok && len(values) == 2 {
-			return fmt.Sprintf("%s %v $%d AND $%d", field, op, *argCount, *argCount+1), values
+			sql := fmt.Sprintf("%s %s $%d AND $%d", field, op, *argCount, *argCount+1)
+			*argCount += 2
+			return sql, values
 		}
 		return "", nil
 	default:
-		return fmt.Sprintf("%s %v $%d", field, op, *argCount), []interface{}{cond.Value}
+		sql := fmt.Sprintf("%s %s $%d", field, op, *argCount)
+		*argCount++
+		return sql, []interface{}{cond.Value}
 	}
 }
 
@@ -254,7 +257,6 @@ func (f *Factory) BuildSelect(table string, fields []string, conditions []*defin
 					whereConditions = append(whereConditions, condStr)
 				}
 				args = append(args, condArgs...)
-				paramIndex += len(condArgs)
 			}
 		}
 		if len(whereConditions) > 0 {
