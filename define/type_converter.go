@@ -38,7 +38,9 @@ func NewTypeConverter() ITypeConverter {
 
 // Convert converts a value to the target type
 func (c *typeConverter) Convert(value interface{}, targetType reflect.Type) (interface{}, error) {
+	// Handle nil value by returning zero value of target type
 	if value == nil {
+		// For basic types and structs, return their zero value
 		return reflect.Zero(targetType).Interface(), nil
 	}
 

@@ -24,7 +24,7 @@ type TestDBConfig struct {
 func DefaultMySQLConfig() TestDBConfig {
 	return TestDBConfig{
 		Driver:   "mysql",
-		Host:     getEnvOrDefault("TEST_MYSQL_HOST", "10.0.1.5"),
+		Host:     getEnvOrDefault("TEST_MYSQL_HOST", "192.168.111.20"),
 		Port:     getEnvIntOrDefault("TEST_MYSQL_PORT", 3306),
 		User:     getEnvOrDefault("TEST_MYSQL_USER", "root"),
 		Password: getEnvOrDefault("TEST_MYSQL_PASSWORD", "123456"),
@@ -36,10 +36,10 @@ func DefaultMySQLConfig() TestDBConfig {
 func DefaultPostgresConfig() TestDBConfig {
 	return TestDBConfig{
 		Driver:   "postgres",
-		Host:     getEnvOrDefault("TEST_POSTGRES_HOST", "10.0.1.5"),
+		Host:     getEnvOrDefault("TEST_POSTGRES_HOST", "192.168.111.20"),
 		Port:     getEnvIntOrDefault("TEST_POSTGRES_PORT", 5432),
 		User:     getEnvOrDefault("TEST_POSTGRES_USER", "postgres"),
-		Password: getEnvOrDefault("TEST_POSTGRES_PASSWORD", "123456"),
+		Password: getEnvOrDefault("TEST_POSTGRES_PASSWORD", "yzy123"),
 		DBName:   getEnvOrDefault("TEST_POSTGRES_DBNAME", "test"),
 	}
 }

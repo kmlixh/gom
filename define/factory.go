@@ -33,35 +33,35 @@ type OrderBy struct {
 
 // TableInfo 表信息
 type TableInfo struct {
-	TableName    string       // 表名
-	TableComment string       // 表注释
-	PrimaryKeys  []string     // 主键列表
-	Columns      []ColumnInfo // 列信息
-	HasDecimal   bool         // 是否包含 Decimal 类型
-	HasUUID      bool         // 是否包含 UUID 类型
-	HasIP        bool         // 是否包含 IP 类型
-	HasTime      bool         // 是否包含时间类型
+	TableName    string       `json:"table_name"`    // 表名
+	TableComment string       `json:"table_comment"` // 表注释
+	PrimaryKeys  []string     `json:"primary_keys"`  // 主键列表
+	Columns      []ColumnInfo `json:"columns"`       // 列信息
+	HasDecimal   bool         `json:"has_decimal"`   // 是否包含 Decimal 类型
+	HasUUID      bool         `json:"has_uuid"`      // 是否包含 UUID 类型
+	HasIP        bool         `json:"has_ip"`        // 是否包含 IP 类型
+	HasTime      bool         `json:"has_time"`      // 是否包含时间类型
 }
 
 // ColumnInfo 列信息
 type ColumnInfo struct {
-	Name            string // 列名
-	TypeName        string // 数据库类型名称
-	DataType        string // 标准SQL数据类型
-	Length          int64  // 长度
-	Precision       int    // 精度
-	Scale           int    // 小数位数
-	IsNullable      bool   // 是否可空
-	IsPrimaryKey    bool   // 是否主键
-	IsAutoIncrement bool   // 是否自增
-	DefaultValue    string // 默认值
-	Comment         string // 注释
+	Name            string `json:"name"`              // 列名
+	TypeName        string `json:"type_name"`         // 数据库类型名称
+	DataType        string `json:"data_type"`         // 标准SQL数据类型
+	Length          int64  `json:"length"`            // 长度
+	Precision       int    `json:"precision"`         // 精度
+	Scale           int    `json:"scale"`             // 小数位数
+	IsNullable      bool   `json:"is_nullable"`       // 是否可空
+	IsPrimaryKey    bool   `json:"is_primary_key"`    // 是否主键
+	IsAutoIncrement bool   `json:"is_auto_increment"` // 是否自增
+	DefaultValue    string `json:"default_value"`     // 默认值
+	Comment         string `json:"comment"`           // 注释
 }
 
 type TableStruct struct {
-	TableInfo
-	FieldToColMap map[string]string
-	ColToFieldMap map[string]string
+	TableInfo     TableInfo         `json:"table_info"`
+	FieldToColMap map[string]string `json:"field_to_col_map"`
+	ColToFieldMap map[string]string `json:"col_to_field_map"`
 }
 
 type ExecuteType string
