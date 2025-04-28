@@ -720,7 +720,16 @@ func (f *Factory) GetTableInfo(db *sql.DB, tableName string) (*define.TableInfo,
 
 		col.IsNullable = !notNull
 		col.IsPrimaryKey = isPrimary
-		col.IsAutoIncrement = identity.Valid && (identity.String == "a" || identity.String == "d")
+
+		// 修复自增主键识别
+		// PostgreSQL中自增列可以通过以下方式识别：
+		// 1. IDENTITY 列 (identity值为'a'或'd')
+		// 2. 默认值包含 nextval 函数调用
+		// 3. 数据类型为 serial, bigserial, smallserial
+		col.IsAutoIncrement = (identity.Valid && (identity.String == "a" || identity.String == "d")) ||
+			(defaultValue.Valid && strings.Contains(defaultValue.String, "nextval(")) ||
+			strings.HasSuffix(col.TypeName, "serial")
+
 		if defaultValue.Valid {
 			col.DefaultValue = defaultValue.String
 		}
