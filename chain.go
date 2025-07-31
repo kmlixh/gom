@@ -3072,8 +3072,27 @@ func (c *Chain) executeUpdate() *define.Result {
 // Update updates records based on the current conditions
 func (c *Chain) Update(models ...interface{}) *define.Result {
 	if len(models) > 0 {
+		model := models[0]
+
+		// 自动识别主键并设置WHERE条件
+		transfer := define.GetTransfer(model)
+		if transfer != nil && transfer.PrimaryKey != nil {
+			modelValue := reflect.ValueOf(model)
+			if modelValue.Kind() == reflect.Ptr {
+				modelValue = modelValue.Elem()
+			}
+
+			// 获取主键值
+			pkField := modelValue.FieldByName(transfer.PrimaryKey.Name)
+			if pkField.IsValid() && !pkField.IsZero() {
+				pkValue := pkField.Interface()
+				// 自动设置主键WHERE条件
+				c.Where(transfer.PrimaryKey.Column, define.OpEq, pkValue)
+			}
+		}
+
 		// If model is provided, use it to set fields
-		return c.From(models[0]).executeUpdate()
+		return c.From(model).executeUpdate()
 	}
 	return c.executeUpdate()
 }

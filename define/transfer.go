@@ -166,12 +166,20 @@ func (t *Transfer) ToMap(model interface{}, isUpdate ...bool) map[string]interfa
 		modelValue = modelValue.Elem()
 	}
 
+	modelType := modelValue.Type()
 	result := make(map[string]interface{})
 	forUpdate := len(isUpdate) > 0 && isUpdate[0]
 
 	for _, columnName := range t.FieldOrder {
 		fieldInfo := t.Fields[columnName]
 		if fieldInfo == nil {
+			continue
+		}
+
+		// 再次检查字段是否应该被忽略（修复gom:"-"问题）
+		field := modelType.Field(fieldInfo.Index)
+		tag := field.Tag.Get("gom")
+		if tag == "-" {
 			continue
 		}
 
