@@ -2752,6 +2752,116 @@ func (c *Chain) GetTransactionLevel() int {
 	return c.txStack.level
 }
 
+// BatchInsert2 performs batch insert operation with a slice of struct models
+func (c *Chain) BatchInsert2(models []interface{}, batchSize int, enableConcurrent bool) (int64, error) {
+	// 参数校验
+	if len(models) == 0 {
+		return 0, &define.DBError{
+			Op:  "BatchInsert2",
+			Err: errors.New("no models to insert"),
+		}
+	}
+
+	if batchSize <= 0 {
+		return 0, &define.DBError{
+			Op:  "BatchInsert2",
+			Err: fmt.Errorf("invalid batch size: %d (must be > 0)", batchSize),
+		}
+	}
+
+	// 获取第一个元素的表名（如果表名未设置）
+	if c.tableName == "" {
+		// 从第一个模型中获取表名
+		firstModel := models[0]
+		if tabler, ok := firstModel.(interface{ TableName() string }); ok {
+			c.tableName = tabler.TableName()
+		} else {
+			// 尝试使用反射获取表名
+			transfer := define.GetTransfer(firstModel)
+			if transfer != nil {
+				c.tableName = transfer.GetTableName()
+			} else {
+				return 0, &define.DBError{
+					Op:  "BatchInsert2",
+					Err: errors.New("could not determine table name from model"),
+				}
+			}
+		}
+	}
+
+	// 将结构体数组转换为map数组
+	batchValues := make([]map[string]interface{}, 0, len(models))
+	for _, model := range models {
+		transfer := define.GetTransfer(model)
+		if transfer == nil {
+			return 0, &define.DBError{
+				Op:  "BatchInsert2",
+				Err: fmt.Errorf("failed to get transfer for model type %T", model),
+			}
+		}
+
+		// 转换单个模型
+		fields := transfer.ToMap(model)
+		if len(fields) == 0 {
+			return 0, &define.DBError{
+				Op:  "BatchInsert2",
+				Err: fmt.Errorf("no fields extracted from model %T", model),
+			}
+		}
+
+		batchValues = append(batchValues, fields)
+	}
+
+	// 设置批量值并调用现有的批量插入方法
+	return c.BatchValues(batchValues).BatchInsert(batchSize, enableConcurrent)
+}
+
+// BatchInsertModels 是 BatchInsert2 的简化版本，更易于使用
+// 示例: db.Chain().BatchInsertModels(users, 1000, true)
+func (c *Chain) BatchInsertModels(models interface{}, batchSize int, enableConcurrent bool) (int64, error) {
+	// 获取传入的结构体切片的反射值
+	value := reflect.ValueOf(models)
+
+	// 验证是否为切片类型
+	if value.Kind() != reflect.Slice {
+		return 0, &define.DBError{
+			Op:  "BatchInsertModels",
+			Err: fmt.Errorf("expected slice of models, got %T", models),
+		}
+	}
+
+	// 如果切片为空，直接返回
+	if value.Len() == 0 {
+		return 0, &define.DBError{
+			Op:  "BatchInsertModels",
+			Err: errors.New("no models to insert"),
+		}
+	}
+
+	// 检查切片元素是否为结构体或结构体指针
+	elemType := value.Type().Elem()
+	isPtr := elemType.Kind() == reflect.Ptr
+	if isPtr {
+		elemType = elemType.Elem()
+	}
+
+	if elemType.Kind() != reflect.Struct {
+		return 0, &define.DBError{
+			Op:  "BatchInsertModels",
+			Err: fmt.Errorf("expected slice of structs or struct pointers, got slice of %s", elemType.Kind()),
+		}
+	}
+
+	// 将类型化切片转换为interface{}切片
+	interfaceSlice := make([]interface{}, value.Len())
+	for i := 0; i < value.Len(); i++ {
+		interfaceSlice[i] = value.Index(i).Interface()
+	}
+
+	// 调用BatchInsert2执行批量插入
+	return c.BatchInsert2(interfaceSlice, batchSize, enableConcurrent)
+}
+
 // And adds a condition with AND join
 func (c *Chain) And(field string, op define.OpType, value interface{}) *Chain {
 	cond := &define.Condition{
