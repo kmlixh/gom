@@ -2843,6 +2843,81 @@ func (c *Chain) Exec() *define.Result {
 	}
 }
 
+// Query 执行原始 SQL 查询并返回结果集
+func (c *Chain) Query() *define.Result {
+	if c.rawSQL == "" {
+		return &define.Result{Error: errors.New("raw SQL is empty")}
+	}
+
+	// 执行查询
+	var rows *sql.Rows
+	var err error
+	if c.tx != nil {
+		if c.ctx == nil {
+			rows, err = c.tx.Query(c.rawSQL, c.args...)
+		} else {
+			rows, err = c.tx.QueryContext(c.ctx, c.rawSQL, c.args...)
+		}
+	} else {
+		if c.ctx == nil {
+			rows, err = c.db.DB.Query(c.rawSQL, c.args...)
+		} else {
+			rows, err = c.db.DB.QueryContext(c.ctx, c.rawSQL, c.args...)
+		}
+	}
+
+	if err != nil {
+		return &define.Result{Error: err}
+	}
+	defer rows.Close()
+
+	// 获取列信息
+	columns, err := rows.Columns()
+	if err != nil {
+		return &define.Result{Error: err}
+	}
+
+	// 处理查询结果
+	var resultSet []map[string]interface{}
+	for rows.Next() {
+		// 创建用于扫描的值切片
+		values := make([]interface{}, len(columns))
+		for i := range values {
+			values[i] = new(interface{})
+		}
+
+		// 扫描当前行到values
+		if err := rows.Scan(values...); err != nil {
+			return &define.Result{Error: err}
+		}
+
+		// 创建结果行的map
+		rowMap := make(map[string]interface{})
+		for i, col := range columns {
+			val := *(values[i].(*interface{}))
+
+			// 特殊处理[]byte类型，转换为字符串
+			if b, ok := val.([]byte); ok {
+				rowMap[col] = string(b)
+			} else {
+				rowMap[col] = val
+			}
+		}
+		resultSet = append(resultSet, rowMap)
+	}
+
+	// 检查是否有迭代错误
+	if err = rows.Err(); err != nil {
+		return &define.Result{Error: err}
+	}
+
+	// 返回结果
+	return &define.Result{
+		Data:    resultSet,
+		Columns: columns,
+	}
+}
+
 // Sets allows batch setting of field values
 func (c *Chain) Sets(fields map[string]interface{}) *Chain {
 	if fields == nil {
