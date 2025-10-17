@@ -3340,7 +3340,21 @@ func (c *Chain) WithContext(ctx context.Context) *Chain {
 func (c *Chain) setModelID(model interface{}, fieldName string, id int64) {
 	if modelValue := reflect.ValueOf(model); modelValue.Kind() == reflect.Ptr {
 		if idField := modelValue.Elem().FieldByName(fieldName); idField.IsValid() && idField.CanSet() {
-			idField.SetInt(id)
+			// 根据字段类型设置相应的值
+			switch idField.Kind() {
+			case reflect.String:
+				// 对于字符串类型的主键，将 int64 转换为字符串
+				idField.SetString(strconv.FormatInt(id, 10))
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				// 对于整数类型的主键，直接设置
+				idField.SetInt(id)
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+				// 对于无符号整数类型的主键，转换为无符号整数
+				idField.SetUint(uint64(id))
+			default:
+				// 对于其他类型，尝试转换为字符串
+				idField.SetString(strconv.FormatInt(id, 10))
+			}
 		}
 	}
 }
