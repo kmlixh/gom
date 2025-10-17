@@ -212,7 +212,10 @@ func (t *Transfer) ToMap(model interface{}, isUpdate ...bool) map[string]interfa
 				}
 			} else if !fieldValue.IsZero() {
 				// Include auto-increment field if it has a non-zero value
-				result[columnName] = fieldValue.Int()
+				// 根据字段类型获取值，而不是总是调用 Int()
+				if value := t.convertFieldToDBValue(fieldValue); value != nil {
+					result[columnName] = value
+				}
 			}
 		}
 	}
