@@ -741,7 +741,12 @@ func (c *Chain) executeInsert() *define.Result {
 	// 生成 SQL 和参数
 	sqlProto := c.factory.BuildInsert(c.tableName, c.fieldMap, c.fieldOrder)
 
-	return c.executeSqlProto(sqlProto)
+	result := c.executeSqlProto(sqlProto)
+
+	// 清理临时数据
+	c.clearTemporaryData()
+
+	return result
 }
 
 // deleteSingleModel deletes a single model without transaction
@@ -3157,7 +3162,12 @@ func (c *Chain) executeUpdate() *define.Result {
 
 	// 生成 SQL 和参数
 	sqlProto := c.factory.BuildUpdate(c.tableName, c.fieldMap, c.fieldOrder, c.conds)
-	return c.executeSqlProto(sqlProto)
+	result := c.executeSqlProto(sqlProto)
+
+	// 清理临时数据
+	c.clearTemporaryData()
+
+	return result
 }
 
 // Update updates records based on the current conditions
@@ -3333,6 +3343,38 @@ func (c *Chain) setModelID(model interface{}, fieldName string, id int64) {
 			idField.SetInt(id)
 		}
 	}
+}
+
+// clearTemporaryData 清理 Chain 中的临时数据
+func (c *Chain) clearTemporaryData() {
+	// 清理字段映射
+	c.fieldMap = nil
+	c.fieldOrder = nil
+
+	// 清理批量数据
+	c.batchValues = nil
+
+	// 清理查询条件
+	c.conds = nil
+
+	// 清理字段列表
+	c.fieldList = nil
+
+	// 清理排序
+	c.orderByExprs = nil
+
+	// 清理分页
+	c.limitCount = 0
+	c.offsetCount = 0
+
+	// 清理表名（可选，根据需要决定是否清理）
+	// c.tableName = ""
+
+	// 清理模型引用
+	c.model = nil
+
+	// 清理错误状态
+	c.err = nil
 }
 
 // calculateOptimalGoroutines calculates the optimal number of concurrent workers

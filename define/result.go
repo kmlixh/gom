@@ -319,6 +319,69 @@ func convertFieldValue(value interface{}, fieldValue reflect.Value) error {
 	return fmt.Errorf("unsupported type conversion from %T to %v", value, fieldValue.Type())
 }
 
+// createScannerForColumnType 根据列类型创建合适的扫描器
+// 这个函数根据数据库列的类型信息，创建能够安全处理 NULL 值的扫描器
+func createScannerForColumnType(ct *sql.ColumnType) interface{} {
+	scanType := ct.ScanType()
+	if scanType == nil {
+		// 如果无法确定扫描类型，使用 RawBytes 作为安全选择
+		return new(sql.RawBytes)
+	}
+
+	// 根据扫描类型的 Kind 来选择扫描器
+	switch scanType.Kind() {
+	case reflect.String:
+		return new(sql.NullString)
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		// 根据具体类型选择最合适的 Null 类型，避免精度丢失
+		switch scanType {
+		case reflect.TypeOf(int8(0)), reflect.TypeOf(byte(0)):
+			return new(sql.NullInt16) // int8 和 byte 使用 Int16
+		case reflect.TypeOf(int16(0)):
+			return new(sql.NullInt16)
+		case reflect.TypeOf(int32(0)):
+			return new(sql.NullInt32)
+		case reflect.TypeOf(int64(0)):
+			return new(sql.NullInt64)
+		default:
+			return new(sql.NullInt64) // 默认使用 Int64
+		}
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		// 无符号整数类型，使用 Int64 来避免溢出
+		// 注意：这里可能会有精度问题，但对于大多数场景是安全的
+		return new(sql.NullInt64)
+
+	case reflect.Float32, reflect.Float64:
+		return new(sql.NullFloat64)
+
+	case reflect.Bool:
+		return new(sql.NullBool)
+
+	case reflect.Slice:
+		// 检查是否是 []byte 类型
+		if scanType.Elem().Kind() == reflect.Uint8 {
+			return new(sql.RawBytes)
+		}
+		// 其他切片类型使用 RawBytes
+		return new(sql.RawBytes)
+
+	case reflect.Struct:
+		// 检查是否是 time.Time 类型
+		if scanType == reflect.TypeOf(time.Time{}) {
+			return new(sql.NullTime)
+		}
+		// 其他结构体类型使用 RawBytes
+		return new(sql.RawBytes)
+
+	default:
+		// 对于未知类型，使用 RawBytes 作为安全选择
+		// RawBytes 可以处理大多数数据库类型，包括 NULL 值
+		return new(sql.RawBytes)
+	}
+}
+
 // Scan implements the sql.Scanner interface
 func (r *Result) Scan(rows *sql.Rows) error {
 	if rows == nil {
@@ -334,44 +397,9 @@ func (r *Result) Scan(rows *sql.Rows) error {
 	// 根据列类型创建对应扫描值
 	values := make([]interface{}, len(colTypes))
 	for i, ct := range colTypes {
-		scanType := ct.ScanType()
+		values[i] = createScannerForColumnType(ct)
 		if Debug {
-			fmt.Println("scanType:", scanType.Kind())
-		}
-		switch scanType {
-		case reflect.TypeOf(time.Time{}):
-			values[i] = new(sql.NullTime)
-		case reflect.TypeOf([]byte{}):
-			values[i] = new(NullRawBytes)
-		case reflect.TypeOf(false):
-			values[i] = new(sql.NullBool)
-		case reflect.TypeOf(float64(0)):
-			values[i] = new(sql.NullFloat64)
-		case reflect.TypeOf(int64(0)):
-			values[i] = new(sql.NullInt64)
-		case reflect.TypeOf(int32(0)):
-			values[i] = new(sql.NullInt32)
-		case reflect.TypeOf(int16(0)):
-			values[i] = new(sql.NullInt16)
-		case reflect.TypeOf(int8(0)):
-			values[i] = new(sql.NullInt16)
-		case reflect.TypeOf(uint(0)):
-			values[i] = new(sql.NullInt64)
-		case reflect.TypeOf(uint64(0)):
-			values[i] = new(sql.NullInt64)
-		case reflect.TypeOf(uint32(0)):
-			values[i] = new(sql.NullInt64)
-		case reflect.TypeOf(uint16(0)):
-			values[i] = new(sql.NullInt64)
-		case reflect.TypeOf(uint8(0)):
-			values[i] = new(sql.NullInt16)
-		case reflect.TypeOf(byte(0)):
-			values[i] = new(sql.NullInt16)
-		case reflect.TypeOf(""):
-			values[i] = new(sql.NullString)
-		default:
-			// 使用驱动推荐的默认类型，但包装为对应的Nullable类型
-			values[i] = reflect.New(scanType).Interface()
+			fmt.Printf("Column %s: scanType=%v, scanner=%T\n", ct.Name(), ct.ScanType(), values[i])
 		}
 	}
 
