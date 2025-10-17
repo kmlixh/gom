@@ -3118,7 +3118,14 @@ func (c *Chain) Insert(model interface{}) *define.Result {
 	c.model = model
 
 	// Perform insert
-	return c.Sets(fields).executeInsert()
+	result := c.Sets(fields).executeInsert()
+
+	// 如果是自增主键，将生成的ID设置回模型
+	if result.Error == nil && transfer.PrimaryKey != nil && transfer.PrimaryKey.IsAuto && result.ID > 0 {
+		c.setModelID(model, transfer.PrimaryKey.Name, result.ID)
+	}
+
+	return result
 }
 
 // SetEncryptionConfig sets the encryption configuration for the chain
