@@ -131,9 +131,13 @@ func GetTransfer(model interface{}) *Transfer {
 		for _, opt := range parts[1:] {
 			opt = strings.TrimSpace(opt)
 			switch opt {
-			case "auto":
+			case "@", "auto":
+				// @ 和 auto 都表示自增主键
+				fieldInfo.IsPrimary = true
 				fieldInfo.IsAuto = true
-			case "@", "pk":
+				transfer.PrimaryKey = fieldInfo
+			case "!", "pk":
+				// ! 和 pk 都表示普通主键（非自增）
 				fieldInfo.IsPrimary = true
 				transfer.PrimaryKey = fieldInfo
 			case "default":

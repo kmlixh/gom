@@ -700,123 +700,22 @@ func (c *Chain) One(dest ...interface{}) *define.Result {
 	return result
 }
 
-// Save saves (inserts or updates) records with the given fields or model
-func (c *Chain) Save(fieldsOrModel ...interface{}) *define.Result {
-	switch {
-	case len(fieldsOrModel) == 0:
-		return c.saveFromFieldMap()
-	case fieldsOrModel[0] == nil:
-		return &define.Result{Error: fmt.Errorf("nil pointer")}
-	default:
-		modelValue := reflect.ValueOf(fieldsOrModel[0])
-		if modelValue.Kind() != reflect.Ptr {
-			return &define.Result{Error: fmt.Errorf("non-pointer")}
-		}
-		if modelValue.IsNil() {
-			return &define.Result{Error: fmt.Errorf("nil pointer")}
-		}
-		return c.saveModel(fieldsOrModel[0])
-	}
-}
+// Save 方法已删除，请使用 Insert 或 Update 方法明确指定操作类型
+// 原 Save 方法通过主键是否为空来判断插入或更新的逻辑不合理，已移除
 
-// 核心保存逻辑
-func (c *Chain) saveModel(model interface{}) *define.Result {
-	transfer, err := c.validateModel(model)
-	if err != nil {
-		return errorResult(err)
-	}
-
-	fields, err := c.prepareModelFields(transfer, model)
-	if err != nil {
-		return errorResult(err)
-	}
-
-	return c.determineModelOperation(transfer, model, fields)
-}
-
-// 模型验证
-func (c *Chain) validateModel(model interface{}) (*define.Transfer, error) {
-	if transfer := define.GetTransfer(model); transfer != nil {
-		if transfer.PrimaryKey == nil {
-			return nil, errors.New("model missing primary key")
-		}
-		c.initTableName(transfer)
-		return transfer, nil
-	}
-	return nil, fmt.Errorf("unsupported model type: %T", model)
-}
-
-// 准备模型字段
-func (c *Chain) prepareModelFields(transfer *define.Transfer, model interface{}) (map[string]interface{}, error) {
-	fields := transfer.ToMap(model)
-	if len(fields) == 0 {
-		return nil, errors.New("no fields to save")
-	}
-
-	c.processEncryption(transfer, fields)
-	c.convertBoolValues(fields)
-	return fields, nil
-}
-
-// 决策操作类型
-func (c *Chain) determineModelOperation(transfer *define.Transfer, model interface{}, fields map[string]interface{}) *define.Result {
-	pk := transfer.PrimaryKey
-	idValue, isAutoInc := c.getPrimaryKeyInfo(model, pk)
-
-	if shouldUpdate(idValue, isAutoInc) {
-		return c.buildUpdateOperation(pk.Column, idValue, fields)
-	}
-	return c.buildInsertOperation(pk, fields, model)
-}
-
-// 获取主键信息
-func (c *Chain) getPrimaryKeyInfo(model interface{}, pk *define.FieldInfo) (interface{}, bool) {
-	modelValue := reflect.ValueOf(model).Elem()
-	idField := modelValue.FieldByName(pk.Name)
-	return idField.Interface(), c.isAutoIncrement(pk)
-}
-
-// 构建更新操作
-func (c *Chain) buildUpdateOperation(column string, idValue interface{}, fields map[string]interface{}) *define.Result {
-	c.Where(column, define.OpEq, idValue)
-	return c.Sets(fields).executeUpdate()
-}
-
-// 构建插入操作
-func (c *Chain) buildInsertOperation(pk *define.FieldInfo, fields map[string]interface{}, model interface{}) *define.Result {
-	if pk.IsAuto {
-		delete(fields, pk.Column)
-	}
-
-	result := c.Sets(fields).executeInsert()
-	if result.Error == nil && pk.IsAuto {
-		c.setModelID(model, pk.Name, result.ID)
-	}
-	return result
-}
-
-// 工具函数
-func (c *Chain) initTableName(transfer *define.Transfer) {
-	if c.tableName == "" {
-		c.tableName = transfer.GetTableName()
-	}
-}
-
-func (c *Chain) isAutoIncrement(pk *define.FieldInfo) bool {
-	return pk.IsAuto
-}
-
-func shouldUpdate(idValue interface{}, isAutoInc bool) bool {
-	return !isZeroValue(idValue) && !isAutoInc
-}
-
-func isZeroValue(value interface{}) bool {
-	return reflect.DeepEqual(value, reflect.Zero(reflect.TypeOf(value)).Interface())
-}
-
-func errorResult(msg interface{}) *define.Result {
-	return &define.Result{Error: fmt.Errorf("%v", msg)}
-}
+// 以下方法已删除，因为 Save 方法已移除
+// - saveModel
+// - validateModel
+// - prepareModelFields
+// - determineModelOperation
+// - getPrimaryKeyInfo
+// - buildUpdateOperation
+// - buildInsertOperation
+// - shouldUpdate
+// - isZeroValue
+// - errorResult
+//
+// 请使用 Insert 或 Update 方法明确指定操作类型
 
 // executeInsert executes an INSERT query
 func (c *Chain) executeInsert() *define.Result {
@@ -3379,23 +3278,8 @@ func (c *Chain) executeSqlProto(sqlProto *define.SqlProto) *define.Result {
 
 }
 
-func (c *Chain) saveFromFieldMap() *define.Result {
-	if len(c.fieldMap) == 0 {
-		return &define.Result{Error: fmt.Errorf("no fields to save")}
-	}
-
-	// Process sensitive fields if any
-	if len(c.sensitiveFields) > 0 {
-		if err := c.processSensitiveData(c.fieldMap); err != nil {
-			return &define.Result{Error: err}
-		}
-	}
-
-	if len(c.conds) > 0 {
-		return c.executeUpdate()
-	}
-	return c.executeInsert()
-}
+// saveFromFieldMap 方法已删除，因为 Save 方法已移除
+// 请使用 Insert 或 Update 方法明确指定操作类型
 
 func (c *Chain) processEncryption(transfer *define.Transfer, fields map[string]interface{}) {
 	if c.encryptionConfig == nil {
