@@ -1,0 +1,59 @@
+package main
+
+import (
+	"fmt"
+	"log"
+
+	"github.com/kmlixh/gom/v4"
+	"github.com/kmlixh/gom/v4/define"
+)
+
+func main() {
+	// 创建一个模拟的数据库连接和工厂
+	db := &gom.DB{}
+	factory := &define.MockSQLFactory{}
+	chain := gom.NewChain(db, factory)
+
+	fmt.Println("测试Raw查询修复...")
+	
+	// 测试Raw().Query()方法 - 应该不会校验tableName
+	fmt.Println("\n1. 测试Raw().Query()方法:")
+	result := chain.Raw("SELECT id, name FROM users WHERE id = ?", 1).Query()
+	if result.Error != nil {
+		fmt.Printf("   错误: %v\n", result.Error)
+	} else {
+		fmt.Printf("   成功，数据: %v\n", result.Data)
+	}
+
+	// 测试RawQuery方法 - 应该不会校验tableName
+	fmt.Println("\n2. 测试RawQuery()方法:")
+	result2 := chain.RawQuery("SELECT id, name FROM users WHERE id = ?", 1)
+	if result2.Error != nil {
+		fmt.Printf("   错误: %v\n", result2.Error)
+	} else {
+		fmt.Printf("   成功，数据: %v\n", result2.Data)
+	}
+
+	// 测试Raw查询通过List()方法 - 现在应该不会校验tableName
+	fmt.Println("\n3. 测试Raw().List()方法:")
+	result3 := chain.Raw("SELECT id, name FROM users WHERE id = ?", 1).List()
+	if result3.Error != nil {
+		fmt.Printf("   错误: %v\n", result3.Error)
+	} else {
+		fmt.Printf("   成功，数据: %v\n", result3.Data)
+	}
+
+	// 测试普通查询 - 应该校验tableName
+	fmt.Println("\n4. 测试普通List()方法 (应该失败):")
+	result4 := chain.List()
+	if result4.Error != nil {
+		fmt.Printf("   错误: %v\n", result4.Error)
+		if result4.Error.Error() == "empty table name" {
+			fmt.Println("   ✓ 正确：普通查询确实校验了tableName")
+		}
+	} else {
+		fmt.Printf("   成功，数据: %v\n", result4.Data)
+	}
+
+	fmt.Println("\n测试完成！")
+}

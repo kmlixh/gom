@@ -608,6 +608,11 @@ func (c *Chain) list() *define.Result {
 		return &define.Result{Error: c.err}
 	}
 
+	// 如果是Raw查询，直接执行，不进行tableName校验
+	if c.rawSQL != "" {
+		return c.Query()
+	}
+
 	sqlProto := c.BuildSelect()
 	if sqlProto.Error != nil {
 		return &define.Result{Error: sqlProto.Error}
@@ -952,24 +957,33 @@ func (c *Chain) RawQuery(sqlStr string, args ...interface{}) *define.Result {
 		return &define.Result{Error: err}
 	}
 
-	var result []map[string]interface{}
+	var result []map[string]any
 	for rows.Next() {
+		// 创建用于扫描的值切片
 		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
 		for i := range values {
-			values[i] = new(interface{})
+			valuePtrs[i] = &values[i]
 		}
 
-		err = rows.Scan(values...)
-		if err != nil {
+		// 扫描当前行到values
+		if err := rows.Scan(valuePtrs...); err != nil {
 			return &define.Result{Error: err}
 		}
 
-		row := make(map[string]interface{})
+		// 创建结果行的map
+		rowMap := make(map[string]any)
 		for i, col := range columns {
-			val := *(values[i].(*interface{}))
-			row[col] = val
+			val := values[i]
+
+			// 特殊处理[]byte类型，转换为字符串
+			if b, ok := val.([]byte); ok {
+				rowMap[col] = string(b)
+			} else {
+				rowMap[col] = val
+			}
 		}
-		result = append(result, row)
+		result = append(result, rowMap)
 	}
 
 	if err = rows.Err(); err != nil {
@@ -3124,7 +3138,6 @@ func (c *Chain) Insert(model interface{}) *define.Result {
 
 	// Perform insert
 	result := c.Sets(fields).executeInsert()
-
 
 	return result
 }
